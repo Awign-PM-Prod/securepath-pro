@@ -20,19 +20,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
+  console.log('AuthProvider render - user:', user?.profile?.role, 'loading:', loading);
 
-    if (error) {
-      console.error('Error fetching user profile:', error);
+  const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user profile:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Exception fetching user profile:', error);
       return null;
     }
-
-    return data;
   };
 
   useEffect(() => {
@@ -42,16 +49,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         
         if (session?.user) {
-          const profile = await fetchUserProfile(session.user.id);
-          if (profile) {
-            setUser({
-              id: session.user.id,
-              email: session.user.email!,
-              profile
-            });
-          } else {
-            setUser(null);
-          }
+          // Defer profile fetching to avoid blocking the auth flow
+          setTimeout(async () => {
+            try {
+              const profile = await fetchUserProfile(session.user.id);
+              if (profile) {
+                setUser({
+                  id: session.user.id,
+                  email: session.user.email!,
+                  profile
+                });
+              } else {
+                console.warn('No profile found for user:', session.user.id);
+                setUser(null);
+              }
+            } catch (error) {
+              console.error('Error fetching profile:', error);
+              setUser(null);
+            }
+          }, 0);
         } else {
           setUser(null);
         }
@@ -70,12 +86,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email: session.user.email!,
               profile
             });
+          } else {
+            console.warn('No profile found for user:', session.user.id);
           }
+          setLoading(false);
+        }).catch(error => {
+          console.error('Error fetching initial profile:', error);
           setLoading(false);
         });
       } else {
         setLoading(false);
       }
+    }).catch(error => {
+      console.error('Error getting session:', error);
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
