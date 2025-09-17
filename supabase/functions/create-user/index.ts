@@ -99,10 +99,10 @@ serve(async (req) => {
       )
     }
 
-    // Create profile
+    // Create or update profile (upsert in case trigger already created one)
     const { error: profileInsertError } = await supabaseAdmin
       .from('profiles')
-      .insert({
+      .upsert({
         user_id: authData.user.id,
         email,
         first_name,
@@ -110,6 +110,8 @@ serve(async (req) => {
         phone,
         role,
         created_by: currentUser.id,
+      }, {
+        onConflict: 'user_id'
       })
 
     if (profileInsertError) {
