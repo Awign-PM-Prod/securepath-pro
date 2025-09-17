@@ -8,6 +8,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/Layout/AppLayout";
 import { LoadingFallback, ErrorFallback } from "@/components/LoadingFallback";
 import Index from "./pages/Index";
+import TestPage from "./pages/TestPage";
 import Login from "./pages/Login";
 import Unauthorized from "./pages/Unauthorized";
 import NotFound from "./pages/NotFound";
@@ -41,6 +42,7 @@ class AppErrorBoundary extends React.Component<
   }
 
   static getDerivedStateFromError(error: Error) {
+    console.error('Error boundary caught error:', error);
     return { hasError: true, error };
   }
 
@@ -57,85 +59,90 @@ class AppErrorBoundary extends React.Component<
   }
 }
 
-const App = () => (
-  <AppErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <AuthProvider>
-          <BrowserRouter>
-            <Routes>
-              {/* Public routes */}
-              <Route path="/" element={<Index />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/unauthorized" element={<Unauthorized />} />
-              
-              {/* Protected routes with layout */}
-              <Route path="/admin" element={
-                <ProtectedRoute allowedRoles={['super_admin']}>
-                  <AppLayout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<SuperAdminDashboard />} />
-              </Route>
+const App = () => {
+  console.log('App component rendering');
+  
+  return (
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <AuthProvider>
+            <BrowserRouter>
+              <Routes>
+                {/* Test route */}
+                <Route path="/" element={<TestPage />} />
+                <Route path="/original" element={<Index />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/unauthorized" element={<Unauthorized />} />
+                
+                {/* Protected routes with layout */}
+                <Route path="/admin" element={
+                  <ProtectedRoute allowedRoles={['super_admin']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<SuperAdminDashboard />} />
+                </Route>
 
-              <Route path="/ops" element={
-                <ProtectedRoute allowedRoles={['ops_team']}>
-                  <AppLayout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<OpsDashboard />} />
-              </Route>
+                <Route path="/ops" element={
+                  <ProtectedRoute allowedRoles={['ops_team']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<OpsDashboard />} />
+                </Route>
 
-              <Route path="/vendor-team" element={
-                <ProtectedRoute allowedRoles={['vendor_team']}>
-                  <AppLayout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<VendorTeamDashboard />} />
-              </Route>
+                <Route path="/vendor-team" element={
+                  <ProtectedRoute allowedRoles={['vendor_team']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<VendorTeamDashboard />} />
+                </Route>
 
-              <Route path="/qc" element={
-                <ProtectedRoute allowedRoles={['qc_team']}>
-                  <AppLayout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<QCDashboard />} />
-              </Route>
+                <Route path="/qc" element={
+                  <ProtectedRoute allowedRoles={['qc_team']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<QCDashboard />} />
+                </Route>
 
-              <Route path="/vendor" element={
-                <ProtectedRoute allowedRoles={['vendor']}>
-                  <AppLayout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<VendorDashboard />} />
-              </Route>
+                <Route path="/vendor" element={
+                  <ProtectedRoute allowedRoles={['vendor']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<VendorDashboard />} />
+                </Route>
 
-              <Route path="/gig" element={
-                <ProtectedRoute allowedRoles={['gig_worker']}>
-                  <AppLayout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<GigWorkerDashboard />} />
-              </Route>
+                <Route path="/gig" element={
+                  <ProtectedRoute allowedRoles={['gig_worker']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<GigWorkerDashboard />} />
+                </Route>
 
-              <Route path="/client" element={
-                <ProtectedRoute allowedRoles={['client']}>
-                  <AppLayout />
-                </ProtectedRoute>
-              }>
-                <Route index element={<ClientDashboard />} />
-              </Route>
+                <Route path="/client" element={
+                  <ProtectedRoute allowedRoles={['client']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<ClientDashboard />} />
+                </Route>
 
-              {/* Catch-all route */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </AppErrorBoundary>
-);
+                {/* Catch-all route */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </AuthProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </AppErrorBoundary>
+  );
+};
 
 export default App;
