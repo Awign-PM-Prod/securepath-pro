@@ -113,11 +113,15 @@ serve(async (req) => {
       })
 
     if (profileInsertError) {
+      console.error('Profile insertion error:', profileInsertError)
       // If profile creation fails, we should delete the auth user
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
       
       return new Response(
-        JSON.stringify({ error: 'Failed to create user profile' }),
+        JSON.stringify({ 
+          error: 'Failed to create user profile', 
+          details: profileInsertError.message || profileInsertError 
+        }),
         { 
           status: 500, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
