@@ -98,31 +98,22 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
 
     try {
       // Call the edge function to create user
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        throw new Error('No active session');
-      }
-
-      const response = await fetch(`${supabase.supabaseUrl}/functions/v1/create-user`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data: result, error } = await supabase.functions.invoke('create-user', {
+        body: {
           email: data.email,
           password: data.password,
           first_name: data.first_name,
           last_name: data.last_name,
           phone: data.phone,
           role: data.role,
-        }),
+        },
       });
 
-      const result = await response.json();
+      if (error) {
+        throw new Error(error.message || 'Failed to create user');
+      }
 
-      if (!response.ok) {
+      if (!result.success) {
         throw new Error(result.error || 'Failed to create user');
       }
 
