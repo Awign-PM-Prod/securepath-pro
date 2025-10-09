@@ -74,6 +74,9 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
         { value: 'ops_team', label: 'Operations Team' },
         { value: 'vendor_team', label: 'Vendor Team' },
         { value: 'qc_team', label: 'QC Team' },
+        { value: 'vendor', label: 'Vendor' },
+        { value: 'gig_worker', label: 'Gig Worker' },
+        { value: 'client', label: 'Client' },
       );
     } else if (role === 'ops_team') {
       roles.push({ value: 'client', label: 'Client' });
