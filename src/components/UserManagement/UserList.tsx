@@ -15,6 +15,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { UserProfile, UserRole } from '@/types/auth';
 import { CreateUserDialog } from './CreateUserDialog';
+import { EditUserDialog } from './EditUserDialog';
 import { useToast } from '@/hooks/use-toast';
 
 export function UserList() {
@@ -23,6 +24,8 @@ export function UserList() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -103,6 +106,11 @@ export function UserList() {
                         user?.profile.role === 'vendor_team' || 
                         user?.profile.role === 'vendor';
 
+  const handleEditUser = (userProfile: UserProfile) => {
+    setSelectedUser(userProfile);
+    setEditDialogOpen(true);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -171,13 +179,19 @@ export function UserList() {
                     <div className="flex gap-2">
                       {canManageRole(userProfile.role) && (
                         <>
-                          <Button variant="ghost" size="sm">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleEditUser(userProfile)}
+                            title="Edit user"
+                          >
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleToggleStatus(userProfile.id, userProfile.is_active)}
+                            title={userProfile.is_active ? 'Deactivate user' : 'Activate user'}
                           >
                             {userProfile.is_active ? (
                               <Trash2 className="h-4 w-4" />
@@ -200,6 +214,13 @@ export function UserList() {
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         onUserCreated={fetchUsers}
+      />
+
+      <EditUserDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        user={selectedUser}
+        onUserUpdated={fetchUsers}
       />
     </div>
   );

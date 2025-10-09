@@ -19,10 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SelectWithPortal } from './SelectWithPortal';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { emailService } from '@/services/emailService';
 import { UserRole, CreateUserData } from '@/types/auth';
 
 const createUserSchema = z.object({
@@ -117,9 +119,56 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
         throw new Error(result.error || 'Failed to create user');
       }
 
+      // If this is a gig worker, generate a setup token and send email
+      if (data.role === 'gig_worker' && result.user_id) {
+        try {
+          // Generate setup token
+          const { data: tokenData, error: tokenError } = await supabase
+            .rpc('generate_password_setup_token', {
+              p_user_id: result.user_id,
+              p_email: data.email,
+              p_created_by: user?.id
+            });
+
+          if (tokenError) {
+            console.warn('Could not generate setup token:', tokenError);
+          } else {
+            console.log('Setup token generated for gig worker:', tokenData);
+            
+            // Send setup email using Supabase Auth
+            const emailResult = await emailService.sendPasswordSetupEmail(
+              data.email,
+              data.first_name,
+              tokenData
+            );
+
+            if (emailResult.success) {
+              console.log('✅ Setup email sent successfully to:', data.email);
+              toast({
+                title: 'Email Sent',
+                description: `Setup email sent to ${data.email}`,
+              });
+            } else {
+              console.warn('❌ Failed to send setup email:', emailResult.error);
+              toast({
+                title: 'Email Warning',
+                description: `User created but email failed: ${emailResult.error}`,
+                variant: 'destructive',
+              });
+            }
+          }
+        } catch (error) {
+          console.warn('Could not generate setup token or send email:', error);
+        }
+      }
+
+      const successMessage = data.role === 'gig_worker' 
+        ? `${data.first_name} ${data.last_name} has been added. They will receive an email with setup instructions.`
+        : `${data.first_name} ${data.last_name} has been added to the system.`;
+
       toast({
         title: 'User created successfully',
-        description: `${data.first_name} ${data.last_name} has been added to the system.`,
+        description: successMessage,
       });
 
       reset();
@@ -136,7 +185,7 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px] z-[100]">
         <DialogHeader>
           <DialogTitle>Create New User</DialogTitle>
           <DialogDescription>
@@ -217,18 +266,18 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
 
           <div className="space-y-2">
             <Label htmlFor="role">Role</Label>
-            <Select onValueChange={(value) => setValue('role', value as UserRole)}>
-              <SelectTrigger className={errors.role ? 'border-destructive' : ''}>
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableRoles.map((role) => (
-                  <SelectItem key={role.value} value={role.value}>
-                    {role.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SelectWithPortal
+              value={selectedRole}
+              onValueChange={(value) => setValue('role', value as UserRole)}
+              placeholder="Select a role"
+              error={!!errors.role}
+            >
+              {availableRoles.map((role) => (
+                <SelectItem key={role.value} value={role.value}>
+                  {role.label}
+                </SelectItem>
+              ))}
+            </SelectWithPortal>
             {errors.role && (
               <p className="text-sm text-destructive">{errors.role.message}</p>
             )}

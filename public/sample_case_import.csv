@@ -1,0 +1,4 @@
+case_number (optional),client_case_id (required),contract_type (required),candidate_name (required),phone_primary (required),phone_secondary (optional),address (required),city (required),state (required),pincode (required),vendor_tat_start_date (required),status (optional),priority (optional),description (optional)
+BG-20250101-ABC123,CLIENT-001,residential_address_check,John Doe,9876543210,9876543211,"123 Main Street, Koramangala",Bangalore,Karnataka,560001,2025-01-15,created,medium,"Background verification for John Doe"
+BG-20250101-DEF456,CLIENT-002,business_address_check,Jane Smith,9876543212,,456 Business Park, Mumbai,Maharashtra,400001,2025-01-16,created,high,"Background verification for Jane Smith"
+BG-20250101-GHI789,CLIENT-003,residential_address_check,Bob Johnson,9876543213,9876543214,"789 Residential Complex, Sector 5",Delhi,Delhi,110001,2025-01-17,created,low,"Background verification for Bob Johnson"

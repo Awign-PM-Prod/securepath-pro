@@ -19,8 +19,18 @@ import OpsDashboard from "./pages/dashboards/OpsDashboard";
 import VendorTeamDashboard from "./pages/dashboards/VendorTeamDashboard";
 import QCDashboard from "./pages/dashboards/QCDashboard";
 import VendorDashboard from "./pages/dashboards/VendorDashboard";
-import GigWorkerDashboard from "./pages/dashboards/GigWorkerDashboard";
+import GigWorkerDashboard from "./pages/GigWorkerDashboard";
+import GigWorkerAuth from "./pages/GigWorkerAuth";
+import GigWorkerResetPassword from "./pages/GigWorkerResetPassword";
 import ClientDashboard from "./pages/dashboards/ClientDashboard";
+import CaseManagement from "./pages/CaseManagement";
+import AllocationManagement from "./pages/AllocationManagement";
+import ClientManagement from "./pages/ClientManagement";
+import ClientContractManagement from "./pages/ClientContractManagement";
+import ContractTypeManagement from "./components/ClientContracts/ContractTypeManagement";
+import PincodeTierManagement from "./pages/PincodeTierManagement";
+import GigWorkerManagement from "./pages/GigWorkerManagement";
+import DatabaseTest from "./pages/DatabaseTest";
 import React from "react";
 
 const queryClient = new QueryClient({
@@ -76,6 +86,7 @@ const App = () => {
                 <Route path="/original" element={<Index />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/unauthorized" element={<Unauthorized />} />
+                <Route path="/db-test" element={<DatabaseTest />} />
                 
                 {/* Protected routes with layout */}
                 <Route path="/admin" element={
@@ -92,6 +103,16 @@ const App = () => {
                   </ProtectedRoute>
                 }>
                   <Route index element={<OpsDashboard />} />
+                  <Route path="cases" element={<CaseManagement />} />
+                  <Route path="cases/create" element={<CaseManagement />} />
+                  <Route path="cases/:caseId" element={<CaseManagement />} />
+                  <Route path="cases/:caseId/edit" element={<CaseManagement />} />
+                  <Route path="allocation" element={<AllocationManagement />} />
+                  <Route path="clients" element={<ClientManagement />} />
+                  <Route path="client-contracts" element={<ClientContractManagement />} />
+                  <Route path="contract-types" element={<ContractTypeManagement />} />
+                  <Route path="pincode-tiers" element={<PincodeTierManagement />} />
+                  <Route path="gig-workers" element={<GigWorkerManagement />} />
                 </Route>
 
                 <Route path="/vendor-team" element={
@@ -125,6 +146,10 @@ const App = () => {
                 }>
                   <Route index element={<GigWorkerDashboard />} />
                 </Route>
+
+                {/* Public gig worker auth routes */}
+                <Route path="/gig/setup" element={<GigWorkerAuth />} />
+                <Route path="/gig/reset-password" element={<GigWorkerResetPassword />} />
 
                 <Route path="/client" element={
                   <ProtectedRoute allowedRoles={['client']}>

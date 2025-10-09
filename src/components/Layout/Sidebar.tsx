@@ -11,6 +11,12 @@ import {
   MapPin,
   BarChart3,
   Settings,
+  LayoutDashboard,
+  MapPinIcon,
+  DollarSign,
+  FileTextIcon,
+  Tag,
+  UserCog,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -36,8 +42,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       
       case 'ops_team':
         return [
+          { icon: LayoutDashboard, label: 'Dashboard', href: '/ops' },
           { icon: FileText, label: 'Cases', href: '/ops/cases' },
           { icon: Users, label: 'Clients', href: '/ops/clients' },
+          { icon: FileTextIcon, label: 'Client Contracts', href: '/ops/client-contracts' },
+          { icon: Tag, label: 'Contract Types', href: '/ops/contract-types' },
+          { icon: MapPinIcon, label: 'Pincode Tiers', href: '/ops/pincode-tiers' },
+          { icon: UserCog, label: 'Gig Workers', href: '/ops/gig-workers' },
           { icon: BarChart3, label: 'Reports', href: '/ops/reports' },
           { icon: MapPin, label: 'Assignments', href: '/ops/assignments' },
         ];
@@ -85,14 +96,17 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const menuItems = getMenuItems();
 
   return (
-    <div className="flex h-full flex-col bg-sidebar">
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-sidebar-foreground">
-          BG Verification
+    <div className="flex h-screen flex-col gradient-sidebar w-full text-sidebar-foreground">
+      <div className="p-6 border-b border-sidebar-border">
+        <h2 className="text-xl font-bold text-sidebar-foreground flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
+            <span className="text-white font-bold text-sm">BG</span>
+          </div>
+          <span className="text-sidebar-foreground">BG Verification</span>
         </h2>
       </div>
       
-      <nav className="flex-1 px-4 pb-4">
+      <nav className="flex-1 px-6 py-6">
         <ul className="space-y-2">
           {menuItems.map((item) => {
             const isActive = location.pathname === item.href;
@@ -104,14 +118,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                   to={item.href}
                   onClick={onNavigate}
                   className={cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                    isActive
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                      : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                    'sidebar-item text-sidebar-foreground',
+                    isActive && 'sidebar-item-active'
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
+                  <Icon className="h-4 w-4 flex-shrink-0 text-sidebar-foreground" />
+                  <span className="flex-1 text-left text-sidebar-foreground">{item.label}</span>
                 </Link>
               </li>
             );

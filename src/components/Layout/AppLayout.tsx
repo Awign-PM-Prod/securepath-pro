@@ -25,8 +25,10 @@ export function AppLayout() {
   return (
     <div className="flex min-h-screen bg-background">
       {/* Desktop Sidebar */}
-      <div className="hidden md:block md:w-64">
-        <Sidebar />
+      <div className="hidden md:flex md:w-72 md:flex-col md:min-w-72 md:max-w-72 md:flex-shrink-0">
+        <div className="sidebar-container h-full">
+          <Sidebar />
+        </div>
       </div>
 
       {/* Mobile Sidebar */}
@@ -37,9 +39,9 @@ export function AppLayout() {
       </Sheet>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
-        <header className="border-b border-border bg-card">
+        <header className="border-b border-border bg-card flex-shrink-0">
           <div className="flex h-16 items-center justify-between px-4">
             <div className="flex items-center gap-4">
               <Sheet>
@@ -85,7 +87,7 @@ export function AppLayout() {
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 p-4">
+        <main className="flex-1 p-4 overflow-auto">
           <Outlet />
         </main>
       </div>

@@ -8,6 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
+    /* Modern SaaS Color Palette - Inspired by QuickBooks */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
 
@@ -17,45 +18,46 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 222.2 47.4% 11.2%;
+    /* Primary: Modern Blue (QuickBooks inspired) */
+    --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
 
-    --secondary: 210 40% 96.1%;
+    /* Secondary: Soft Blue-Gray */
+    --secondary: 210 40% 96%;
     --secondary-foreground: 222.2 47.4% 11.2%;
 
-    --muted: 210 40% 96.1%;
+    /* Muted: Light Blue-Gray */
+    --muted: 210 40% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent: Vibrant Blue */
+    --accent: 221.2 83.2% 53.3%;
+    --accent-foreground: 210 40% 98%;
 
+    /* Destructive: Modern Red */
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
+    /* Borders and Inputs: Soft Gray */
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 221.2 83.2% 53.3%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Sidebar: Professional Dark Blue */
+    --sidebar-background: 222.2 84% 4.9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 221.2 83.2% 53.3%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 217.2 32.6% 17.5%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217.2 32.6% 17.5%;
+    --sidebar-ring: 221.2 83.2% 53.3%;
   }
 
   .dark {
+    /* Dark Mode: Modern Dark Theme */
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
 
@@ -65,32 +67,40 @@ All colors MUST be HSL.
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    /* Primary: Bright Blue for dark mode */
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
 
+    /* Secondary: Dark Blue-Gray */
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
 
+    /* Muted: Dark Gray */
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
 
-    --accent: 217.2 32.6% 17.5%;
+    /* Accent: Bright Blue */
+    --accent: 221.2 83.2% 53.3%;
     --accent-foreground: 210 40% 98%;
 
+    /* Destructive: Modern Red */
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
 
+    /* Borders and Inputs: Dark Gray */
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --ring: 221.2 83.2% 53.3%;
+
+    /* Sidebar: Dark Blue */
+    --sidebar-background: 222.2 84% 4.9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 221.2 83.2% 53.3%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 217.2 32.6% 17.5%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217.2 32.6% 17.5%;
+    --sidebar-ring: 221.2 83.2% 53.3%;
   }
 }
 
@@ -101,5 +111,176 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Modern SaaS Styling Enhancements */
+@layer components {
+  /* Gradient backgrounds for cards and sections */
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(221.2 83.2% 53.3%) 0%, hsl(221.2 83.2% 45%) 100%);
+  }
+  
+  .gradient-secondary {
+    background: linear-gradient(135deg, hsl(210 40% 96%) 0%, hsl(210 40% 92%) 100%);
+  }
+  
+  .gradient-card {
+    background: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(210 40% 98%) 100%);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  }
+  
+  .gradient-sidebar {
+    background: linear-gradient(180deg, hsl(222.2 84% 4.9%) 0%, hsl(222.2 84% 8%) 100%);
+  }
+
+  /* Modern button styles */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-200 shadow-sm hover:shadow-md;
+  }
+  
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-all duration-200;
+  }
+
+  /* Modern card styles */
+  .card-modern {
+    @apply bg-card text-card-foreground rounded-lg border shadow-sm hover:shadow-md transition-all duration-200;
+  }
+
+  /* Status indicators */
+  .status-success {
+    @apply bg-green-50 text-green-700 border-green-200;
+  }
+  
+  .status-warning {
+    @apply bg-yellow-50 text-yellow-700 border-yellow-200;
+  }
+  
+  .status-error {
+    @apply bg-red-50 text-red-700 border-red-200;
+  }
+  
+  .status-info {
+    @apply bg-blue-50 text-blue-700 border-blue-200;
+  }
+
+  /* Modern input styles */
+  .input-modern {
+    @apply border-input bg-background text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-ring focus:border-transparent transition-all duration-200;
+  }
+
+  /* Sidebar enhancements */
+  .sidebar-item {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground;
+    min-width: 100%;
+    white-space: nowrap;
+    overflow: visible;
+    color: hsl(var(--sidebar-foreground)) !important;
+  }
+  
+  .sidebar-item-active {
+    @apply bg-sidebar-accent text-sidebar-accent-foreground shadow-sm;
+    color: hsl(var(--sidebar-accent-foreground)) !important;
+  }
+
+  /* Ensure sidebar is always visible */
+  .sidebar-container {
+    @apply w-full h-full;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Force sidebar visibility on desktop */
+  @media (min-width: 768px) {
+    .sidebar-container {
+      display: flex !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      position: relative !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+  }
+
+  /* Ensure sidebar text is always visible */
+  .sidebar-item span,
+  .sidebar-item {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+    color: hsl(var(--sidebar-foreground)) !important;
+  }
+
+  /* Force sidebar text visibility */
+  .sidebar-item * {
+    color: inherit !important;
+  }
+
+  /* Sidebar text contrast fix */
+  .gradient-sidebar {
+    color: hsl(var(--sidebar-foreground)) !important;
+  }
+
+  .gradient-sidebar * {
+    color: hsl(var(--sidebar-foreground)) !important;
+  }
+
+  /* Sidebar container fix */
+  .sidebar-container {
+    overflow-x: hidden;
+    overflow-y: auto;
+    position: relative;
+    z-index: 10;
+  }
+
+  /* Ensure main content stays in its container */
+  .container {
+    max-width: 100%;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Ensure content doesn't escape the main content area */
+  main {
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Ensure dialogs render above everything */
+  [role="dialog"], 
+  [data-radix-dialog-content] {
+    z-index: 1000 !important;
+  }
+
+  /* Ensure Select dropdowns render above dialogs */
+  [data-radix-select-content] {
+    z-index: 9999 !important;
+  }
+
+  /* Force Select portal to render at highest z-index */
+  [data-radix-portal] [data-radix-select-content] {
+    z-index: 9999 !important;
+  }
+
+  /* Additional z-index fixes for Select components */
+  .select-content-fixed {
+    z-index: 9999 !important;
+    position: relative !important;
+  }
+
+  /* Force all Select dropdowns to render above dialogs */
+  [data-radix-select-content],
+  [data-radix-select-viewport] {
+    z-index: 9999 !important;
+  }
+
+  /* Override any conflicting z-index values */
+  [data-radix-dialog-content] [data-radix-select-content] {
+    z-index: 9999 !important;
   }
 }
