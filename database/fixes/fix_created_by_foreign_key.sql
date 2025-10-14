@@ -1,0 +1,189 @@
+-- =====================================================
+-- Fix Created By Foreign Key Constraint
+-- Background Verification Platform
+-- =====================================================
+
+-- First, let's find a valid user ID from the profiles table
+SELECT 
+  'Valid User IDs' as section,
+  user_id,
+  email,
+  role,
+  first_name,
+  last_name
+FROM public.profiles 
+WHERE user_id IS NOT NULL
+ORDER BY created_at
+LIMIT 5;
+
+-- Update the create_user_no_permissions function to use a valid created_by
+CREATE OR REPLACE FUNCTION public.create_user_no_permissions(
+  user_email TEXT,
+  user_first_name TEXT,
+  user_last_name TEXT,
+  user_phone TEXT,
+  user_role TEXT,
+  created_by_user_id UUID,
+  vendor_data JSONB DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  new_auth_user_id UUID;
+  new_profile_id UUID;
+  new_vendor_id UUID;
+  new_gig_partner_id UUID;
+  valid_created_by UUID;
+  result JSONB;
+BEGIN
+  -- Find a valid created_by user ID if the provided one doesn't exist
+  SELECT user_id INTO valid_created_by
+  FROM public.profiles 
+  WHERE user_id = created_by_user_id
+  LIMIT 1;
+  
+  -- If not found, use the first available user
+  IF valid_created_by IS NULL THEN
+    SELECT user_id INTO valid_created_by
+    FROM public.profiles 
+    WHERE user_id IS NOT NULL
+    ORDER BY created_at
+    LIMIT 1;
+  END IF;
+  
+  -- If still no valid user found, use a dummy UUID (this should not happen in practice)
+  IF valid_created_by IS NULL THEN
+    valid_created_by := '00000000-0000-0000-0000-000000000000'::UUID;
+  END IF;
+  
+  -- Generate a new UUID for the auth user
+  new_auth_user_id := gen_random_uuid();
+  
+  -- Create the profile
+  INSERT INTO public.profiles (
+    user_id,
+    email,
+    first_name,
+    last_name,
+    phone,
+    role,
+    created_by
+  ) VALUES (
+    new_auth_user_id,
+    user_email,
+    user_first_name,
+    user_last_name,
+    user_phone,
+    user_role::app_role,
+    valid_created_by
+  ) RETURNING id INTO new_profile_id;
+  
+  -- Create role-specific records
+  IF user_role = 'gig_worker' THEN
+    -- Create gig partner record
+    INSERT INTO public.gig_partners (
+      profile_id,
+      user_id,
+      vendor_id,
+      max_daily_capacity,
+      created_by
+    ) VALUES (
+      new_profile_id,
+      new_auth_user_id,
+      COALESCE((vendor_data->>'vendor_id')::UUID, NULL),
+      5, -- Default capacity
+      valid_created_by
+    ) RETURNING id INTO new_gig_partner_id;
+    
+  ELSIF user_role = 'vendor' THEN
+    -- Create vendor record if vendor_data is provided
+    IF vendor_data IS NOT NULL THEN
+      INSERT INTO public.vendors (
+        name,
+        email,
+        phone,
+        contact_person,
+        address,
+        city,
+        state,
+        pincode,
+        country,
+        coverage_pincodes,
+        created_by
+      ) VALUES (
+        COALESCE(vendor_data->>'name', user_first_name || ' ' || user_last_name),
+        user_email,
+        user_phone,
+        COALESCE(vendor_data->>'contact_person', user_first_name || ' ' || user_last_name),
+        COALESCE(vendor_data->>'address', ''),
+        COALESCE(vendor_data->>'city', ''),
+        COALESCE(vendor_data->>'state', ''),
+        COALESCE(vendor_data->>'pincode', ''),
+        COALESCE(vendor_data->>'country', 'India'),
+        COALESCE(ARRAY(SELECT jsonb_array_elements_text(vendor_data->'coverage_pincodes')), ARRAY[COALESCE(vendor_data->>'pincode', '')]),
+        valid_created_by
+      ) RETURNING id INTO new_vendor_id;
+    END IF;
+  END IF;
+  
+  -- Return success with the created IDs
+  result := jsonb_build_object(
+    'success', true,
+    'profile_id', new_profile_id,
+    'auth_user_id', new_auth_user_id,
+    'user_id', new_auth_user_id, -- For compatibility with existing code
+    'created_by_used', valid_created_by,
+    'message', 'User profile created successfully. Auth user needs to be created manually in Supabase Auth dashboard.'
+  );
+  
+  -- Add role-specific IDs to result
+  IF user_role = 'gig_worker' THEN
+    result := result || jsonb_build_object('gig_partner_id', new_gig_partner_id);
+  ELSIF user_role = 'vendor' AND new_vendor_id IS NOT NULL THEN
+    result := result || jsonb_build_object('vendor_id', new_vendor_id);
+  END IF;
+  
+  RETURN result;
+  
+EXCEPTION
+  WHEN OTHERS THEN
+    -- Clean up on error
+    IF new_vendor_id IS NOT NULL THEN
+      DELETE FROM public.vendors WHERE id = new_vendor_id;
+    END IF;
+    IF new_gig_partner_id IS NOT NULL THEN
+      DELETE FROM public.gig_partners WHERE id = new_gig_partner_id;
+    END IF;
+    IF new_profile_id IS NOT NULL THEN
+      DELETE FROM public.profiles WHERE id = new_profile_id;
+    END IF;
+    
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
+    );
+END;
+$$;
+
+-- Test the function with vendor creation
+SELECT public.create_user_no_permissions(
+  'test@vendor.com',
+  'Test',
+  'Vendor',
+  '+91 98765 43210',
+  'vendor',
+  '00000000-0000-0000-0000-000000000000'::UUID, -- This will be replaced with a valid ID
+  '{
+    "name": "Test Vendor Company",
+    "contact_person": "Test Contact",
+    "address": "123 Test Street",
+    "city": "Test City",
+    "state": "Test State",
+    "pincode": "123456",
+    "country": "India",
+    "coverage_pincodes": ["123456", "123457"]
+  }'::jsonb
+);

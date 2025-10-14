@@ -17,6 +17,7 @@ import {
   FileTextIcon,
   Tag,
   UserCog,
+  ClipboardList,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -49,6 +50,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           { icon: Tag, label: 'Contract Types', href: '/ops/contract-types' },
           { icon: MapPinIcon, label: 'Pincode Tiers', href: '/ops/pincode-tiers' },
           { icon: UserCog, label: 'Gig Workers', href: '/ops/gig-workers' },
+          { icon: Building2, label: 'Vendors', href: '/ops/vendors' },
+          { icon: ClipboardList, label: 'Form Management', href: '/ops/forms' },
           { icon: BarChart3, label: 'Reports', href: '/ops/reports' },
           { icon: MapPin, label: 'Assignments', href: '/ops/assignments' },
         ];

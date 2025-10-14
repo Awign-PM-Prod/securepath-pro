@@ -57,7 +57,7 @@ serve(async (req) => {
       )
     }
 
-    const { email, password, first_name, last_name, phone, role } = await req.json()
+    const { email, password, first_name, last_name, phone, role, vendor_data } = await req.json()
 
     // Verify permission to create user with this role
     const canCreate = checkPermissions(currentProfile.role, role)
@@ -100,7 +100,7 @@ serve(async (req) => {
     }
 
     // Create or update profile (upsert in case trigger already created one)
-    const { error: profileInsertError } = await supabaseAdmin
+    const { data: profileData, error: profileInsertError } = await supabaseAdmin
       .from('profiles')
       .upsert({
         user_id: authData.user.id,
@@ -113,6 +113,8 @@ serve(async (req) => {
       }, {
         onConflict: 'user_id'
       })
+      .select('id')
+      .single()
 
     if (profileInsertError) {
       console.error('Profile insertion error:', profileInsertError)
@@ -129,6 +131,75 @@ serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
+    }
+
+    // If this is a gig worker, create gig_partners record
+    if (role === 'gig_worker') {
+      const { error: gigPartnerError } = await supabaseAdmin
+        .from('gig_partners')
+        .insert({
+          user_id: authData.user.id,
+          profile_id: profileData.id,
+          phone: phone || '',
+          is_active: true,
+          is_available: true,
+          created_by: currentUser.id,
+        })
+
+      if (gigPartnerError) {
+        console.error('Gig partner creation error:', gigPartnerError)
+        // If gig_partners creation fails, clean up auth user and profile
+        await supabaseAdmin.from('profiles').delete().eq('user_id', authData.user.id)
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to create gig worker profile', 
+            details: gigPartnerError.message || gigPartnerError 
+          }),
+          { 
+            status: 500, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        )
+      }
+    }
+
+    // If this is a vendor, create vendors record
+    if (role === 'vendor' && vendor_data) {
+      const { error: vendorError } = await supabaseAdmin
+        .from('vendors')
+        .insert({
+          name: vendor_data.name,
+          email: email,
+          phone: phone || '',
+          contact_person: vendor_data.contact_person,
+          address: vendor_data.address,
+          city: vendor_data.city,
+          state: vendor_data.state,
+          pincode: vendor_data.pincode,
+          country: vendor_data.country || 'India',
+          coverage_pincodes: vendor_data.coverage_pincodes || [vendor_data.pincode],
+          created_by: currentUser.id,
+        })
+
+      if (vendorError) {
+        console.error('Vendor creation error:', vendorError)
+        // If vendor creation fails, clean up auth user and profile
+        await supabaseAdmin.from('profiles').delete().eq('user_id', authData.user.id)
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to create vendor profile', 
+            details: vendorError.message || vendorError 
+          }),
+          { 
+            status: 500, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        )
+      }
     }
 
     return new Response(
@@ -162,8 +233,8 @@ function checkPermissions(currentRole: string, targetRole: string): boolean {
     return true
   }
   
-  // Ops team can manage clients
-  if (currentRole === 'ops_team' && targetRole === 'client') {
+  // Ops team can manage clients and vendors
+  if (currentRole === 'ops_team' && ['client', 'vendor'].includes(targetRole)) {
     return true
   }
   

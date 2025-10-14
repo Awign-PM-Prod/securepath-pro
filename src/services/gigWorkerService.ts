@@ -15,12 +15,13 @@ export interface CaseRejectionRequest {
 export interface CaseSubmissionRequest {
   caseId: string;
   gigWorkerId: string;
-  answers: Record<string, any>;
-  notes: string;
-  photos?: string[];
+  answers?: Record<string, any>; // Legacy field
+  notes?: string;
+  photos?: string[]; // Legacy field
   submissionLat?: number;
   submissionLng?: number;
   submissionAddress?: string;
+  formData?: Record<string, any>; // New dynamic form data
 }
 
 export class GigWorkerService {
@@ -30,7 +31,7 @@ export class GigWorkerService {
   async acceptCase(request: CaseAcceptanceRequest): Promise<{ success: boolean; error?: string }> {
     try {
       // Update case status
-      const { error: caseError } = await supabase
+      const { error: acceptCaseError } = await supabase
         .from('cases')
         .update({
           status: 'accepted',
@@ -38,7 +39,7 @@ export class GigWorkerService {
         })
         .eq('id', request.caseId);
 
-      if (caseError) throw caseError;
+      if (acceptCaseError) throw acceptCaseError;
 
       // Update allocation log
       const { error: logError } = await supabase
@@ -55,17 +56,17 @@ export class GigWorkerService {
       if (logError) throw logError;
 
       // Send notification
-      const { data: caseData } = await supabase
+      const { data: acceptCaseInfo } = await supabase
         .from('cases')
         .select('case_number')
         .eq('id', request.caseId)
         .single();
 
-      if (caseData) {
+      if (acceptCaseInfo) {
         await notificationService.sendCaseAcceptanceNotification(
           request.caseId,
           request.gigWorkerId,
-          caseData.case_number
+          acceptCaseInfo.case_number
         );
       }
 
@@ -85,7 +86,7 @@ export class GigWorkerService {
   async rejectCase(request: CaseRejectionRequest): Promise<{ success: boolean; error?: string }> {
     try {
       // Update case status
-      const { error: caseError } = await supabase
+      const { error: rejectCaseError } = await supabase
         .from('cases')
         .update({
           status: 'created',
@@ -95,7 +96,7 @@ export class GigWorkerService {
         })
         .eq('id', request.caseId);
 
-      if (caseError) throw caseError;
+      if (rejectCaseError) throw rejectCaseError;
 
       // Update allocation log
       const { error: logError } = await supabase
@@ -114,8 +115,8 @@ export class GigWorkerService {
       // Free up capacity
       const { error: capacityError } = await supabase
         .rpc('free_capacity', {
-          p_gig_partner_id: request.gigWorkerId,
           p_case_id: request.caseId,
+          p_gig_partner_id: request.gigWorkerId,
           p_reason: 'Rejected by gig worker'
         });
 
@@ -124,17 +125,17 @@ export class GigWorkerService {
       }
 
       // Send notification
-      const { data: caseData } = await supabase
+      const { data: rejectCaseInfo } = await supabase
         .from('cases')
         .select('case_number')
         .eq('id', request.caseId)
         .single();
 
-      if (caseData) {
+      if (rejectCaseInfo) {
         await notificationService.sendCaseRejectionNotification(
           request.caseId,
           request.gigWorkerId,
-          caseData.case_number,
+          rejectCaseInfo.case_number,
           request.reason
         );
       }
@@ -154,27 +155,81 @@ export class GigWorkerService {
    */
   async submitCase(request: CaseSubmissionRequest): Promise<{ success: boolean; error?: string; submissionId?: string }> {
     try {
-      // Create submission
-      const { data: submission, error: submissionError } = await supabase
-        .from('submissions')
-        .insert({
-          case_id: request.caseId,
-          gig_partner_id: request.gigWorkerId,
-          status: 'submitted',
-          answers: request.answers,
-          notes: request.notes,
-          submission_lat: request.submissionLat,
-          submission_lng: request.submissionLng,
-          submission_address: request.submissionAddress,
-          submitted_at: new Date().toISOString()
-        })
-        .select()
+      // Get case details to determine contract type
+      const { data: submitCaseData, error: submitCaseError } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          client_id,
+          contract_type
+        `)
+        .eq('id', request.caseId)
         .single();
 
-      if (submissionError) throw submissionError;
+      if (submitCaseError) throw submitCaseError;
+
+      // Get contract type ID
+      const { data: contractType, error: contractTypeError } = await supabase
+        .from('contract_type_config')
+        .select('id')
+        .eq('type_key', submitCaseData.contract_type)
+        .single();
+
+      if (contractTypeError) throw contractTypeError;
+
+      // Check if there's a form template for this contract type
+      const { data: formTemplate, error: templateError } = await supabase
+        .from('form_templates')
+        .select('id')
+        .eq('contract_type_id', contractType.id)
+        .eq('is_active', true)
+        .single();
+
+      if (templateError && templateError.code !== 'PGRST116') {
+        throw templateError;
+      }
+
+      let submissionId: string;
+
+      if (formTemplate) {
+        // Use dynamic form submission
+        const { formService } = await import('./formService');
+        const formResult = await formService.submitForm(
+          request.caseId,
+          formTemplate.id,
+          request.gigWorkerId,
+          request.formData || {}
+        );
+
+        if (!formResult.success) {
+          throw new Error(formResult.error || 'Failed to submit form');
+        }
+
+        submissionId = formResult.submissionId!;
+      } else {
+        // Fallback to legacy submission
+        const { data: submission, error: submissionError } = await supabase
+          .from('submissions')
+          .insert({
+            case_id: request.caseId,
+            gig_partner_id: request.gigWorkerId,
+            status: 'submitted',
+            answers: request.answers,
+            notes: request.notes,
+            submission_lat: request.submissionLat,
+            submission_lng: request.submissionLng,
+            submission_address: request.submissionAddress,
+            submitted_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (submissionError) throw submissionError;
+        submissionId = submission.id;
+      }
 
       // Update case status
-      const { error: caseError } = await supabase
+      const { error: updateCaseError } = await supabase
         .from('cases')
         .update({
           status: 'submitted',
@@ -182,12 +237,12 @@ export class GigWorkerService {
         })
         .eq('id', request.caseId);
 
-      if (caseError) throw caseError;
+      if (updateCaseError) throw updateCaseError;
 
       // Handle photos if any
       if (request.photos && request.photos.length > 0) {
         const photoInserts = request.photos.map(photoUrl => ({
-          submission_id: submission.id,
+          submission_id: submissionId,
           photo_url: photoUrl,
           file_name: `photo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`,
           mime_type: 'image/jpeg',
@@ -204,21 +259,21 @@ export class GigWorkerService {
       }
 
       // Send notification
-      const { data: caseData } = await supabase
+      const { data: caseInfo } = await supabase
         .from('cases')
         .select('case_number')
         .eq('id', request.caseId)
         .single();
 
-      if (caseData) {
+      if (caseInfo) {
         await notificationService.sendCaseSubmissionNotification(
           request.caseId,
           request.gigWorkerId,
-          caseData.case_number
+          caseInfo.case_number
         );
       }
 
-      return { success: true, submissionId: submission.id };
+      return { success: true, submissionId: submissionId };
     } catch (error) {
       console.error('Error submitting case:', error);
       return { 
@@ -249,11 +304,13 @@ export class GigWorkerService {
           due_at,
           base_rate_inr,
           total_payout_inr,
+          current_vendor_id,
           clients (name),
           locations (address_line, city, state, pincode)
         `)
         .eq('current_assignee_id', gigWorkerId)
-        .in('status', ['auto_allocated', 'accepted', 'in_progress', 'submitted']);
+        .eq('current_assignee_type', 'gig')
+        .in('status', ['auto_allocated', 'pending_acceptance', 'accepted', 'in_progress', 'submitted']);
 
       if (error) throw error;
 
@@ -266,11 +323,20 @@ export class GigWorkerService {
         .eq('candidate_id', gigWorkerId)
         .eq('decision', 'allocated');
 
-      // Merge case data with acceptance deadlines
+      // Get gig worker info to determine if they're direct or vendor-connected
+      const { data: gigWorker } = await supabase
+        .from('gig_partners')
+        .select('is_direct_gig, vendor_id')
+        .eq('id', gigWorkerId)
+        .single();
+
+      // Merge case data with acceptance deadlines and vendor info
       const casesWithDeadlines = cases?.map(caseItem => {
         const log = allocationLogs?.find(l => l.case_id === caseItem.id);
         return {
           ...caseItem,
+          is_direct_gig: gigWorker?.is_direct_gig ?? true,
+          vendor_id: gigWorker?.vendor_id,
           acceptance_deadline: log?.acceptance_deadline || caseItem.due_at
         };
       }) || [];
@@ -290,20 +356,11 @@ export class GigWorkerService {
    */
   async getGigWorkerId(userId: string): Promise<{ success: boolean; gigWorkerId?: string; error?: string }> {
     try {
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('user_id', userId)
-        .single();
-
-      if (profileError || !profile) {
-        return { success: false, error: 'Gig worker profile not found' };
-      }
-
+      // Query gig_partners directly by user_id instead of going through profiles
       const { data: gigWorker, error: gigWorkerError } = await supabase
         .from('gig_partners')
         .select('id')
-        .eq('profile_id', profile.id)
+        .eq('user_id', userId)
         .single();
 
       if (gigWorkerError || !gigWorker) {
@@ -313,6 +370,29 @@ export class GigWorkerService {
       return { success: true, gigWorkerId: gigWorker.id };
     } catch (error) {
       console.error('Error getting gig worker ID:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
+   * Get all vendors for dropdown selection
+   */
+  async getVendors(): Promise<{ success: boolean; vendors?: any[]; error?: string }> {
+    try {
+      const { data: vendors, error } = await supabase
+        .from('vendors')
+        .select('id, name, email, is_active')
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+
+      return { success: true, vendors: vendors || [] };
+    } catch (error) {
+      console.error('Error getting vendors:', error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
@@ -352,7 +432,7 @@ export class GigWorkerService {
         const caseId = log.case_id;
         
         // Update case status
-        const { error: caseError } = await supabase
+        const { error: timeoutCaseError } = await supabase
           .from('cases')
           .update({
             status: 'created',
@@ -362,8 +442,8 @@ export class GigWorkerService {
           })
           .eq('id', caseId);
 
-        if (caseError) {
-          console.error('Error updating timeout case:', caseError);
+        if (timeoutCaseError) {
+          console.error('Error updating timeout case:', timeoutCaseError);
           continue;
         }
 

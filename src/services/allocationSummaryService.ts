@@ -1,9 +1,9 @@
 import { supabase } from '@/integrations/supabase/client';
 
 export interface AllocationSummaryData {
-  gigWorkerId: string;
-  gigWorkerName: string;
-  gigWorkerType: 'gig' | 'vendor';
+  assigneeId: string;
+  assigneeName: string;
+  assigneeType: 'gig' | 'vendor';
   totalCases: number;
   assignedCases: {
     caseId: string;
@@ -24,7 +24,9 @@ export class AllocationSummaryService {
    */
   async getAllocationSummary(caseIds?: string[]): Promise<AllocationSummaryData[]> {
     try {
-      let query = supabase
+
+      // Simplified query to avoid foreign key relationship issues
+      let casesQuery = supabase
         .from('cases')
         .select(`
           id,
@@ -32,53 +34,95 @@ export class AllocationSummaryService {
           status,
           current_assignee_id,
           current_assignee_type,
+          current_vendor_id,
           locations!inner (
             pincode,
             pincode_tier
-          ),
-          gig_partners!current_assignee_id (
-            id,
-            coverage_pincodes,
-            profiles (
-              first_name,
-              last_name
-            )
           )
         `)
         .eq('status', 'auto_allocated')
         .not('current_assignee_id', 'is', null);
 
       if (caseIds && caseIds.length > 0) {
-        query = query.in('id', caseIds);
+        casesQuery = casesQuery.in('id', caseIds);
       }
 
-      const { data, error } = await query;
+      const { data: casesData, error: casesError } = await casesQuery;
 
-      if (error) throw error;
+      if (casesError) throw casesError;
+
+      // Get gig worker data separately
+      const gigWorkerIds = casesData?.filter(c => c.current_assignee_type === 'gig').map(c => c.current_assignee_id) || [];
+      const vendorIds = casesData?.filter(c => c.current_assignee_type === 'vendor').map(c => c.current_assignee_id) || [];
+
+      let gigWorkerData = {};
+      if (gigWorkerIds.length > 0) {
+        const { data: gigData, error: gigError } = await supabase
+          .from('gig_partners')
+          .select(`
+            id,
+            coverage_pincodes,
+            profiles (
+              first_name,
+              last_name
+            )
+          `)
+          .in('id', gigWorkerIds);
+
+        if (!gigError && gigData) {
+          gigWorkerData = gigData.reduce((acc, item) => {
+            acc[item.id] = item;
+            return acc;
+          }, {});
+        }
+      }
+
+      let vendorData = {};
+      if (vendorIds.length > 0) {
+        const { data: vendorDataResult, error: vendorError } = await supabase
+          .from('vendors')
+          .select(`
+            id,
+            name,
+            coverage_pincodes
+          `)
+          .in('id', vendorIds);
+
+        if (!vendorError && vendorDataResult) {
+          vendorData = vendorDataResult.reduce((acc, item) => {
+            acc[item.id] = item;
+            return acc;
+          }, {});
+        }
+      }
+
+      // Combine the data
+      const data = casesData?.map(caseItem => ({
+        ...caseItem,
+        gig_partners: caseItem.current_assignee_type === 'gig' ? gigWorkerData[caseItem.current_assignee_id] : null,
+        vendors: caseItem.current_assignee_type === 'vendor' ? vendorData[caseItem.current_assignee_id] : null
+      })) || [];
 
       console.log('Raw allocation data:', data);
 
-      // Group by gig worker
-      const groupedByGigWorker = new Map<string, any[]>();
+      // Group by assignee (gig worker or vendor)
+      const groupedByAssignee = new Map<string, any[]>();
       
       data?.forEach(caseItem => {
-        const gigWorker = caseItem.gig_partners;
-        if (gigWorker) {
-          const gigWorkerId = gigWorker.id;
-          if (!groupedByGigWorker.has(gigWorkerId)) {
-            groupedByGigWorker.set(gigWorkerId, []);
+        const assigneeId = caseItem.current_assignee_id;
+        if (assigneeId) {
+          if (!groupedByAssignee.has(assigneeId)) {
+            groupedByAssignee.set(assigneeId, []);
           }
-          groupedByGigWorker.get(gigWorkerId)?.push(caseItem);
+          groupedByAssignee.get(assigneeId)?.push(caseItem);
         }
       });
 
-      console.log('Grouped by gig worker:', groupedByGigWorker);
+      console.log('Grouped by assignee:', groupedByAssignee);
 
-      // Get performance metrics for all gig workers
-      const gigWorkerIds = Array.from(groupedByGigWorker.keys());
-      console.log('Gig worker IDs to fetch performance for:', gigWorkerIds);
+      // Get performance metrics for gig workers (using existing gigWorkerIds and vendorIds)
 
-      let performanceData = {};
+      let gigWorkerPerformanceData = {};
       if (gigWorkerIds.length > 0) {
         const { data: perfData, error: perfError } = await supabase
           .from('performance_metrics')
@@ -87,11 +131,10 @@ export class AllocationSummaryService {
           .order('created_at', { ascending: false });
 
         if (perfError) {
-          console.error('Error fetching performance data:', perfError);
+          console.error('Error fetching gig worker performance data:', perfError);
         } else {
-          console.log('Performance data fetched:', perfData);
-          // Create a map of gig_partner_id to latest performance data
-          performanceData = (perfData || []).reduce((acc, item) => {
+          console.log('Gig worker performance data fetched:', perfData);
+          gigWorkerPerformanceData = (perfData || []).reduce((acc, item) => {
             if (!acc[item.gig_partner_id]) {
               acc[item.gig_partner_id] = item;
             }
@@ -100,39 +143,85 @@ export class AllocationSummaryService {
         }
       }
 
-      console.log('Performance data map:', performanceData);
+      // Get vendor performance data
+      let vendorPerformanceData = {};
+      if (vendorIds.length > 0) {
+        const { data: vendorData, error: vendorError } = await supabase
+          .from('vendors')
+          .select('id, quality_score, performance_score')
+          .in('id', vendorIds);
+
+        if (vendorError) {
+          console.error('Error fetching vendor performance data:', vendorError);
+        } else {
+          console.log('Vendor performance data fetched:', vendorData);
+          vendorPerformanceData = (vendorData || []).reduce((acc, item) => {
+            acc[item.id] = {
+              quality_score: item.quality_score || 0,
+              completion_rate: item.performance_score || 0,
+              ontime_completion_rate: item.performance_score || 0,
+              acceptance_rate: 1.0 // Assume 100% acceptance for vendors
+            };
+            return acc;
+          }, {});
+        }
+      }
+
+      console.log('Performance data maps:', { gigWorkerPerformanceData, vendorPerformanceData });
 
       // Transform data
       const summaryData: AllocationSummaryData[] = [];
       
-      groupedByGigWorker.forEach((cases, gigWorkerId) => {
+      groupedByAssignee.forEach((cases, assigneeId) => {
         const firstCase = cases[0];
-        const gigWorker = firstCase.gig_partners;
+        const assigneeType = firstCase.current_assignee_type;
         
-        if (gigWorker) {
-          // Get all unique pincodes for this gig worker
-          const pincodes = [...new Set(cases.map(c => c.locations.pincode))];
-          const perf = performanceData[gigWorkerId] || {};
-          
-          console.log(`Performance for gig worker ${gigWorkerId}:`, perf);
-          
-          summaryData.push({
-            gigWorkerId: gigWorker.id,
-            gigWorkerName: `${gigWorker.profiles?.first_name || ''} ${gigWorker.profiles?.last_name || ''}`.trim() || 'Unknown',
-            gigWorkerType: firstCase.current_assignee_type,
-            totalCases: cases.length,
-            assignedCases: cases.map(caseItem => ({
-              caseId: caseItem.id,
-              caseNumber: caseItem.case_number,
-              pincode: caseItem.locations.pincode,
-              pincodeTier: caseItem.locations.pincode_tier
-            })),
-            associatedPincodes: gigWorker.coverage_pincodes || [],
-            qualityScore: perf.quality_score || 0,
-            completionRate: perf.completion_rate || 0,
-            onTimeRate: perf.ontime_completion_rate || 0,
-            acceptanceRate: perf.acceptance_rate || 0
-          });
+        if (assigneeType === 'gig') {
+          const gigWorker = firstCase.gig_partners;
+          if (gigWorker) {
+            const perf = gigWorkerPerformanceData[assigneeId] || {};
+            
+            summaryData.push({
+              assigneeId: gigWorker.id,
+              assigneeName: `${gigWorker.profiles?.first_name || ''} ${gigWorker.profiles?.last_name || ''}`.trim() || 'Unknown',
+              assigneeType: 'gig',
+              totalCases: cases.length,
+              assignedCases: cases.map(caseItem => ({
+                caseId: caseItem.id,
+                caseNumber: caseItem.case_number,
+                pincode: caseItem.locations.pincode,
+                pincodeTier: caseItem.locations.pincode_tier
+              })),
+              associatedPincodes: gigWorker.coverage_pincodes || [],
+              qualityScore: perf.quality_score || 0,
+              completionRate: perf.completion_rate || 0,
+              onTimeRate: perf.ontime_completion_rate || 0,
+              acceptanceRate: perf.acceptance_rate || 0
+            });
+          }
+        } else if (assigneeType === 'vendor') {
+          const vendor = firstCase.vendors;
+          if (vendor) {
+            const perf = vendorPerformanceData[assigneeId] || {};
+            
+            summaryData.push({
+              assigneeId: vendor.id,
+              assigneeName: vendor.name || 'Unknown Vendor',
+              assigneeType: 'vendor',
+              totalCases: cases.length,
+              assignedCases: cases.map(caseItem => ({
+                caseId: caseItem.id,
+                caseNumber: caseItem.case_number,
+                pincode: caseItem.locations.pincode,
+                pincodeTier: caseItem.locations.pincode_tier
+              })),
+              associatedPincodes: vendor.coverage_pincodes || [],
+              qualityScore: perf.quality_score || 0,
+              completionRate: perf.completion_rate || 0,
+              onTimeRate: perf.ontime_completion_rate || 0,
+              acceptanceRate: perf.acceptance_rate || 0
+            });
+          }
         }
       });
 

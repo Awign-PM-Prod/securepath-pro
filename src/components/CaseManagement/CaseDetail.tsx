@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { BonusService } from '@/services/bonusService';
 import { toast } from 'sonner';
+import DynamicFormSubmission from './DynamicFormSubmission';
 import { 
   MapPin, 
   Clock, 
@@ -220,7 +221,8 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="location">Location</TabsTrigger>
           <TabsTrigger value="assignee">Assignee</TabsTrigger>
-          <TabsTrigger value="submissions">Submissions</TabsTrigger>
+          <TabsTrigger value="submissions">Legacy Submissions</TabsTrigger>
+          <TabsTrigger value="dynamic-forms">Dynamic Forms</TabsTrigger>
           <TabsTrigger value="attachments">Attachments</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
         </TabsList>
@@ -576,6 +578,11 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Dynamic Forms Tab */}
+        <TabsContent value="dynamic-forms" className="space-y-6">
+          <DynamicFormSubmission caseId={caseData.id} />
         </TabsContent>
 
         {/* Attachments Tab */}

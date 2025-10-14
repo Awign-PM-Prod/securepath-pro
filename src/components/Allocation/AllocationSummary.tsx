@@ -5,9 +5,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { MapPin, User, Star, CheckCircle } from 'lucide-react';
 
 interface AllocationSummaryData {
-  gigWorkerId: string;
-  gigWorkerName: string;
-  gigWorkerType: 'gig' | 'vendor';
+  assigneeId: string;
+  assigneeName: string;
+  assigneeType: 'gig' | 'vendor';
   totalCases: number;
   assignedCases: {
     caseId: string;
@@ -85,7 +85,7 @@ export default function AllocationSummary({ data, totalAllocated, totalFailed }:
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-48">Gig Worker</TableHead>
+                <TableHead className="w-48">Assignee</TableHead>
                 <TableHead className="w-24">Total Cases</TableHead>
                 <TableHead className="w-48">Assigned Cases</TableHead>
                 <TableHead className="w-48">Coverage Pincodes</TableHead>
@@ -100,9 +100,9 @@ export default function AllocationSummary({ data, totalAllocated, totalFailed }:
                     <div className="flex items-center gap-2">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
-                        <p className="font-medium">{worker.gigWorkerName}</p>
+                        <p className="font-medium">{worker.assigneeName}</p>
                         <p className="text-sm text-muted-foreground capitalize">
-                          {worker.gigWorkerType}
+                          {worker.assigneeType}
                         </p>
                       </div>
                     </div>

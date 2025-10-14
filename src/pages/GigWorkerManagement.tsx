@@ -128,6 +128,7 @@ export default function GigWorkerManagement() {
       ]);
       setGigWorkers(workersData);
       setVendors(vendorsData);
+      console.log('Vendors state set to:', vendorsData);
     } catch (error) {
       console.error('Failed to load data:', error);
       toast({
@@ -222,6 +223,7 @@ export default function GigWorkerManagement() {
   };
 
   const loadVendors = async (): Promise<Vendor[]> => {
+    console.log('Loading vendors...');
     const { data, error } = await supabase
       .from('vendors')
       .select('id, name, email')
@@ -233,6 +235,7 @@ export default function GigWorkerManagement() {
       throw new Error('Failed to load vendors');
     }
 
+    console.log('Vendors loaded:', data);
     return data || [];
   };
 
@@ -1073,6 +1076,7 @@ export default function GigWorkerManagement() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="direct">Direct Gig Worker</SelectItem>
+                            {console.log('Rendering vendors dropdown with vendors:', vendors)}
                             {vendors.map((vendor) => (
                               <SelectItem key={vendor.id} value={vendor.id}>
                                 {vendor.name}

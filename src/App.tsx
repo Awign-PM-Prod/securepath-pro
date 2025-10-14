@@ -18,7 +18,7 @@ import SuperAdminDashboard from "./pages/dashboards/SuperAdminDashboard";
 import OpsDashboard from "./pages/dashboards/OpsDashboard";
 import VendorTeamDashboard from "./pages/dashboards/VendorTeamDashboard";
 import QCDashboard from "./pages/dashboards/QCDashboard";
-import VendorDashboard from "./pages/dashboards/VendorDashboard";
+import VendorDashboard from "./pages/VendorDashboard";
 import GigWorkerDashboard from "./pages/GigWorkerDashboard";
 import GigWorkerAuth from "./pages/GigWorkerAuth";
 import GigWorkerResetPassword from "./pages/GigWorkerResetPassword";
@@ -30,7 +30,10 @@ import ClientContractManagement from "./pages/ClientContractManagement";
 import ContractTypeManagement from "./components/ClientContracts/ContractTypeManagement";
 import PincodeTierManagement from "./pages/PincodeTierManagement";
 import GigWorkerManagement from "./pages/GigWorkerManagement";
+import VendorManagement from "./pages/VendorManagement";
+import FormManagement from "./pages/FormManagement";
 import DatabaseTest from "./pages/DatabaseTest";
+import { TestSelect } from "./components/TestSelect";
 import React from "react";
 
 const queryClient = new QueryClient({
@@ -113,6 +116,9 @@ const App = () => {
                   <Route path="contract-types" element={<ContractTypeManagement />} />
                   <Route path="pincode-tiers" element={<PincodeTierManagement />} />
                   <Route path="gig-workers" element={<GigWorkerManagement />} />
+                  <Route path="vendors" element={<VendorManagement />} />
+                  <Route path="forms" element={<FormManagement />} />
+                  <Route path="test-select" element={<TestSelect />} />
                 </Route>
 
                 <Route path="/vendor-team" element={

@@ -7,6 +7,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { CreateVendorDialog } from '@/components/VendorManagement/CreateVendorDialog';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   Users, 
   Plus, 
@@ -62,125 +65,108 @@ export default function VendorManagement() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const { toast } = useToast();
 
-  // Mock data - in real app, this would come from API
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      
-      // Simulate API calls
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setVendors([
-        {
-          id: '1',
-          name: 'Metro Verification Services',
-          email: 'contact@metroverification.com',
-          phone: '+91 98765 43210',
-          contact_person: 'Rajesh Kumar',
-          address: '123 Business Park, Sector 5',
-          city: 'Mumbai',
-          state: 'Maharashtra',
-          pincode: '400001',
-          is_active: true,
-          total_gig_workers: 25,
-          active_gig_workers: 22,
-          total_cases: 456,
-          completed_cases: 432,
-          quality_score: 94.2,
-          created_at: '2024-01-15T10:00:00Z',
-        },
-        {
-          id: '2',
-          name: 'Delhi Verification Co.',
-          email: 'info@delhiverification.com',
-          phone: '+91 98765 43211',
-          contact_person: 'Priya Sharma',
-          address: '456 Corporate Plaza, Connaught Place',
-          city: 'New Delhi',
-          state: 'Delhi',
-          pincode: '110001',
-          is_active: true,
-          total_gig_workers: 18,
-          active_gig_workers: 16,
-          total_cases: 289,
-          completed_cases: 267,
-          quality_score: 91.8,
-          created_at: '2024-02-01T10:00:00Z',
-        },
-        {
-          id: '3',
-          name: 'South India Verifications',
-          email: 'admin@southverification.com',
-          phone: '+91 98765 43212',
-          contact_person: 'Kumar Rajan',
-          address: '789 Tech Hub, Electronic City',
-          city: 'Bangalore',
-          state: 'Karnataka',
-          pincode: '560001',
-          is_active: false,
-          total_gig_workers: 12,
-          active_gig_workers: 0,
-          total_cases: 156,
-          completed_cases: 142,
-          quality_score: 89.5,
-          created_at: '2024-01-20T10:00:00Z',
-        },
-      ]);
-
-      setGigWorkers([
-        {
-          id: 'gw1',
-          name: 'Amit Singh',
-          email: 'amit@metroverification.com',
-          phone: '+91 98765 43213',
-          vendor_id: '1',
-          is_active: true,
-          coverage_pincodes: ['400001', '400002', '400003'],
-          max_daily_capacity: 8,
-          current_capacity: 3,
-          total_cases: 45,
-          completed_cases: 42,
-          quality_score: 95.2,
-          last_active: '2024-01-20T15:30:00Z',
-        },
-        {
-          id: 'gw2',
-          name: 'Sunita Patel',
-          email: 'sunita@metroverification.com',
-          phone: '+91 98765 43214',
-          vendor_id: '1',
-          is_active: true,
-          coverage_pincodes: ['400004', '400005', '400006'],
-          max_daily_capacity: 6,
-          current_capacity: 1,
-          total_cases: 38,
-          completed_cases: 36,
-          quality_score: 92.8,
-          last_active: '2024-01-20T14:15:00Z',
-        },
-        {
-          id: 'gw3',
-          name: 'Vikram Mehta',
-          email: 'vikram@delhiverification.com',
-          phone: '+91 98765 43215',
-          vendor_id: '2',
-          is_active: true,
-          coverage_pincodes: ['110001', '110002', '110003'],
-          max_daily_capacity: 10,
-          current_capacity: 4,
-          total_cases: 52,
-          completed_cases: 48,
-          quality_score: 93.5,
-          last_active: '2024-01-20T16:45:00Z',
-        },
-      ]);
-
-      setIsLoading(false);
-    };
-
     loadData();
   }, []);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      // Load vendors
+      const { data: vendorsData, error: vendorsError } = await supabase
+        .from('vendors')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (vendorsError) {
+        throw vendorsError;
+      }
+
+      // Transform vendors data
+      const transformedVendors = (vendorsData || []).map(vendor => ({
+        id: vendor.id,
+        name: vendor.name,
+        email: vendor.email,
+        phone: vendor.phone || '',
+        contact_person: vendor.contact_person || '',
+        address: vendor.address || '',
+        city: vendor.city || '',
+        state: vendor.state || '',
+        pincode: vendor.pincode || '',
+        is_active: vendor.is_active,
+        total_gig_workers: vendor.roster_size || 0,
+        active_gig_workers: 0, // Will be calculated from gig_workers
+        total_cases: vendor.total_cases_assigned || 0,
+        completed_cases: 0, // Will be calculated from cases
+        quality_score: vendor.quality_score || 0,
+        created_at: vendor.created_at,
+      }));
+
+      setVendors(transformedVendors);
+
+      // Load gig workers
+      const { data: gigWorkersData, error: gigWorkersError } = await supabase
+        .from('gig_partners')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (gigWorkersError) {
+        throw gigWorkersError;
+      }
+
+      // Load profiles for gig workers
+      const profileIds = (gigWorkersData || []).map(worker => worker.profile_id).filter(Boolean);
+      let profilesData = [];
+      
+      if (profileIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email, phone')
+          .in('id', profileIds);
+        
+        if (profilesError) {
+          console.warn('Error loading profiles:', profilesError);
+        } else {
+          profilesData = profiles || [];
+        }
+      }
+
+      // Transform gig workers data
+      const transformedGigWorkers = (gigWorkersData || []).map(worker => {
+        const profile = profilesData.find(p => p.id === worker.profile_id);
+        return {
+          id: worker.id,
+          name: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : 'Unknown',
+          email: profile?.email || '',
+          phone: profile?.phone || worker.phone || '',
+          vendor_id: worker.vendor_id || '',
+          is_active: worker.is_active,
+          coverage_pincodes: worker.coverage_pincodes || [],
+          max_daily_capacity: worker.max_daily_capacity || 0,
+          current_capacity: worker.capacity_available || 0,
+          total_cases: worker.total_cases_completed || 0,
+          completed_cases: worker.total_cases_completed || 0,
+          quality_score: worker.quality_score || 0,
+          last_active: worker.last_seen_at || worker.updated_at,
+        };
+      });
+
+      setGigWorkers(transformedGigWorkers);
+
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load vendor data',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredVendors = vendors.filter(vendor => {
     const matchesSearch = 
@@ -233,7 +219,7 @@ export default function VendorManagement() {
             <UserPlus className="h-4 w-4 mr-2" />
             Add Gig Worker
           </Button>
-          <Button>
+          <Button onClick={() => setIsCreateDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Add Vendor
           </Button>
@@ -580,6 +566,13 @@ export default function VendorManagement() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Create Vendor Dialog */}
+      <CreateVendorDialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        onVendorCreated={loadData}
+      />
     </div>
   );
 }

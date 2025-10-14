@@ -124,8 +124,12 @@ export default function CaseListWithAllocation({
   const [unallocationReason, setUnallocationReason] = useState('');
   const [isManualAllocationDialogOpen, setIsManualAllocationDialogOpen] = useState(false);
   const [availableGigWorkers, setAvailableGigWorkers] = useState<any[]>([]);
+  const [availableVendors, setAvailableVendors] = useState<any[]>([]);
   const [selectedGigWorker, setSelectedGigWorker] = useState<string>('');
+  const [selectedVendor, setSelectedVendor] = useState<string>('');
+  const [allocationType, setAllocationType] = useState<'gig' | 'vendor'>('gig');
   const [isLoadingGigWorkers, setIsLoadingGigWorkers] = useState(false);
+  const [isLoadingVendors, setIsLoadingVendors] = useState(false);
   const [activeTab, setActiveTab] = useState<'cases' | 'csv'>('cases');
   const { toast } = useToast();
 
@@ -248,9 +252,10 @@ export default function CaseListWithAllocation({
     }
     
     setIsLoadingGigWorkers(true);
+    setIsLoadingVendors(true);
     try {
       // Load available gig workers
-      const { data: gigWorkers, error } = await supabase
+      const { data: gigWorkers, error: gigError } = await supabase
         .from('gig_partners')
         .select(`
           id,
@@ -272,28 +277,56 @@ export default function CaseListWithAllocation({
         .gt('capacity_available', 0)
         .order('capacity_available', { ascending: false });
 
-      if (error) throw error;
+      if (gigError) throw gigError;
+
+      // Load available vendors
+      const { data: vendors, error: vendorError } = await supabase
+        .from('vendors')
+        .select(`
+          id,
+          name,
+          capacity_available,
+          max_daily_capacity,
+          quality_score,
+          performance_score
+        `)
+        .eq('is_active', true)
+        .gt('capacity_available', 0)
+        .order('capacity_available', { ascending: false });
+
+      if (vendorError) throw vendorError;
 
       setAvailableGigWorkers(gigWorkers || []);
+      setAvailableVendors(vendors || []);
       setIsManualAllocationDialogOpen(true);
       setIsAllocationDialogOpen(false);
     } catch (error) {
-      console.error('Failed to load gig workers:', error);
+      console.error('Failed to load allocation options:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load available gig workers',
+        description: 'Failed to load available allocation options',
         variant: 'destructive',
       });
     } finally {
       setIsLoadingGigWorkers(false);
+      setIsLoadingVendors(false);
     }
   };
 
   const handleManualAllocationConfirm = async () => {
-    if (!selectedGigWorker) {
+    if (allocationType === 'gig' && !selectedGigWorker) {
       toast({
         title: 'No Gig Worker Selected',
         description: 'Please select a gig worker for manual allocation',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (allocationType === 'vendor' && !selectedVendor) {
+      toast({
+        title: 'No Vendor Selected',
+        description: 'Please select a vendor for manual allocation',
         variant: 'destructive',
       });
       return;
@@ -307,18 +340,29 @@ export default function CaseListWithAllocation({
         errors: [] as string[]
       };
 
-      // Allocate each selected case to the chosen gig worker
+      // Allocate each selected case to the chosen gig worker or vendor
       for (const caseId of selectedAllocatableCases) {
         try {
           const caseItem = cases.find(c => c.id === caseId);
           if (!caseItem) continue;
 
-          const result = await allocationService.allocateCaseManually({
-            caseId,
-            gigWorkerId: selectedGigWorker,
-            pincode: caseItem.location.pincode,
-            pincodeTier: caseItem.location.pincode_tier || 'tier_1'
-          });
+          let result;
+          if (allocationType === 'gig') {
+            result = await allocationService.allocateCaseManually({
+              caseId,
+              gigWorkerId: selectedGigWorker,
+              pincode: caseItem.location.pincode,
+              pincodeTier: caseItem.location.pincode_tier || 'tier_1'
+            });
+          } else {
+            // For vendor allocation, we'll need to update the allocationService
+            result = await allocationService.allocateCaseToVendor({
+              caseId,
+              vendorId: selectedVendor,
+              pincode: caseItem.location.pincode,
+              pincodeTier: caseItem.location.pincode_tier || 'tier_1'
+            });
+          }
 
           if (result.success) {
             results.successful++;
@@ -335,6 +379,8 @@ export default function CaseListWithAllocation({
       setAllocationResults(results);
       setSelectedCases(new Set());
       setSelectedGigWorker('');
+      setSelectedVendor('');
+      setAllocationType('gig');
       setIsManualAllocationDialogOpen(false);
 
       toast({
@@ -958,46 +1004,112 @@ export default function CaseListWithAllocation({
             <DialogHeader>
               <DialogTitle>Manual Allocation</DialogTitle>
               <DialogDescription>
-                Select a gig worker to manually assign {selectedAllocatableCases.length} case{selectedAllocatableCases.length !== 1 ? 's' : ''}.
+                Select allocation type and assignee to manually assign {selectedAllocatableCases.length} case{selectedAllocatableCases.length !== 1 ? 's' : ''}.
               </DialogDescription>
             </DialogHeader>
             
             <div className="space-y-4">
-              {isLoadingGigWorkers ? (
+              {/* Allocation Type Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Allocation Type</label>
+                <div className="flex space-x-4">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      value="gig"
+                      checked={allocationType === 'gig'}
+                      onChange={(e) => {
+                        setAllocationType(e.target.value as 'gig' | 'vendor');
+                        setSelectedGigWorker('');
+                        setSelectedVendor('');
+                      }}
+                      className="text-blue-600"
+                    />
+                    <span className="text-sm">Direct Gig Worker</span>
+                  </label>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      value="vendor"
+                      checked={allocationType === 'vendor'}
+                      onChange={(e) => {
+                        setAllocationType(e.target.value as 'gig' | 'vendor');
+                        setSelectedGigWorker('');
+                        setSelectedVendor('');
+                      }}
+                      className="text-blue-600"
+                    />
+                    <span className="text-sm">Vendor</span>
+                  </label>
+                </div>
+              </div>
+
+              {isLoadingGigWorkers || isLoadingVendors ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-sm text-muted-foreground">Loading available gig workers...</div>
+                  <div className="text-sm text-muted-foreground">Loading available options...</div>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div>
-                    <label htmlFor="gig-worker-select" className="text-sm font-medium">
-                      Select Gig Worker
-                    </label>
-                    <Select value={selectedGigWorker} onValueChange={setSelectedGigWorker}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Choose a gig worker..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableGigWorkers.map((worker) => (
-                          <SelectItem key={worker.id} value={worker.id}>
-                            <div className="flex items-center justify-between w-full">
-                              <span>
-                                {worker.profiles?.first_name} {worker.profiles?.last_name}
-                              </span>
-                              <div className="flex items-center space-x-2 text-xs text-muted-foreground ml-4">
-                                <span>Capacity: {worker.capacity_available}/{worker.max_daily_capacity}</span>
-                                {worker.performance_metrics && (
-                                  <span>Quality: {Math.round(worker.performance_metrics.quality_score * 100)}%</span>
-                                )}
+                  {/* Gig Worker Selection */}
+                  {allocationType === 'gig' && (
+                    <div>
+                      <label htmlFor="gig-worker-select" className="text-sm font-medium">
+                        Select Gig Worker
+                      </label>
+                      <Select value={selectedGigWorker} onValueChange={setSelectedGigWorker}>
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Choose a gig worker..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableGigWorkers.map((worker) => (
+                            <SelectItem key={worker.id} value={worker.id}>
+                              <div className="flex items-center justify-between w-full">
+                                <span>
+                                  {worker.profiles?.first_name} {worker.profiles?.last_name}
+                                </span>
+                                <div className="flex items-center space-x-2 text-xs text-muted-foreground ml-4">
+                                  <span>Capacity: {worker.capacity_available}/{worker.max_daily_capacity}</span>
+                                  {worker.performance_metrics && (
+                                    <span>Quality: {Math.round(worker.performance_metrics.quality_score * 100)}%</span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-                  {availableGigWorkers.length === 0 && (
+                  {/* Vendor Selection */}
+                  {allocationType === 'vendor' && (
+                    <div>
+                      <label htmlFor="vendor-select" className="text-sm font-medium">
+                        Select Vendor
+                      </label>
+                      <Select value={selectedVendor} onValueChange={setSelectedVendor}>
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Choose a vendor..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableVendors.map((vendor) => (
+                            <SelectItem key={vendor.id} value={vendor.id}>
+                              <div className="flex items-center justify-between w-full">
+                                <span>{vendor.name}</span>
+                                <div className="flex items-center space-x-2 text-xs text-muted-foreground ml-4">
+                                  <span>Capacity: {vendor.capacity_available}/{vendor.max_daily_capacity}</span>
+                                  <span>Quality: {Math.round((vendor.quality_score || 0) * 100)}%</span>
+                                </div>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {/* No options available alerts */}
+                  {allocationType === 'gig' && availableGigWorkers.length === 0 && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription>
@@ -1006,7 +1118,17 @@ export default function CaseListWithAllocation({
                     </Alert>
                   )}
 
-                  {selectedGigWorker && (
+                  {allocationType === 'vendor' && availableVendors.length === 0 && (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        No available vendors found. All vendors may be at capacity or unavailable.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Selected Gig Worker Details */}
+                  {allocationType === 'gig' && selectedGigWorker && (
                     <div className="bg-muted p-4 rounded-lg">
                       <h4 className="font-medium mb-2">Selected Gig Worker Details</h4>
                       {(() => {
@@ -1041,6 +1163,33 @@ export default function CaseListWithAllocation({
                       })()}
                     </div>
                   )}
+
+                  {/* Selected Vendor Details */}
+                  {allocationType === 'vendor' && selectedVendor && (
+                    <div className="bg-muted p-4 rounded-lg">
+                      <h4 className="font-medium mb-2">Selected Vendor Details</h4>
+                      {(() => {
+                        const vendor = availableVendors.find(v => v.id === selectedVendor);
+                        if (!vendor) return null;
+                        return (
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium">Name:</span> {vendor.name}
+                            </div>
+                            <div>
+                              <span className="font-medium">Capacity:</span> {vendor.capacity_available}/{vendor.max_daily_capacity}
+                            </div>
+                            <div>
+                              <span className="font-medium">Quality Score:</span> {Math.round((vendor.quality_score || 0) * 100)}%
+                            </div>
+                            <div>
+                              <span className="font-medium">Performance Score:</span> {Math.round((vendor.performance_score || 0) * 100)}%
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1051,6 +1200,8 @@ export default function CaseListWithAllocation({
                 onClick={() => {
                   setIsManualAllocationDialogOpen(false);
                   setSelectedGigWorker('');
+                  setSelectedVendor('');
+                  setAllocationType('gig');
                 }}
                 disabled={isAllocating}
               >
@@ -1058,7 +1209,8 @@ export default function CaseListWithAllocation({
               </Button>
               <Button
                 onClick={handleManualAllocationConfirm}
-                disabled={!selectedGigWorker || isAllocating || availableGigWorkers.length === 0}
+                disabled={isAllocating || (allocationType === 'gig' && !selectedGigWorker) || (allocationType === 'vendor' && !selectedVendor)}
+                className="bg-blue-600 hover:bg-blue-700"
               >
                 {isAllocating ? (
                   <>
@@ -1066,7 +1218,10 @@ export default function CaseListWithAllocation({
                     Allocating...
                   </>
                 ) : (
-                  'Allocate Cases'
+                  <>
+                    <Users className="h-4 w-4 mr-2" />
+                    Allocate Cases
+                  </>
                 )}
               </Button>
             </DialogFooter>

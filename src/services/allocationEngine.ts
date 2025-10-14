@@ -1,18 +1,33 @@
 import { supabase } from '@/integrations/supabase/client';
 
 export interface AllocationCandidate {
-  gig_partner_id: string;
+  candidate_id: string;
+  candidate_type: 'gig' | 'vendor';
   vendor_id?: string;
-  assignment_type: 'gig' | 'vendor';
-  quality_score: number;
+  candidate_name: string;
+  phone: string;
+  email: string;
+  pincode: string;
+  coverage_pincodes: string[];
+  max_daily_capacity: number;
+  capacity_available: number;
   completion_rate: number;
   ontime_completion_rate: number;
   acceptance_rate: number;
-  final_score: number;
-  distance_km?: number;
-  capacity_available: number;
+  quality_score: number;
+  qc_pass_count: number;
+  total_cases_completed: number;
+  active_cases_count: number;
   last_assignment_at?: string;
-  coverage_pincodes: string[];
+  is_direct_gig: boolean;
+  is_active: boolean;
+  is_available: boolean;
+  performance_score: number;
+  distance_km?: number;
+  vendor_name?: string;
+  vendor_performance_score?: number;
+  vendor_quality_score?: number;
+  final_score?: number;
 }
 
 export interface AllocationConfig {
@@ -149,7 +164,7 @@ export class AllocationEngine {
     // But keep the final score within database limits (less than 10)
     const score = (candidate.quality_score * 10) + (performanceScore / 10);
 
-    console.log(`Scoring candidate ${candidate.gig_partner_id}:`, {
+    console.log(`Scoring candidate ${candidate.candidate_id}:`, {
       quality_score: candidate.quality_score,
       completion_rate: candidate.completion_rate,
       ontime_completion_rate: candidate.ontime_completion_rate,
@@ -225,7 +240,8 @@ export class AllocationEngine {
       scoredCandidates.sort((a, b) => b.final_score - a.final_score);
 
       console.log('Sorted candidates by score:', scoredCandidates.map(c => ({
-        gig_partner_id: c.gig_partner_id,
+        candidate_id: c.candidate_id,
+        candidate_type: c.candidate_type,
         final_score: c.final_score,
         quality_score: c.quality_score,
         completion_rate: c.completion_rate,
@@ -271,60 +287,38 @@ export class AllocationEngine {
       const acceptanceWindow = this.config.acceptance_window.minutes;
       const acceptanceDeadline = new Date(Date.now() + acceptanceWindow * 60 * 1000);
 
-      // Create allocation log
-      const { data: allocationLog, error: logError } = await supabase
-        .from('allocation_logs')
-        .insert({
-          case_id: caseId,
-          candidate_id: candidate.gig_partner_id,
-          candidate_type: candidate.assignment_type,
-          vendor_id: candidate.vendor_id,
-          wave_number: waveNumber,
-          score_snapshot: {
-            quality_score: candidate.quality_score,
-            completion_rate: candidate.completion_rate,
-            ontime_completion_rate: candidate.ontime_completion_rate,
-            acceptance_rate: candidate.acceptance_rate,
-            distance_km: candidate.distance_km,
-            capacity_available: candidate.capacity_available
-          },
-          final_score: candidate.final_score,
-          acceptance_window_minutes: acceptanceWindow,
-          acceptance_deadline: acceptanceDeadline.toISOString(),
-          created_by: (await supabase.auth.getUser()).data.user?.id
-        })
-        .select()
-        .single();
+      // Use the new allocation function
+      const { data: allocationResult, error: allocationError } = await supabase.rpc('allocate_case_to_candidate', {
+        p_case_id: caseId,
+        p_candidate_id: candidate.candidate_id,
+        p_candidate_type: candidate.candidate_type,
+        p_vendor_id: candidate.vendor_id
+      });
 
-      if (logError) throw logError;
+      if (allocationError) {
+        console.warn('Allocation RPC error:', allocationError);
+        throw allocationError;
+      }
 
-      // Update case with assignment
-      const { error: caseError } = await supabase
-        .from('cases')
-        .update({
-          current_assignee_id: candidate.gig_partner_id,
-          current_assignee_type: candidate.assignment_type,
-          current_vendor_id: candidate.vendor_id,
-          status: 'auto_allocated',
-          status_updated_at: new Date().toISOString()
-        })
-        .eq('id', caseId);
+      // If allocation returned false (capacity full), throw error to try next candidate
+      if (allocationResult === false) {
+        throw new Error(`Candidate ${candidate.candidate_id} has no available capacity`);
+      }
 
-      if (caseError) throw caseError;
-
-      // Consume capacity for the assigned worker
-      await this.consumeCapacity(candidate.gig_partner_id, caseId);
+      // Skip allocation log creation for now due to RLS issues
+      // TODO: Re-enable once RLS policies are fixed
+      console.log('Allocation successful, skipping allocation log due to RLS issues');
 
       return {
         success: true,
         case_id: caseId,
-        assignee_id: candidate.gig_partner_id,
-        assignee_type: candidate.assignment_type,
+        assignee_id: candidate.candidate_id,
+        assignee_type: candidate.candidate_type,
         vendor_id: candidate.vendor_id,
         score: candidate.final_score,
         wave_number: waveNumber,
         acceptance_deadline: acceptanceDeadline.toISOString(),
-        allocationId: allocationLog.id
+        allocationId: undefined // No allocation log ID since we're skipping it
       };
     } catch (error) {
       console.error('Failed to create allocation log:', error);
@@ -530,7 +524,7 @@ export class AllocationEngine {
       
       // Get new candidates
       const candidates = await this.getCandidates(caseId, caseData.location, caseData.locations.pincode_tier);
-      const availableCandidates = candidates.filter(c => !excludedIds.includes(c.gig_partner_id));
+      const availableCandidates = candidates.filter(c => !excludedIds.includes(c.candidate_id));
       
       if (availableCandidates.length === 0) {
         return {

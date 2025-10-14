@@ -112,65 +112,103 @@ export class CaseService {
             pincode,
             lat,
             lng
-          ),
-          gig_partners!current_assignee_id (
-            id,
-            profiles!inner (
-              first_name,
-              last_name,
-              email,
-              phone
-            )
           )
         `)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      return data?.map(caseItem => ({
-        id: caseItem.id,
-        case_number: caseItem.case_number,
-        client_case_id: caseItem.client_case_id,
-        contract_type: caseItem.contract_type,
-        candidate_name: caseItem.candidate_name,
-        phone_primary: caseItem.phone_primary,
-        phone_secondary: caseItem.phone_secondary,
-        status: caseItem.status,
-        client: {
-          id: caseItem.clients.id,
-          name: caseItem.clients.name,
-          contact_person: caseItem.clients.contact_person,
-          phone: caseItem.clients.phone,
-          email: caseItem.clients.email,
-        },
-        location: {
-          id: caseItem.locations.id,
-          address_line: caseItem.locations.address_line,
-          city: caseItem.locations.city,
-          state: caseItem.locations.state,
-          pincode: caseItem.locations.pincode,
-          lat: caseItem.locations.lat,
-          lng: caseItem.locations.lng,
-        },
-        current_assignee: caseItem.current_assignee_id && caseItem.gig_partners ? {
-          id: caseItem.gig_partners.id,
-          name: `${caseItem.gig_partners.profiles?.first_name || ''} ${caseItem.gig_partners.profiles?.last_name || ''}`.trim() || 'Unknown',
-          type: caseItem.current_assignee_type as 'gig' | 'vendor',
-        } : undefined,
-        vendor_tat_start_date: caseItem.vendor_tat_start_date,
-        due_at: caseItem.due_at,
-        base_rate_inr: caseItem.base_rate_inr,
-        bonus_inr: caseItem.bonus_inr,
-        penalty_inr: caseItem.penalty_inr,
-        total_payout_inr: caseItem.total_payout_inr,
-        tat_hours: caseItem.tat_hours,
-        instructions: '', // Will be extracted from metadata
-        created_at: caseItem.created_at,
-        updated_at: caseItem.updated_at,
-        created_by: caseItem.created_by,
-        last_updated_by: caseItem.last_updated_by,
-        status_updated_at: caseItem.status_updated_at,
-      })) || [];
+      // Get assignee information separately for both gig workers and vendors
+      const casesWithAssignees = await Promise.all(
+        data?.map(async (caseItem) => {
+          let assigneeInfo = null;
+
+          if (caseItem.current_assignee_id && caseItem.current_assignee_type) {
+            if (caseItem.current_assignee_type === 'gig') {
+              // Get gig worker info
+              const { data: gigWorker } = await supabase
+                .from('gig_partners')
+                .select(`
+                  id,
+                  profiles!inner (
+                    first_name,
+                    last_name,
+                    email,
+                    phone
+                  )
+                `)
+                .eq('id', caseItem.current_assignee_id)
+                .single();
+
+              if (gigWorker) {
+                assigneeInfo = {
+                  id: gigWorker.id,
+                  name: `${gigWorker.profiles?.first_name || ''} ${gigWorker.profiles?.last_name || ''}`.trim() || 'Unknown',
+                  type: 'gig' as const,
+                };
+              }
+            } else if (caseItem.current_assignee_type === 'vendor') {
+              // Get vendor info
+              const { data: vendor } = await supabase
+                .from('vendors')
+                .select('id, name')
+                .eq('id', caseItem.current_assignee_id)
+                .single();
+
+              if (vendor) {
+                assigneeInfo = {
+                  id: vendor.id,
+                  name: vendor.name || 'Unknown Vendor',
+                  type: 'vendor' as const,
+                };
+              }
+            }
+          }
+
+          return {
+            id: caseItem.id,
+            case_number: caseItem.case_number,
+            client_case_id: caseItem.client_case_id,
+            contract_type: caseItem.contract_type,
+            candidate_name: caseItem.candidate_name,
+            phone_primary: caseItem.phone_primary,
+            phone_secondary: caseItem.phone_secondary,
+            status: caseItem.status,
+            client: {
+              id: caseItem.clients.id,
+              name: caseItem.clients.name,
+              contact_person: caseItem.clients.contact_person,
+              phone: caseItem.clients.phone,
+              email: caseItem.clients.email,
+            },
+            location: {
+              id: caseItem.locations.id,
+              address_line: caseItem.locations.address_line,
+              city: caseItem.locations.city,
+              state: caseItem.locations.state,
+              pincode: caseItem.locations.pincode,
+              lat: caseItem.locations.lat,
+              lng: caseItem.locations.lng,
+            },
+            current_assignee: assigneeInfo,
+            vendor_tat_start_date: caseItem.vendor_tat_start_date,
+            due_at: caseItem.due_at,
+            base_rate_inr: caseItem.base_rate_inr,
+            bonus_inr: caseItem.bonus_inr,
+            penalty_inr: caseItem.penalty_inr,
+            total_payout_inr: caseItem.total_payout_inr,
+            tat_hours: caseItem.tat_hours,
+            instructions: '', // Will be extracted from metadata
+            created_at: caseItem.created_at,
+            updated_at: caseItem.updated_at,
+            created_by: caseItem.created_by,
+            last_updated_by: caseItem.last_updated_by,
+            status_updated_at: caseItem.status_updated_at,
+          };
+        }) || []
+      );
+
+      return casesWithAssignees;
     } catch (error) {
       console.error('Failed to fetch cases:', error);
       return [];

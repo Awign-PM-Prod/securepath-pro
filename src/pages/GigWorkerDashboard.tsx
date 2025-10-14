@@ -13,6 +13,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { gigWorkerService } from '@/services/gigWorkerService';
 import NotificationCenter from '@/components/NotificationCenter';
+import { DynamicForm } from '@/components/DynamicForm';
+import { FormData } from '@/types/form';
+import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
 
 interface AllocatedCase {
   id: string;
@@ -33,6 +36,8 @@ interface AllocatedCase {
   base_rate_inr: number;
   total_payout_inr: number;
   acceptance_deadline: string;
+  is_direct_gig: boolean;
+  vendor_id?: string;
   clients: {
     name: string;
   };
@@ -70,6 +75,8 @@ export default function GigWorkerDashboard() {
   });
   const [rejectReason, setRejectReason] = useState('');
   const [gigWorkerId, setGigWorkerId] = useState<string>('');
+  const [selectedSubmissionCase, setSelectedSubmissionCase] = useState<AllocatedCase | null>(null);
+  const [isViewSubmissionDialogOpen, setIsViewSubmissionDialogOpen] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -305,6 +312,47 @@ export default function GigWorkerDashboard() {
     }
   };
 
+  const handleDynamicFormSubmit = async (formData: FormData) => {
+    if (!selectedCase || !gigWorkerId) return;
+
+    setIsSubmitting(true);
+    try {
+      const result = await gigWorkerService.submitCase({
+        caseId: selectedCase.id,
+        gigWorkerId,
+        formData: formData,
+        notes: '', // Will be handled by the form
+        submissionLat: 0, // Will be handled by the form
+        submissionLng: 0, // Will be handled by the form
+        submissionAddress: '', // Will be handled by the form
+      });
+
+      if (result.success) {
+        toast({
+          title: 'Success',
+          description: 'Case submitted successfully!',
+        });
+        setIsSubmissionDialogOpen(false);
+        loadAllocatedCases();
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'Failed to submit case',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error submitting case:', error);
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'auto_allocated':
@@ -449,7 +497,7 @@ export default function GigWorkerDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
-                            ₹{caseItem.total_payout_inr}
+{caseItem.is_direct_gig ? `₹${caseItem.total_payout_inr}` : 'Contact Vendor'}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -537,7 +585,7 @@ export default function GigWorkerDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
-                            ₹{caseItem.total_payout_inr}
+{caseItem.is_direct_gig ? `₹${caseItem.total_payout_inr}` : 'Contact Vendor'}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -592,6 +640,7 @@ export default function GigWorkerDashboard() {
                       <TableHead>Payout</TableHead>
                       <TableHead>Submitted At</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -619,7 +668,7 @@ export default function GigWorkerDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
-                            ₹{caseItem.total_payout_inr}
+{caseItem.is_direct_gig ? `₹${caseItem.total_payout_inr}` : 'Contact Vendor'}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -629,6 +678,19 @@ export default function GigWorkerDashboard() {
                         </TableCell>
                         <TableCell>
                           {getStatusBadge(caseItem.status)}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedSubmissionCase(caseItem);
+                              setIsViewSubmissionDialogOpen(true);
+                            }}
+                          >
+                            <FileText className="h-4 w-4 mr-2" />
+                            View Submission
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -665,7 +727,7 @@ export default function GigWorkerDashboard() {
                   <span className="font-medium">Location:</span> {selectedCase.locations?.city}
                 </div>
                 <div>
-                  <span className="font-medium">Payout:</span> ₹{selectedCase.total_payout_inr}
+                  <span className="font-medium">Payout:</span> {selectedCase.is_direct_gig ? `₹${selectedCase.total_payout_inr}` : 'Contact Vendor'}
                 </div>
                 <div>
                   <span className="font-medium">Due Date:</span> {format(new Date(selectedCase.due_at), 'MMM dd, yyyy HH:mm')}
@@ -718,44 +780,41 @@ export default function GigWorkerDashboard() {
 
       {/* Submit Case Dialog */}
       <Dialog open={isSubmissionDialogOpen} onOpenChange={setIsSubmissionDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Submit Case</DialogTitle>
             <DialogDescription>
               Fill in the verification details and submit your findings.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Verification Notes:</label>
-              <textarea
-                className="w-full mt-1 p-2 border rounded-md"
-                rows={4}
-                value={submissionData.notes}
-                onChange={(e) => setSubmissionData(prev => ({ ...prev, notes: e.target.value }))}
-                placeholder="Describe your verification findings..."
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Additional Information:</label>
-              <textarea
-                className="w-full mt-1 p-2 border rounded-md"
-                rows={3}
-                value={submissionData.answers.notes || ''}
-                onChange={(e) => setSubmissionData(prev => ({ 
-                  ...prev, 
-                  answers: { ...prev.answers, notes: e.target.value }
-                }))}
-                placeholder="Any additional information about the verification..."
-              />
-            </div>
-          </div>
+          {selectedCase && (
+            <DynamicForm
+              contractTypeId={selectedCase.contract_type}
+              caseId={selectedCase.id}
+              gigWorkerId={gigWorkerId}
+              onSubmit={handleDynamicFormSubmit}
+              onCancel={() => setIsSubmissionDialogOpen(false)}
+              loading={isSubmitting}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* View Form Submission Dialog */}
+      <Dialog open={isViewSubmissionDialogOpen} onOpenChange={setIsViewSubmissionDialogOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Form Submission Details</DialogTitle>
+            <DialogDescription>
+              View the submitted form data and files for this case.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedSubmissionCase && (
+            <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSubmissionDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmitCase} disabled={isSubmitting}>
-              {isSubmitting ? 'Submitting...' : 'Submit Case'}
+            <Button variant="outline" onClick={() => setIsViewSubmissionDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

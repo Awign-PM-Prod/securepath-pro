@@ -17,6 +17,13 @@ export interface ManualAllocationRequest {
   pincodeTier: string;
 }
 
+export interface VendorAllocationRequest {
+  caseId: string;
+  vendorId: string;
+  pincode: string;
+  pincodeTier: string;
+}
+
 export interface AllocationResponse {
   success: boolean;
   allocationId?: string;
@@ -327,6 +334,160 @@ export class AllocationService {
   }
 
   /**
+   * Manually allocate a case to a specific vendor
+   */
+  async allocateCaseToVendor(request: VendorAllocationRequest): Promise<AllocationResponse> {
+    console.log('Starting vendor allocation for case:', request.caseId, 'to vendor:', request.vendorId);
+    
+    try {
+      // Verify the vendor exists and has capacity
+      const { data: vendor, error: vendorError } = await supabase
+        .from('vendors')
+        .select('id, capacity_available, max_daily_capacity, is_active')
+        .eq('id', request.vendorId)
+        .single();
+
+      if (vendorError || !vendor) {
+        return {
+          success: false,
+          error: 'Vendor not found'
+        };
+      }
+
+      if (!vendor.is_active) {
+        return {
+          success: false,
+          error: 'Vendor is not active'
+        };
+      }
+
+      if (vendor.capacity_available <= 0) {
+        return {
+          success: false,
+          error: 'Vendor has no available capacity'
+        };
+      }
+
+      // Get case details
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select('id, case_number, status, current_assignee_id')
+        .eq('id', request.caseId)
+        .single();
+
+      if (caseError || !caseData) {
+        return {
+          success: false,
+          error: 'Case not found'
+        };
+      }
+
+      if (caseData.status !== 'created') {
+        return {
+          success: false,
+          error: 'Case is not in created status'
+        };
+      }
+
+      if (caseData.current_assignee_id) {
+        return {
+          success: false,
+          error: 'Case is already assigned'
+        };
+      }
+
+      // Create allocation log
+      const { data: allocationLog, error: logError } = await supabase
+        .from('allocation_logs')
+        .insert({
+          case_id: request.caseId,
+          candidate_id: request.vendorId, // This will be the vendor ID
+          candidate_type: 'vendor',
+          vendor_id: request.vendorId,
+          allocated_at: new Date().toISOString(),
+          decision: 'allocated',
+          decision_at: new Date().toISOString(),
+          wave_number: 1,
+          score_snapshot: {
+            manual_allocation: true,
+            allocated_by: 'ops_team',
+            vendor_allocation: true
+          },
+          final_score: 1.0, // Perfect score for manual allocation
+          acceptance_window_minutes: 30,
+          acceptance_deadline: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+          created_by: (await supabase.auth.getUser()).data.user?.id
+        })
+        .select()
+        .single();
+
+      if (logError) {
+        console.error('Failed to create allocation log:', logError);
+        return {
+          success: false,
+          error: 'Failed to create allocation log'
+        };
+      }
+
+      // Update case with assignment
+      const { error: caseUpdateError } = await supabase
+        .from('cases')
+        .update({
+          current_assignee_id: request.vendorId,
+          current_assignee_type: 'vendor',
+          current_vendor_id: request.vendorId,
+          status: 'auto_allocated',
+          status_updated_at: new Date().toISOString(),
+          last_updated_by: (await supabase.auth.getUser()).data.user?.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', request.caseId);
+
+      if (caseUpdateError) {
+        console.error('Failed to update case:', caseUpdateError);
+        return {
+          success: false,
+          error: 'Failed to update case assignment'
+        };
+      }
+
+      // Consume vendor capacity
+      const { error: capacityError } = await supabase.rpc('consume_vendor_capacity', {
+        p_vendor_id: request.vendorId,
+        p_cases_count: 1
+      });
+
+      if (capacityError) {
+        console.error('Failed to consume vendor capacity:', capacityError);
+        return {
+          success: false,
+          error: 'Failed to update vendor capacity'
+        };
+      }
+
+      // Send notification to vendor (if they have notification preferences)
+      await this.sendVendorAllocationNotification(request.vendorId, request.caseId);
+
+      console.log('Vendor allocation successful for case:', request.caseId);
+
+      return {
+        success: true,
+        allocationId: allocationLog.id,
+        assigneeId: request.vendorId,
+        assigneeType: 'vendor',
+        vendorId: request.vendorId,
+        caseId: request.caseId,
+      };
+    } catch (error) {
+      console.error('Vendor allocation failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
    * Handle allocation acceptance
    */
   async acceptAllocation(allocationId: string, caseId: string): Promise<boolean> {
@@ -598,22 +759,23 @@ export class AllocationService {
         console.log(`Capacity consumed for gig partner ${update.gigPartnerId}: ${newCapacityAvailable}/${currentCapacity.max_daily_capacity} available`);
         
       } else if (update.action === 'free') {
-        // Get current capacity data
+        // Get current capacity data (use maybeSingle to handle 0 rows)
         const { data: currentCapacity, error: fetchError } = await supabase
           .from('capacity_tracking')
           .select('current_capacity_available, cases_allocated, max_daily_capacity')
           .eq('gig_partner_id', update.gigPartnerId)
           .eq('date', today)
-          .single();
+          .maybeSingle();
 
         if (fetchError) {
           console.error('Failed to fetch current capacity:', fetchError);
           return;
         }
 
+        // If no capacity tracking record exists, just update gig_partners table
         if (!currentCapacity) {
-          console.error('No capacity tracking record found for gig partner:', update.gigPartnerId);
-          return;
+          console.log('No capacity tracking record found, updating gig_partners directly');
+          // Skip capacity_tracking update, it will be handled by gig_partners update below
         }
 
         // Get actual count of cases assigned to this gig worker
@@ -630,24 +792,38 @@ export class AllocationService {
 
         const actualAssignedCount = assignedCases?.length || 0;
         
+        // Get max daily capacity from gig_partners if capacity tracking doesn't exist
+        let maxCapacity = currentCapacity?.max_daily_capacity;
+        
+        if (!maxCapacity) {
+          const { data: gigPartner } = await supabase
+            .from('gig_partners')
+            .select('max_daily_capacity')
+            .eq('id', update.gigPartnerId)
+            .single();
+          maxCapacity = gigPartner?.max_daily_capacity || 1;
+        }
+        
         // Calculate new values based on actual assigned count
-        const newCapacityAvailable = Math.min(currentCapacity.max_daily_capacity, currentCapacity.max_daily_capacity - actualAssignedCount);
+        const newCapacityAvailable = Math.min(maxCapacity, maxCapacity - actualAssignedCount);
         const newCasesAllocated = actualAssignedCount;
 
-        // Update capacity tracking
-        const { error } = await supabase
-          .from('capacity_tracking')
-          .update({
-            current_capacity_available: newCapacityAvailable,
-            cases_allocated: newCasesAllocated,
-            last_capacity_freed_at: new Date().toISOString()
-          })
-          .eq('gig_partner_id', update.gigPartnerId)
-          .eq('date', today);
+        // Update capacity tracking only if record exists
+        if (currentCapacity) {
+          const { error } = await supabase
+            .from('capacity_tracking')
+            .update({
+              current_capacity_available: newCapacityAvailable,
+              cases_allocated: newCasesAllocated,
+              last_capacity_freed_at: new Date().toISOString()
+            })
+            .eq('gig_partner_id', update.gigPartnerId)
+            .eq('date', today);
 
-        if (error) throw error;
+          if (error) console.warn('Failed to update capacity_tracking:', error);
+        }
 
-        // Also update the gig_partners table with actual count
+        // Always update the gig_partners table with actual count
         const { error: gigError } = await supabase
           .from('gig_partners')
           .update({
@@ -659,7 +835,7 @@ export class AllocationService {
 
         if (gigError) throw gigError;
 
-        console.log(`Capacity freed for gig partner ${update.gigPartnerId}: ${newCapacityAvailable}/${currentCapacity.max_daily_capacity} available`);
+        console.log(`Capacity freed for gig partner ${update.gigPartnerId}: ${newCapacityAvailable}/${maxCapacity} available`);
         
       } else if (update.action === 'reset') {
         // Get max daily capacity
@@ -740,6 +916,48 @@ export class AllocationService {
       );
     } catch (error) {
       console.error('Failed to send allocation notification:', error);
+    }
+  }
+
+  /**
+   * Send vendor allocation notification
+   */
+  private async sendVendorAllocationNotification(vendorId: string, caseId: string) {
+    try {
+      console.log('Sending vendor allocation notification to:', vendorId, 'for case:', caseId);
+      
+      // Get case details for notification
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select('case_number')
+        .eq('id', caseId)
+        .single();
+
+      if (caseError) {
+        console.error('Error getting case details for vendor notification:', caseError);
+        return;
+      }
+
+      // Get vendor profile for notification
+      const { data: vendorProfile, error: profileError } = await supabase
+        .from('vendors')
+        .select('profile_id')
+        .eq('id', vendorId)
+        .single();
+
+      if (profileError || !vendorProfile) {
+        console.error('Error getting vendor profile for notification:', profileError);
+        return;
+      }
+
+      // Send notification to vendor
+      await notificationService.sendCaseAllocationNotification(
+        caseId,
+        vendorProfile.profile_id,
+        caseData.case_number
+      );
+    } catch (error) {
+      console.error('Failed to send vendor allocation notification:', error);
     }
   }
 

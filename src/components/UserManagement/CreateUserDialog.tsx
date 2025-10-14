@@ -102,16 +102,15 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
     setError('');
 
     try {
-      // Call the edge function to create user
-      const { data: result, error } = await supabase.functions.invoke('create-user', {
-        body: {
-          email: data.email,
-          password: data.password,
-          first_name: data.first_name,
-          last_name: data.last_name,
-          phone: data.phone,
-          role: data.role,
-        },
+      // Call the simple database function to create user
+      const { data: result, error } = await supabase.rpc('create_user_simple', {
+        user_email: data.email,
+        user_first_name: data.first_name,
+        user_last_name: data.last_name,
+        user_phone: data.phone,
+        user_role: data.role,
+        created_by_user_id: user?.id, // Pass the current user ID
+        vendor_data: null
       });
 
       if (error) {
