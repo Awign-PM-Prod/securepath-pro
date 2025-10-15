@@ -151,7 +151,8 @@ export class FormService {
     caseId: string, 
     templateId: string, 
     gigWorkerId: string, 
-    formData: FormData
+    formData: FormData,
+    isDraft: boolean = false
   ): Promise<{ success: boolean; submissionId?: string; error?: string }> {
     try {
       // Prepare submission data
@@ -160,12 +161,17 @@ export class FormService {
 
       // Process form data
       Object.entries(formData).forEach(([fieldKey, fieldValue]) => {
-        if (fieldValue.files && fieldValue.files.length > 0) {
-          // Handle file uploads separately
+        if (fieldKey === '_metadata') {
+          // Store metadata separately
+          submissionData[fieldKey] = fieldValue;
+        } else if (fieldValue.files && fieldValue.files.length > 0) {
+          // Handle file uploads separately - don't store files in submission_data
           filesToUpload.push({
             fieldId: fieldKey,
             files: fieldValue.files
           });
+          // Store only the field value, not the files
+          submissionData[fieldKey] = fieldValue.value;
         } else {
           // Store regular field values
           submissionData[fieldKey] = fieldValue.value;
@@ -175,7 +181,7 @@ export class FormService {
       // Check if submission already exists
       const { data: existingSubmission } = await supabase
         .from('form_submissions')
-        .select('id')
+        .select('id, status')
         .eq('case_id', caseId)
         .maybeSingle();
 
@@ -188,6 +194,7 @@ export class FormService {
             template_id: templateId,
             gig_partner_id: gigWorkerId,
             submission_data: submissionData,
+            status: isDraft ? 'draft' : 'final',
             updated_at: new Date().toISOString()
           })
           .eq('id', existingSubmission.id)
@@ -204,7 +211,8 @@ export class FormService {
             case_id: caseId,
             template_id: templateId,
             gig_partner_id: gigWorkerId,
-            submission_data: submissionData
+            submission_data: submissionData,
+            status: isDraft ? 'draft' : 'final'
           })
           .select()
           .single();
@@ -240,9 +248,71 @@ export class FormService {
               }
             }
 
+      // If saving as draft, update case status to in_progress
+      if (isDraft) {
+        const { error: caseUpdateError } = await supabase
+          .from('cases')
+          .update({
+            status: 'in_progress',
+            status_updated_at: new Date().toISOString()
+          })
+          .eq('id', caseId);
+
+        if (caseUpdateError) {
+          console.warn('Failed to update case status to in_progress:', caseUpdateError);
+        }
+      }
+
       return { success: true, submissionId: submission.id };
     } catch (error) {
       console.error('Error submitting form:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
+   * Get draft submission for a case
+   */
+  async getDraftSubmission(caseId: string): Promise<{ success: boolean; draft?: any; error?: string }> {
+    try {
+      const { data: draft, error } = await supabase
+        .from('form_submissions')
+        .select('*')
+        .eq('case_id', caseId)
+        .eq('status', 'draft')
+        .maybeSingle();
+
+      if (error) throw error;
+
+      return { success: true, draft };
+    } catch (error) {
+      console.error('Error getting draft submission:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
+   * Delete draft submission
+   */
+  async deleteDraftSubmission(caseId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from('form_submissions')
+        .delete()
+        .eq('case_id', caseId)
+        .eq('status', 'draft');
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting draft submission:', error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
@@ -288,11 +358,23 @@ export class FormService {
         }
 
         for (const file of files) {
-          // Upload file to storage
+          // Generate filename with timestamp
           const fileExt = file.name.split('.').pop();
-          const fileName = `${submissionId}/${fieldId}/${Date.now()}.${fileExt}`;
+          const uploadTime = new Date().toISOString().replace(/[:.]/g, '-');
+          const isCameraCapture = file.name.includes('camera-capture');
           
-          console.log(`Uploading file: ${file.name} to path: ${fileName}`);
+          // Use original filename with timestamp for regular uploads, or keep camera capture name
+          const baseFileName = isCameraCapture 
+            ? file.name.replace('.jpg', '') 
+            : file.name.replace(/\.[^/.]+$/, ''); // Remove extension
+          
+          const fileName = `${submissionId}/${fieldId}/${baseFileName}-${uploadTime}.${fileExt}`;
+          
+          console.log(`Uploading file: ${file.name} to path: ${fileName}`, {
+            uploadType: isCameraCapture ? 'camera' : 'file_upload',
+            originalName: file.name,
+            newName: fileName
+          });
           
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from('form_submissions')
@@ -322,7 +404,7 @@ export class FormService {
               submission_id: submissionId,
               field_id: field.id, // Use the actual field UUID
               file_url: urlData.publicUrl,
-              file_name: file.name,
+              file_name: file.name, // This will now include timestamp in filename
               file_size: file.size,
               mime_type: file.type
             });

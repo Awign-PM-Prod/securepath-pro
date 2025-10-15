@@ -453,7 +453,9 @@ export default function GigWorkerMobile() {
                     </div>
                     <div className="flex items-center gap-2">
                       <DollarSign className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">₹{currentCase.total_rate_inr}</span>
+                      <span className="text-sm font-medium">
+                        {currentCase.is_direct_gig ? `₹${currentCase.total_rate_inr}` : 'Contact Vendor'}
+                      </span>
                     </div>
                   </div>
 

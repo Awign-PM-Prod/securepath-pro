@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import VendorAssociationBadge from '@/components/VendorAssociationBadge';
 
 interface GigWorker {
   id: string;
@@ -1527,6 +1528,7 @@ Jane,Smith,jane.smith@example.com,9876543212,456 Oak Ave,Mumbai,Maharashtra,4000
                     <TableHead>Contact</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Coverage</TableHead>
+                    <TableHead>Vendor Association</TableHead>
                     <TableHead>Capacity</TableHead>
                     <TableHead>Performance</TableHead>
                     <TableHead>Status</TableHead>
@@ -1576,6 +1578,16 @@ Jane,Smith,jane.smith@example.com,9876543212,456 Oak Ave,Mumbai,Maharashtra,4000
                             </Badge>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <VendorAssociationBadge 
+                          gigWorker={{
+                            vendor_id: worker.vendor_id,
+                            is_direct_gig: worker.is_direct_gig,
+                            vendor_name: worker.vendor_name
+                          }} 
+                          size="sm"
+                        />
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">

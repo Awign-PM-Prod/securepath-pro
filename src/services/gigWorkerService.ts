@@ -24,6 +24,12 @@ export interface CaseSubmissionRequest {
   formData?: Record<string, any>; // New dynamic form data
 }
 
+export interface CaseDraftRequest {
+  caseId: string;
+  gigWorkerId: string;
+  formData: Record<string, any>;
+}
+
 export class GigWorkerService {
   /**
    * Accept a case
@@ -284,6 +290,73 @@ export class GigWorkerService {
   }
 
   /**
+   * Save case as draft
+   */
+  async saveDraft(request: CaseDraftRequest): Promise<{ success: boolean; error?: string; submissionId?: string }> {
+    try {
+      // Get case details to determine contract type
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          client_id,
+          contract_type
+        `)
+        .eq('id', request.caseId)
+        .single();
+
+      if (caseError) throw caseError;
+
+      // Get contract type ID
+      const { data: contractType, error: contractTypeError } = await supabase
+        .from('contract_type_config')
+        .select('id')
+        .eq('type_key', caseData.contract_type)
+        .single();
+
+      if (contractTypeError) throw contractTypeError;
+
+      // Check if there's a form template for this contract type
+      const { data: formTemplate, error: templateError } = await supabase
+        .from('form_templates')
+        .select('id')
+        .eq('contract_type_id', contractType.id)
+        .eq('is_active', true)
+        .order('template_version', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (templateError) throw templateError;
+
+      if (!formTemplate) {
+        return { success: false, error: 'No form template found for this contract type' };
+      }
+
+      // Use formService to save draft
+      const formService = new (await import('./formService')).FormService();
+      const result = await formService.submitForm(
+        request.caseId,
+        formTemplate.id,
+        request.gigWorkerId,
+        request.formData,
+        true // isDraft = true
+      );
+
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+
+      return { success: true, submissionId: result.submissionId };
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
    * Get gig worker's allocated cases
    */
   async getAllocatedCases(gigWorkerId: string): Promise<{ success: boolean; cases?: any[]; error?: string }> {
@@ -306,7 +379,9 @@ export class GigWorkerService {
           total_payout_inr,
           current_vendor_id,
           clients (name),
-          locations (address_line, city, state, pincode)
+          locations (address_line, city, state, pincode),
+          form_submissions (id, submitted_at, created_at),
+          submissions (id, submitted_at, created_at)
         `)
         .eq('current_assignee_id', gigWorkerId)
         .eq('current_assignee_type', 'gig')
@@ -314,8 +389,24 @@ export class GigWorkerService {
 
       if (error) throw error;
 
+      console.log('Raw cases data from database:', cases);
+
       // Get acceptance deadlines from allocation logs
       const caseIds = cases?.map(c => c.id) || [];
+      
+      // For submitted cases, let's also query form_submissions directly to see what's there
+      const submittedCaseIds = cases?.filter(c => c.status === 'submitted').map(c => c.id) || [];
+      let directFormSubmissions = [];
+      if (submittedCaseIds.length > 0) {
+        console.log('Querying form_submissions directly for submitted cases:', submittedCaseIds);
+        const { data: formSubmissions, error: formError } = await supabase
+          .from('form_submissions')
+          .select('case_id, submitted_at, created_at')
+          .in('case_id', submittedCaseIds);
+        
+        console.log('Direct form_submissions query result:', formSubmissions, 'error:', formError);
+        directFormSubmissions = formSubmissions || [];
+      }
       const { data: allocationLogs } = await supabase
         .from('allocation_logs')
         .select('case_id, acceptance_deadline')
@@ -333,11 +424,38 @@ export class GigWorkerService {
       // Merge case data with acceptance deadlines and vendor info
       const casesWithDeadlines = cases?.map(caseItem => {
         const log = allocationLogs?.find(l => l.case_id === caseItem.id);
+        
+        // Get the actual submission timestamp (prefer form_submissions over submissions)
+        let actualSubmittedAt = null;
+        console.log('Processing case:', caseItem.case_number, {
+          form_submissions: caseItem.form_submissions,
+          submissions: caseItem.submissions,
+          status: caseItem.status
+        });
+        
+        if (caseItem.form_submissions && caseItem.form_submissions.length > 0) {
+          actualSubmittedAt = caseItem.form_submissions[0].submitted_at;
+          console.log('Found form submission timestamp:', actualSubmittedAt, 'for case:', caseItem.case_number);
+        } else if (caseItem.submissions && caseItem.submissions.length > 0) {
+          actualSubmittedAt = caseItem.submissions[0].submitted_at;
+          console.log('Found legacy submission timestamp:', actualSubmittedAt, 'for case:', caseItem.case_number);
+        } else {
+          // Try direct query results as fallback
+          const directSubmission = directFormSubmissions.find(s => s.case_id === caseItem.id);
+          if (directSubmission) {
+            actualSubmittedAt = directSubmission.submitted_at;
+            console.log('Found direct form submission timestamp:', actualSubmittedAt, 'for case:', caseItem.case_number);
+          } else {
+            console.log('No submission timestamp found for case:', caseItem.case_number, 'status:', caseItem.status);
+          }
+        }
+        
         return {
           ...caseItem,
           is_direct_gig: gigWorker?.is_direct_gig ?? true,
           vendor_id: gigWorker?.vendor_id,
-          acceptance_deadline: log?.acceptance_deadline || caseItem.due_at
+          acceptance_deadline: log?.acceptance_deadline || caseItem.due_at,
+          actual_submitted_at: actualSubmittedAt
         };
       }) || [];
 

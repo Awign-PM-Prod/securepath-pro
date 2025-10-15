@@ -35,6 +35,7 @@ interface FormSubmission {
     file_name: string;
     file_size: number;
     mime_type: string;
+    uploaded_at: string;
     form_field?: {
       field_title: string;
       field_type: string;
@@ -56,6 +57,58 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Helper function to parse timestamp from filename
+  const parseTimestampFromFilename = (filename: string) => {
+    // Look for timestamp pattern: YYYY-MM-DDTHH-MM-SS-sssZ
+    const timestampMatch = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)/);
+    if (timestampMatch) {
+      try {
+        // Convert back to ISO format
+        const isoString = timestampMatch[1].replace(/-/g, ':').replace(/(\d{2}):(\d{2}):(\d{2})-(\d{3})/, '$1:$2:$3.$4');
+        const date = new Date(isoString);
+        
+        // Check if the date is valid
+        if (isNaN(date.getTime())) {
+          return null;
+        }
+        return date;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  // Helper function to parse location from filename
+  const parseLocationFromFilename = (filename: string) => {
+    // Look for location pattern: -lat-lng at the end of filename
+    const locationMatch = filename.match(/-(\d+\.\d+)-(\d+\.\d+)\./);
+    if (locationMatch) {
+      try {
+        const lat = parseFloat(locationMatch[1]);
+        const lng = parseFloat(locationMatch[2]);
+        return { lat, lng };
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  // Helper function to get display name for file (without timestamps and location)
+  const getDisplayFileName = (filename: string) => {
+    // Remove timestamp and location patterns from filename for display
+    return filename
+      .replace(/-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g, '') // Remove timestamp patterns
+      .replace(/-\d+\.\d+-\d+\.\d+\./, '.') // Remove location patterns
+      .replace(/camera-capture-/, 'camera-capture'); // Keep camera-capture prefix
+  };
+
+  // Helper function to determine if file is camera capture
+  const isCameraCapture = (filename: string) => {
+    return filename.includes('camera-capture');
+  };
 
   useEffect(() => {
     fetchFormSubmissions();
@@ -80,6 +133,7 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
             file_name,
             file_size,
             mime_type,
+            uploaded_at,
             form_field:form_fields(field_title, field_type, field_key)
           )
         `)
@@ -87,6 +141,7 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      
       
       // Transform the data to include form_fields at the submission level
       const transformedData = data?.map(submission => ({
@@ -161,9 +216,103 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
                         <Download className="h-4 w-4" />
                       </a>
                     </Button>
+                    {(() => {
+                      // Check if this file has location data
+                      let location = parseLocationFromFilename(file.file_name);
+                      
+                      // If not found in filename, try to get from metadata
+                      if (!location && submission.submission_data._metadata?.individual_file_locations) {
+                        const individualLocations = submission.submission_data._metadata.individual_file_locations[fieldKey];
+                        if (individualLocations) {
+                          const fileIndex = fieldFiles.findIndex(f => f.file_name === file.file_name);
+                          if (fileIndex >= 0 && individualLocations[fileIndex]) {
+                            location = individualLocations[fileIndex];
+                          }
+                        }
+                      }
+                      
+                      if (location) {
+                        const googleMapsUrl = `https://www.google.com/maps?q=${location.lat},${location.lng}`;
+                        return (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 w-8 p-0"
+                            asChild
+                            title="Go to Location"
+                          >
+                            <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer">
+                              📍
+                            </a>
+                          </Button>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                   <div className="mt-1 text-xs text-center text-gray-600 truncate">
-                    {file.file_name}
+                    <div className="flex items-center justify-center space-x-1">
+                      <span className="truncate">{getDisplayFileName(file.file_name)}</span>
+                      {isCameraCapture(file.file_name) && (
+                        <span className="text-blue-500">📸</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      <div>Uploaded: {(() => {
+                        try {
+                          // Try to get timestamp from filename first (for individual file timestamps)
+                          const filenameTimestamp = parseTimestampFromFilename(file.file_name);
+                          if (filenameTimestamp) {
+                            return format(filenameTimestamp, 'MMM dd, HH:mm');
+                          }
+                          
+                          // Fallback to database uploaded_at
+                          let date;
+                          if (file.uploaded_at instanceof Date) {
+                            date = file.uploaded_at;
+                          } else if (typeof file.uploaded_at === 'string') {
+                            date = new Date(file.uploaded_at);
+                          } else if (typeof file.uploaded_at === 'number') {
+                            date = new Date(file.uploaded_at);
+                          } else {
+                            return 'Invalid date format';
+                          }
+                          
+                          if (isNaN(date.getTime())) {
+                            return 'Invalid date';
+                          }
+                          
+                          return format(date, 'MMM dd, HH:mm');
+                        } catch (e) {
+                          return 'Invalid date';
+                        }
+                      })()}</div>
+                      {(() => {
+                        // First try to get location from filename (for camera captures)
+                        let location = parseLocationFromFilename(file.file_name);
+                        
+                        // If not found in filename, try to get from metadata
+                        if (!location && submission.submission_data._metadata?.individual_file_locations) {
+                          const individualLocations = submission.submission_data._metadata.individual_file_locations[fieldKey];
+                          if (individualLocations) {
+                            // Find the location for this specific file by matching filename
+                            const fileIndex = fieldFiles.findIndex(f => f.file_name === file.file_name);
+                            if (fileIndex >= 0 && individualLocations[fileIndex]) {
+                              location = individualLocations[fileIndex];
+                            }
+                          }
+                        }
+                        
+                        if (location) {
+                          return (
+                            <div className="text-blue-600 mt-1 text-xs">
+                              📍 {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -189,7 +338,12 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
         );
       case 'date':
         if (value === null || value === undefined) return <span className="text-muted-foreground">Not provided</span>;
-        return <span>{format(new Date(value), 'PPP')}</span>;
+        try {
+          return <span>{format(new Date(value), 'PPP')}</span>;
+        } catch (e) {
+          console.warn('Invalid date value:', value);
+          return <span className="text-muted-foreground">Invalid date</span>;
+        }
       default:
         if (value === null || value === undefined) return <span className="text-muted-foreground">Not provided</span>;
         return <span>{String(value)}</span>;
@@ -244,8 +398,36 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                Submitted on {format(new Date(submission.created_at), 'PPP p')}
+                Submitted on {(() => {
+                  try {
+                    return format(new Date(submission.submitted_at), 'PPP p');
+                  } catch (e) {
+                    console.warn('Invalid submission date:', submission.submitted_at);
+                    return 'Invalid date';
+                  }
+                })()}
               </span>
+              {(() => {
+                // Check if form submission has location data
+                const submissionLocation = submission.submission_data._metadata?.submission_location;
+                if (submissionLocation && submissionLocation.lat && submissionLocation.lng) {
+                  const googleMapsUrl = `https://www.google.com/maps?q=${submissionLocation.lat},${submissionLocation.lng}`;
+                  return (
+                    <span className="flex items-center gap-1">
+                      <a 
+                        href={googleMapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer inline-flex items-center gap-1"
+                        title="View submission location on Google Maps"
+                      >
+                        📍 {submissionLocation.address || `${submissionLocation.lat.toFixed(4)}, ${submissionLocation.lng.toFixed(4)}`}
+                      </a>
+                    </span>
+                  );
+                }
+                return null;
+              })()}
               <Badge variant="outline">
                 Version {submission.form_template?.template_version || 1}
               </Badge>

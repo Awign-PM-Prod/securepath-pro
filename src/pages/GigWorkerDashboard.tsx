@@ -16,6 +16,7 @@ import NotificationCenter from '@/components/NotificationCenter';
 import { DynamicForm } from '@/components/DynamicForm';
 import { FormData } from '@/types/form';
 import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
+import { getGigWorkerVendorInfo } from '@/utils/vendorGigWorkerUtils';
 
 interface AllocatedCase {
   id: string;
@@ -38,6 +39,7 @@ interface AllocatedCase {
   acceptance_deadline: string;
   is_direct_gig: boolean;
   vendor_id?: string;
+  actual_submitted_at?: string;
   clients: {
     name: string;
   };
@@ -77,6 +79,13 @@ export default function GigWorkerDashboard() {
   const [gigWorkerId, setGigWorkerId] = useState<string>('');
   const [selectedSubmissionCase, setSelectedSubmissionCase] = useState<AllocatedCase | null>(null);
   const [isViewSubmissionDialogOpen, setIsViewSubmissionDialogOpen] = useState(false);
+  const [draftData, setDraftData] = useState<any>(null);
+  const [isDraftResumeDialogOpen, setIsDraftResumeDialogOpen] = useState(false);
+  const [pendingDraftCase, setPendingDraftCase] = useState<AllocatedCase | null>(null);
+  const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [lastAutoSaveTime, setLastAutoSaveTime] = useState<Date | null>(null);
+  const [gigWorkerVendorInfo, setGigWorkerVendorInfo] = useState<any>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -89,11 +98,33 @@ export default function GigWorkerDashboard() {
     }
   }, [user]);
 
+  // Cleanup auto-save timer when component unmounts or dialog closes
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimer) {
+        clearInterval(autoSaveTimer);
+      }
+    };
+  }, [autoSaveTimer]);
+
+  // Cleanup auto-save timer when submission dialog closes
+  useEffect(() => {
+    if (!isSubmissionDialogOpen && autoSaveTimer) {
+      clearInterval(autoSaveTimer);
+      setAutoSaveTimer(null);
+    }
+  }, [isSubmissionDialogOpen, autoSaveTimer]);
+
   const initializeGigWorker = async () => {
     try {
       const result = await gigWorkerService.getGigWorkerId(user?.id || '');
       if (result.success && result.gigWorkerId) {
         setGigWorkerId(result.gigWorkerId);
+        
+        // Get vendor association info
+        const vendorInfo = await getGigWorkerVendorInfo(result.gigWorkerId);
+        setGigWorkerVendorInfo(vendorInfo);
+        
         loadAllocatedCases();
       } else {
         toast({
@@ -110,6 +141,17 @@ export default function GigWorkerDashboard() {
         variant: 'destructive',
       });
     }
+  };
+
+  // Helper function to determine if payout should be hidden
+  const shouldHidePayout = (caseItem: AllocatedCase) => {
+    // Hide payout if:
+    // 1. Gig worker is associated with a vendor (not direct gig)
+    // 2. AND the case is allocated (not just created)
+    return gigWorkerVendorInfo && 
+           !gigWorkerVendorInfo.isDirectGig && 
+           gigWorkerVendorInfo.vendorId && 
+           (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress' || caseItem.status === 'submitted');
   };
 
   const loadAllocatedCases = async () => {
@@ -353,6 +395,146 @@ export default function GigWorkerDashboard() {
     }
   };
 
+  const handleSaveDraft = async (formData: FormData) => {
+    if (!selectedCase || !gigWorkerId) return;
+
+    setIsSubmitting(true);
+    try {
+      const result = await gigWorkerService.saveDraft({
+        caseId: selectedCase.id,
+        gigWorkerId,
+        formData: formData,
+      });
+
+      if (result.success) {
+        toast({
+          title: 'Draft Saved',
+          description: 'Your progress has been saved as a draft.',
+        });
+        // Keep dialog open so user can continue editing
+        // setIsSubmissionDialogOpen(false);
+        // loadAllocatedCases();
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'Failed to save draft',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save draft',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAutoSave = async (formData: FormData) => {
+    if (!selectedCase || !gigWorkerId || isAutoSaving) return;
+
+    setIsAutoSaving(true);
+    try {
+      const result = await gigWorkerService.saveDraft({
+        caseId: selectedCase.id,
+        gigWorkerId,
+        formData: formData,
+      });
+
+      if (result.success) {
+        setLastAutoSaveTime(new Date());
+        console.log('Auto-save completed successfully');
+      } else {
+        console.warn('Auto-save failed:', result.error);
+      }
+    } catch (error) {
+      console.error('Error during auto-save:', error);
+    } finally {
+      setIsAutoSaving(false);
+    }
+  };
+
+  const handleSubmitResponse = async (caseItem: AllocatedCase) => {
+    setSelectedCase(caseItem);
+    
+    // Check if there's a draft for this case
+    try {
+      const { formService } = await import('@/services/formService');
+      const draftResult = await formService.getDraftSubmission(caseItem.id);
+      
+      if (draftResult.success && draftResult.draft) {
+        // Show dialog to resume draft or start fresh
+        setPendingDraftCase(caseItem);
+        setIsDraftResumeDialogOpen(true);
+      } else {
+        // No draft exists - start fresh
+        setDraftData(null);
+        setIsSubmissionDialogOpen(true);
+      }
+    } catch (error) {
+      console.error('Error checking for draft:', error);
+      setDraftData(null);
+      setIsSubmissionDialogOpen(true);
+    }
+  };
+
+  const handleViewSubmission = async (caseItem: AllocatedCase) => {
+    setSelectedSubmissionCase(caseItem);
+    setIsViewSubmissionDialogOpen(true);
+  };
+
+  const handleResumeDraft = async () => {
+    if (!pendingDraftCase) return;
+    
+    try {
+      const { formService } = await import('@/services/formService');
+      const draftResult = await formService.getDraftSubmission(pendingDraftCase.id);
+      
+      if (draftResult.success && draftResult.draft) {
+        setDraftData(draftResult.draft);
+        setIsDraftResumeDialogOpen(false);
+        setIsSubmissionDialogOpen(true);
+      } else {
+        throw new Error('Draft not found');
+      }
+    } catch (error) {
+      console.error('Error resuming draft:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to resume draft',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleStartFresh = async () => {
+    if (!pendingDraftCase) return;
+    
+    try {
+      const { formService } = await import('@/services/formService');
+      await formService.deleteDraftSubmission(pendingDraftCase.id);
+      
+      setDraftData(null);
+      setIsDraftResumeDialogOpen(false);
+      setIsSubmissionDialogOpen(true);
+      
+      toast({
+        title: 'Draft Deleted',
+        description: 'Starting with a fresh form',
+      });
+    } catch (error) {
+      console.error('Error deleting draft:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete draft',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'auto_allocated':
@@ -403,6 +585,7 @@ export default function GigWorkerDashboard() {
   const acceptedCases = allocatedCases.filter(c => c.status === 'accepted');
   const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress');
   const submittedCases = allocatedCases.filter(c => c.status === 'submitted');
+
 
   if (isLoading) {
     return (
@@ -497,7 +680,7 @@ export default function GigWorkerDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
-{caseItem.is_direct_gig ? `₹${caseItem.total_payout_inr}` : 'Contact Vendor'}
+                            {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -585,7 +768,7 @@ export default function GigWorkerDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
-{caseItem.is_direct_gig ? `₹${caseItem.total_payout_inr}` : 'Contact Vendor'}
+                            {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -613,12 +796,108 @@ export default function GigWorkerDashboard() {
             </TabsContent>
 
             <TabsContent value="in_progress" className="space-y-4">
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  In Progress cases will be shown here once you start working on them.
-                </AlertDescription>
-              </Alert>
+              {inProgressCases.length === 0 ? (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    No cases in progress. Start working on accepted cases to see them here.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Case Number</TableHead>
+                      <TableHead>Client</TableHead>
+                      <TableHead>Candidate</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Payout</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inProgressCases.map((caseItem) => (
+                      <TableRow key={caseItem.id}>
+                        <TableCell className="font-medium">{caseItem.case_number}</TableCell>
+                        <TableCell>{caseItem.clients?.name || 'N/A'}</TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium">{caseItem.candidate_name}</div>
+                            <div className="text-sm text-muted-foreground flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              {caseItem.phone_primary}
+                            </div>
+                            {caseItem.phone_secondary && (
+                              <div className="text-sm text-muted-foreground flex items-center gap-1">
+                                <Phone className="h-3 w-3" />
+                                {caseItem.phone_secondary}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1 text-sm">
+                              <MapPin className="h-3 w-3" />
+                              {caseItem.locations?.address_line || caseItem.address}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium">
+                              {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                            </div>
+                            {!shouldHidePayout(caseItem) && (
+                              <div className="text-sm text-muted-foreground">
+                                Base: ₹{caseItem.base_rate_inr}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(caseItem.due_at), 'MMM dd, yyyy')}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {isExpired(caseItem.due_at) ? (
+                                <span className="text-red-600">Overdue</span>
+                              ) : (
+                                `${differenceInMinutes(new Date(caseItem.due_at), new Date())} min left`
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleSubmitResponse(caseItem)}
+                              className="bg-blue-600 hover:bg-blue-700"
+                            >
+                              <FileText className="h-4 w-4 mr-1" />
+                              Continue Draft
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleViewSubmission(caseItem)}
+                            >
+                              View Submission
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </TabsContent>
 
             <TabsContent value="submitted" className="space-y-4">
@@ -668,12 +947,25 @@ export default function GigWorkerDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
-{caseItem.is_direct_gig ? `₹${caseItem.total_payout_inr}` : 'Contact Vendor'}
+                            {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className="text-sm">
-                            {format(new Date(caseItem.vendor_tat_start_date), 'MMM dd, yyyy HH:mm')}
+                            {(() => {
+                              console.log('Case submission debug:', {
+                                case_number: caseItem.case_number,
+                                status: caseItem.status,
+                                actual_submitted_at: caseItem.actual_submitted_at,
+                                vendor_tat_start_date: caseItem.vendor_tat_start_date
+                              });
+                              
+                              if (caseItem.actual_submitted_at) {
+                                return format(new Date(caseItem.actual_submitted_at), 'MMM dd, yyyy HH:mm');
+                              } else {
+                                return format(new Date(caseItem.vendor_tat_start_date), 'MMM dd, yyyy HH:mm');
+                              }
+                            })()}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -727,7 +1019,7 @@ export default function GigWorkerDashboard() {
                   <span className="font-medium">Location:</span> {selectedCase.locations?.city}
                 </div>
                 <div>
-                  <span className="font-medium">Payout:</span> {selectedCase.is_direct_gig ? `₹${selectedCase.total_payout_inr}` : 'Contact Vendor'}
+                  <span className="font-medium">Payout:</span> {shouldHidePayout(selectedCase) ? 'Contact Vendor' : `₹${selectedCase.total_payout_inr}`}
                 </div>
                 <div>
                   <span className="font-medium">Due Date:</span> {format(new Date(selectedCase.due_at), 'MMM dd, yyyy HH:mm')}
@@ -793,8 +1085,21 @@ export default function GigWorkerDashboard() {
               caseId={selectedCase.id}
               gigWorkerId={gigWorkerId}
               onSubmit={handleDynamicFormSubmit}
-              onCancel={() => setIsSubmissionDialogOpen(false)}
+              onSaveDraft={handleSaveDraft}
+              onAutoSave={handleAutoSave}
+              onCancel={() => {
+                setIsSubmissionDialogOpen(false);
+                setDraftData(null);
+                // Clear auto-save timer when canceling
+                if (autoSaveTimer) {
+                  clearInterval(autoSaveTimer);
+                  setAutoSaveTimer(null);
+                }
+              }}
               loading={isSubmitting}
+              draftData={draftData}
+              isAutoSaving={isAutoSaving}
+              lastAutoSaveTime={lastAutoSaveTime}
             />
           )}
         </DialogContent>
@@ -815,6 +1120,45 @@ export default function GigWorkerDashboard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsViewSubmissionDialogOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Draft Resume Dialog */}
+      <Dialog open={isDraftResumeDialogOpen} onOpenChange={setIsDraftResumeDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Resume Draft or Start Fresh?</DialogTitle>
+            <DialogDescription>
+              A draft exists for this case. Would you like to continue editing your previous work or start with a fresh form?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-4">
+            <Button 
+              onClick={handleResumeDraft}
+              className="w-full"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Continue Editing Draft
+            </Button>
+            <Button 
+              onClick={handleStartFresh}
+              variant="outline"
+              className="w-full"
+            >
+              Start Fresh (Delete Draft)
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsDraftResumeDialogOpen(false);
+                setPendingDraftCase(null);
+              }}
+            >
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>

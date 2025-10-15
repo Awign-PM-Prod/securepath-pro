@@ -11,6 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { format, differenceInMinutes } from 'date-fns';
+import { allocationService } from '@/services/allocationService';
+import VendorAssociationBadge from '@/components/VendorAssociationBadge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Users, 
@@ -107,6 +110,7 @@ interface Case {
   city: string;
   state: string;
   pincode: string;
+  acceptance_deadline?: string;
   client_name: string;
   client_email: string;
 }
@@ -122,6 +126,7 @@ const VendorDashboard: React.FC = () => {
   const [assignedCases, setAssignedCases] = useState<Case[]>([]);
   const [pendingCases, setPendingCases] = useState<Case[]>([]);
   const [inProgressCases, setInProgressCases] = useState<Case[]>([]);
+  const [unassignedCases, setUnassignedCases] = useState<Case[]>([]);
   
   // Assignment dialog state
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
@@ -129,6 +134,8 @@ const VendorDashboard: React.FC = () => {
   const [selectedGigWorker, setSelectedGigWorker] = useState<string>('');
   const [reassignmentDialogOpen, setReassignmentDialogOpen] = useState(false);
   const [reassignCaseId, setReassignCaseId] = useState<string>('');
+  const [vendorAssignCaseId, setVendorAssignCaseId] = useState<string>('');
+  const [vendorAssignmentDialogOpen, setVendorAssignmentDialogOpen] = useState(false);
 
   // Fetch vendor ID
   const fetchVendorId = async () => {
@@ -327,6 +334,64 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Assign case to vendor with 30-minute timer
+  const handleAssignCaseToVendor = async (caseId: string) => {
+    if (!vendorId) {
+      toast({
+        title: 'Error',
+        description: 'Vendor ID not found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      // Get case details for pincode and tier
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select('id, pincode, pincode_tier')
+        .eq('id', caseId)
+        .single();
+
+      if (caseError || !caseData) {
+        toast({
+          title: 'Error',
+          description: 'Case not found',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const result = await allocationService.allocateCaseToVendor({
+        caseId: caseId,
+        vendorId: vendorId,
+        pincode: caseData.pincode || '',
+        pincodeTier: caseData.pincode_tier || 'tier_1'
+      });
+
+      if (result.success) {
+        toast({
+          title: 'Success',
+          description: 'Case assigned to vendor with 30-minute acceptance window',
+        });
+        fetchAssignedCases();
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'Failed to assign case to vendor',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error assigning case to vendor:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to assign case to vendor',
+        variant: 'destructive',
+      });
+    }
+  };
+
   // Reassign case
   const handleReassignCase = async () => {
     if (!reassignCaseId || !selectedGigWorker || !vendorId) {
@@ -368,6 +433,148 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Fetch unassigned cases
+  const fetchUnassignedCases = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          title,
+          description,
+          priority,
+          source,
+          client_id,
+          location_id,
+          tat_hours,
+          due_at,
+          created_at,
+          status,
+          status_updated_at,
+          base_rate_inr,
+          rate_adjustments,
+          total_rate_inr,
+          visible_to_gig,
+          created_by,
+          last_updated_by,
+          updated_at,
+          metadata,
+          client_case_id,
+          travel_allowance_inr,
+          bonus_inr,
+          instructions,
+          contract_type,
+          candidate_name,
+          phone_primary,
+          phone_secondary,
+          vendor_tat_start_date,
+          penalty_inr,
+          total_payout_inr,
+          locations!inner(address_line, city, state, pincode),
+          clients!inner(name, email)
+        `)
+        .eq('status', 'created')
+        .is('current_assignee_id', null)
+        .is('current_vendor_id', null)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      const cases = data?.map(c => ({
+        ...c,
+        address_line: c.locations.address_line,
+        city: c.locations.city,
+        state: c.locations.state,
+        pincode: c.locations.pincode,
+        client_name: c.clients.name,
+        client_email: c.clients.email
+      })) || [];
+      
+      setUnassignedCases(cases);
+    } catch (error) {
+      console.error('Error fetching unassigned cases:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch unassigned cases',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Check for case timeouts
+  const checkTimeouts = async () => {
+    const now = new Date();
+    const timeoutCases = pendingCases.filter(caseItem => {
+      if (caseItem.status !== 'auto_allocated') return false;
+      if (!caseItem.acceptance_deadline) return false;
+      const deadline = new Date(caseItem.acceptance_deadline);
+      return now > deadline;
+    });
+
+    if (timeoutCases.length > 0) {
+      // Handle timeout cases
+      for (const caseItem of timeoutCases) {
+        await handleCaseTimeout(caseItem.id);
+      }
+      // Reload cases
+      fetchAssignedCases();
+    }
+  };
+
+  // Handle case timeout
+  const handleCaseTimeout = async (caseId: string) => {
+    try {
+      // Update case status to created and remove assignee
+      const { error: caseError } = await supabase
+        .from('cases')
+        .update({
+          status: 'created',
+          current_assignee_id: null,
+          current_assignee_type: null,
+          current_vendor_id: null,
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId);
+
+      if (caseError) throw caseError;
+
+      // Update allocation log
+      const { error: logError } = await supabase
+        .from('allocation_logs')
+        .update({
+          decision: 'timeout',
+          decision_at: new Date().toISOString(),
+          reallocation_reason: 'Not accepted within 30 minutes'
+        })
+        .eq('case_id', caseId)
+        .eq('decision', 'allocated');
+
+      if (logError) throw logError;
+
+      // Free up vendor capacity
+      if (vendorId) {
+        const { error: capacityError } = await supabase.rpc('free_vendor_capacity', {
+          p_vendor_id: vendorId,
+          p_case_id: caseId,
+          p_reason: 'Case timeout - not accepted'
+        });
+
+        if (capacityError) {
+          console.warn('Could not free vendor capacity:', capacityError);
+        }
+      }
+
+      toast({
+        title: 'Case Timeout',
+        description: 'Case was not accepted within 30 minutes and has been unassigned',
+        variant: 'destructive',
+      });
+    } catch (error) {
+      console.error('Error handling case timeout:', error);
+    }
+  };
+
   // Load data on mount
   useEffect(() => {
     const loadData = async () => {
@@ -376,6 +583,10 @@ const VendorDashboard: React.FC = () => {
       setLoading(false);
     };
     loadData();
+    
+    // Set up interval to check for timeouts every minute
+    const interval = setInterval(checkTimeouts, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   // Load gig workers and cases when vendorId is available
@@ -385,6 +596,7 @@ const VendorDashboard: React.FC = () => {
       console.log('Loading gig workers and assigned cases...');
       fetchGigWorkers();
       fetchAssignedCases();
+      fetchUnassignedCases();
     }
   }, [vendorId]);
 
@@ -471,6 +683,7 @@ const VendorDashboard: React.FC = () => {
         <TabsList>
           <TabsTrigger value="pending">Pending Cases ({pendingCases.length})</TabsTrigger>
           <TabsTrigger value="in-progress">In Progress ({inProgressCases.length})</TabsTrigger>
+          <TabsTrigger value="unassigned">Unassigned Cases</TabsTrigger>
           <TabsTrigger value="gig-workers">Gig Workers ({gigWorkers.length})</TabsTrigger>
         </TabsList>
 
@@ -498,51 +711,82 @@ const VendorDashboard: React.FC = () => {
                       <TableHead>Location</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Due Date</TableHead>
+                      <TableHead>Time Remaining</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pendingCases.map((caseItem) => (
-                      <TableRow key={caseItem.id}>
-                        <TableCell className="font-mono">{caseItem.case_number}</TableCell>
-                        <TableCell>{caseItem.title}</TableCell>
-                        <TableCell>{caseItem.client_name}</TableCell>
-                        <TableCell>
-                          {caseItem.city}, {caseItem.state}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={
-                            caseItem.priority === 'high' ? 'destructive' :
-                            caseItem.priority === 'medium' ? 'default' : 'secondary'
-                          }>
-                            {caseItem.priority}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {new Date(caseItem.due_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button
-                              size="sm"
-                              onClick={() => handleAcceptCase(caseItem.id)}
-                              className="bg-green-600 hover:bg-green-700"
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Accept
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleRejectCase(caseItem.id)}
-                            >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              Reject
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {pendingCases.map((caseItem) => {
+                      const getTimeRemaining = (deadline?: string) => {
+                        if (!deadline) return 'No deadline';
+                        const now = new Date();
+                        const deadlineDate = new Date(deadline);
+                        const diffMs = deadlineDate.getTime() - now.getTime();
+                        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                        
+                        if (diffMinutes <= 0) return 'Expired';
+                        if (diffMinutes < 60) return `${diffMinutes}m`;
+                        
+                        const diffHours = Math.floor(diffMinutes / 60);
+                        const remainingMinutes = diffMinutes % 60;
+                        return `${diffHours}h ${remainingMinutes}m`;
+                      };
+
+                      const isExpired = caseItem.acceptance_deadline && new Date(caseItem.acceptance_deadline) < new Date();
+                      const timeRemaining = getTimeRemaining(caseItem.acceptance_deadline);
+
+                      return (
+                        <TableRow key={caseItem.id} className={isExpired ? 'bg-red-50' : ''}>
+                          <TableCell className="font-mono">{caseItem.case_number}</TableCell>
+                          <TableCell>{caseItem.title}</TableCell>
+                          <TableCell>{caseItem.client_name}</TableCell>
+                          <TableCell>
+                            {caseItem.city}, {caseItem.state}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={
+                              caseItem.priority === 'high' ? 'destructive' :
+                              caseItem.priority === 'medium' ? 'default' : 'secondary'
+                            }>
+                              {caseItem.priority}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {new Date(caseItem.due_at).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              <Clock className="h-4 w-4 text-muted-foreground" />
+                              <span className={isExpired ? 'text-red-600 font-medium' : 'text-muted-foreground'}>
+                                {timeRemaining}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex space-x-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleAcceptCase(caseItem.id)}
+                                className="bg-green-600 hover:bg-green-700"
+                                disabled={isExpired}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Accept
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleRejectCase(caseItem.id)}
+                                disabled={isExpired}
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -646,6 +890,88 @@ const VendorDashboard: React.FC = () => {
           </Card>
         </TabsContent>
 
+        {/* Unassigned Cases Tab */}
+        <TabsContent value="unassigned" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Unassigned Cases</CardTitle>
+              <CardDescription>
+                Cases available for assignment to your vendor or gig workers
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {unassignedCases.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No unassigned cases available
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Case Number</TableHead>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Client</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {unassignedCases.map((caseItem) => (
+                      <TableRow key={caseItem.id}>
+                        <TableCell className="font-mono">{caseItem.case_number}</TableCell>
+                        <TableCell>{caseItem.title}</TableCell>
+                        <TableCell>{caseItem.client_name}</TableCell>
+                        <TableCell>
+                          {caseItem.city}, {caseItem.state}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            caseItem.priority === 'high' ? 'destructive' :
+                            caseItem.priority === 'medium' ? 'default' : 'secondary'
+                          }>
+                            {caseItem.priority}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(caseItem.due_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex space-x-2">
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                setVendorAssignCaseId(caseItem.id);
+                                setVendorAssignmentDialogOpen(true);
+                              }}
+                              className="bg-blue-600 hover:bg-blue-700"
+                            >
+                              <Briefcase className="h-4 w-4 mr-1" />
+                              Assign to Vendor
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedCase(caseItem.id);
+                                setAssignmentDialogOpen(true);
+                              }}
+                            >
+                              <Users className="h-4 w-4 mr-1" />
+                              Assign to Gig Worker
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Gig Workers Tab */}
         <TabsContent value="gig-workers" className="space-y-4">
           <Card>
@@ -669,6 +995,7 @@ const VendorDashboard: React.FC = () => {
                       <TableHead>Phone</TableHead>
                       <TableHead>Location</TableHead>
                       <TableHead>Capacity</TableHead>
+                      <TableHead>Vendor Association</TableHead>
                       <TableHead>Performance</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
@@ -696,6 +1023,16 @@ const VendorDashboard: React.FC = () => {
                               />
                             </div>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          <VendorAssociationBadge 
+                            gigWorker={{
+                              vendor_id: worker.vendor_id,
+                              is_direct_gig: worker.is_direct_gig,
+                              vendor_name: worker.vendor_name
+                            }} 
+                            size="sm"
+                          />
                         </TableCell>
                         <TableCell>
                           <div className="text-sm">
@@ -793,6 +1130,43 @@ const VendorDashboard: React.FC = () => {
             </Button>
             <Button onClick={handleReassignCase}>
               Reassign Case
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vendor Assignment Dialog */}
+      <Dialog open={vendorAssignmentDialogOpen} onOpenChange={setVendorAssignmentDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Case to Vendor</DialogTitle>
+            <DialogDescription>
+              This will assign the case to your vendor with a 30-minute acceptance window.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              The case will be assigned to your vendor and you'll have 30 minutes to accept or reject it.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setVendorAssignmentDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (vendorAssignCaseId) {
+                  handleAssignCaseToVendor(vendorAssignCaseId);
+                  setVendorAssignmentDialogOpen(false);
+                  setVendorAssignCaseId('');
+                }
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Assign to Vendor
             </Button>
           </DialogFooter>
         </DialogContent>
