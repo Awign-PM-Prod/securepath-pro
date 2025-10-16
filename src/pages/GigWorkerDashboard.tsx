@@ -81,9 +81,8 @@ export default function GigWorkerDashboard() {
   const [draftData, setDraftData] = useState<any>(null);
   const [isDraftResumeDialogOpen, setIsDraftResumeDialogOpen] = useState(false);
   const [pendingDraftCase, setPendingDraftCase] = useState<AllocatedCase | null>(null);
-  const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
-  const [lastAutoSaveTime, setLastAutoSaveTime] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [gigWorkerVendorInfo, setGigWorkerVendorInfo] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
   const { user } = useAuth();
@@ -144,22 +143,6 @@ export default function GigWorkerDashboard() {
     return () => clearTimeout(fallbackTimeout);
   }, [isLoading]);
 
-  // Cleanup auto-save timer when component unmounts or dialog closes
-  useEffect(() => {
-    return () => {
-      if (autoSaveTimer) {
-        clearInterval(autoSaveTimer);
-      }
-    };
-  }, [autoSaveTimer]);
-
-  // Cleanup auto-save timer when submission dialog closes
-  useEffect(() => {
-    if (!isSubmissionDialogOpen && autoSaveTimer) {
-      clearInterval(autoSaveTimer);
-      setAutoSaveTimer(null);
-    }
-  }, [isSubmissionDialogOpen, autoSaveTimer]);
 
   const initializeGigWorker = async () => {
     try {
@@ -494,10 +477,10 @@ export default function GigWorkerDashboard() {
     }
   };
 
-  const handleAutoSave = async (formData: FormData) => {
-    if (!selectedCase || !gigWorkerId || isAutoSaving) return;
+  const handleImmediateSave = async (formData: FormData) => {
+    if (!selectedCase || !gigWorkerId || isSaving) return;
 
-    setIsAutoSaving(true);
+    setIsSaving(true);
     try {
       const result = await gigWorkerService.saveDraft({
         caseId: selectedCase.id,
@@ -506,15 +489,15 @@ export default function GigWorkerDashboard() {
       });
 
       if (result.success) {
-        setLastAutoSaveTime(new Date());
-        console.log('Auto-save completed successfully');
+        setLastSaveTime(new Date());
+        console.log('Form saved successfully');
       } else {
-        console.warn('Auto-save failed:', result.error);
+        console.warn('Save failed:', result.error);
       }
     } catch (error) {
-      console.error('Error during auto-save:', error);
+      console.error('Error during save:', error);
     } finally {
-      setIsAutoSaving(false);
+      setIsSaving(false);
     }
   };
 
@@ -1418,20 +1401,15 @@ export default function GigWorkerDashboard() {
                 gigWorkerId={gigWorkerId}
                 onSubmit={handleDynamicFormSubmit}
                 onSaveDraft={handleSaveDraft}
-                onAutoSave={handleAutoSave}
+                onAutoSave={handleImmediateSave}
                 onCancel={() => {
                   setIsSubmissionDialogOpen(false);
                   setDraftData(null);
-                  // Clear auto-save timer when canceling
-                  if (autoSaveTimer) {
-                    clearInterval(autoSaveTimer);
-                    setAutoSaveTimer(null);
-                  }
                 }}
                 loading={isSubmitting}
                 draftData={draftData}
-                isAutoSaving={isAutoSaving}
-                lastAutoSaveTime={lastAutoSaveTime}
+                isAutoSaving={isSaving}
+                lastAutoSaveTime={lastSaveTime}
               />
             )}
           </div>

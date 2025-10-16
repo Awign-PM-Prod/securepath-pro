@@ -70,8 +70,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     accuracy?: number;
   }>>>({});
 
-  // Auto-save timer state
-  const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
   const [hasFormData, setHasFormData] = useState(false);
   
   // Track uploaded files to prevent duplicates in auto-save
@@ -163,68 +161,41 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Auto-save timer setup
-  useEffect(() => {
-    if (onAutoSave && hasFormData && !loadingTemplate && draftLoaded) {
-      // Clear existing timer
-      if (autoSaveTimer) {
-        clearInterval(autoSaveTimer);
-      }
-
-      // Set up new timer for auto-save every 30 seconds
-      const timer = setInterval(() => {
-        if (onAutoSave && formData && Object.keys(formData).length > 0) {
-          // Create a deep copy of form data for auto-save
-          const autoSaveFormData = JSON.parse(JSON.stringify(formData));
-          
-          // Check if there are any changes worth auto-saving
-          const hasFileChanges = Object.keys(autoSaveFormData).some(fieldKey => {
-            if (fieldKey === '_metadata') return false;
-            const fieldData = autoSaveFormData[fieldKey];
-            return fieldData && fieldData.files && fieldData.files.length > 0;
-          });
-          
-          const hasNonFileChanges = Object.keys(autoSaveFormData).some(fieldKey => {
-            if (fieldKey === '_metadata') return false;
-            const fieldData = autoSaveFormData[fieldKey];
-            return fieldData && fieldData.value !== undefined && fieldData.value !== '';
-          });
-          
-          if (hasFileChanges || hasNonFileChanges) {
-            // Prepare form data with location information for auto-save
-            const formDataWithLocation = {
-              ...autoSaveFormData,
-              _metadata: {
-                file_locations: fileLocations,
-                individual_file_locations: individualFileLocations,
-                submission_timestamp: new Date().toISOString(),
-                auto_save: true
-              }
-            };
-            onAutoSave(formDataWithLocation);
+  // Immediate save functionality - save when user adds responses
+  const saveFormData = useCallback(async (updatedFormData: FormData) => {
+    if (onAutoSave && updatedFormData && Object.keys(updatedFormData).length > 0) {
+      // Create a deep copy of form data for save
+      const saveFormData = JSON.parse(JSON.stringify(updatedFormData));
+      
+      // Check if there are any changes worth saving
+      const hasFileChanges = Object.keys(saveFormData).some(fieldKey => {
+        if (fieldKey === '_metadata') return false;
+        const fieldData = saveFormData[fieldKey];
+        return fieldData && fieldData.files && fieldData.files.length > 0;
+      });
+      
+      const hasNonFileChanges = Object.keys(saveFormData).some(fieldKey => {
+        if (fieldKey === '_metadata') return false;
+        const fieldData = saveFormData[fieldKey];
+        return fieldData && fieldData.value !== undefined && fieldData.value !== '';
+      });
+      
+      if (hasFileChanges || hasNonFileChanges) {
+        // Prepare form data with location information for save
+        const formDataWithLocation = {
+          ...saveFormData,
+          _metadata: {
+            file_locations: fileLocations,
+            individual_file_locations: individualFileLocations,
+            submission_timestamp: new Date().toISOString(),
+            auto_save: true
           }
-        }
-      }, 30000); // 30 seconds
-
-      setAutoSaveTimer(timer);
-
-      // Cleanup function
-      return () => {
-        if (timer) {
-          clearInterval(timer);
-        }
-      };
-    }
-  }, [onAutoSave, hasFormData, loadingTemplate, draftLoaded, formData, fileLocations, individualFileLocations]);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (autoSaveTimer) {
-        clearInterval(autoSaveTimer);
+        };
+        onAutoSave(formDataWithLocation);
       }
-    };
-  }, [autoSaveTimer]);
+    }
+  }, [onAutoSave, fileLocations, individualFileLocations]);
+
 
   // Debug: Monitor fileLocations state changes
   useEffect(() => {
@@ -474,13 +445,22 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   };
 
   const handleFieldChange = (fieldKey: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      [fieldKey]: {
-        ...prev[fieldKey],
-        value
-      }
-    }));
+    setFormData(prev => {
+      const updatedFormData = {
+        ...prev,
+        [fieldKey]: {
+          ...prev[fieldKey],
+          value
+        }
+      };
+      
+      // Trigger immediate save after state update
+      setTimeout(() => {
+        saveFormData(updatedFormData);
+      }, 0);
+      
+      return updatedFormData;
+    });
     
     // Clear error when user starts typing
     if (errors[fieldKey]) {
@@ -623,13 +603,22 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       // Simulate file processing time
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      setFormData(prev => ({
-        ...prev,
-        [fieldKey]: {
-          ...prev[fieldKey],
-          files: [...currentFiles, ...processedFiles]
-        }
-      }));
+      setFormData(prev => {
+        const updatedFormData = {
+          ...prev,
+          [fieldKey]: {
+            ...prev[fieldKey],
+            files: [...currentFiles, ...processedFiles]
+          }
+        };
+        
+        // Trigger immediate save after state update
+        setTimeout(() => {
+          saveFormData(updatedFormData);
+        }, 0);
+        
+        return updatedFormData;
+      });
 
       // Mark files as uploaded to prevent duplicates in auto-save
       processedFiles.forEach(file => markFileAsUploaded(file));
@@ -659,13 +648,22 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         processedFiles.push(processedFile);
       }
 
-      setFormData(prev => ({
-        ...prev,
-        [fieldKey]: {
-          ...prev[fieldKey],
-          files: [...currentFiles, ...processedFiles]
-        }
-      }));
+      setFormData(prev => {
+        const updatedFormData = {
+          ...prev,
+          [fieldKey]: {
+            ...prev[fieldKey],
+            files: [...currentFiles, ...processedFiles]
+          }
+        };
+        
+        // Trigger immediate save after state update
+        setTimeout(() => {
+          saveFormData(updatedFormData);
+        }, 0);
+        
+        return updatedFormData;
+      });
 
       // Mark files as uploaded to prevent duplicates in auto-save
       processedFiles.forEach(file => markFileAsUploaded(file));
@@ -694,13 +692,22 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     // Get the file being removed to update the uploaded set
     const fileToRemove = formData[fieldKey]?.files?.[fileIndex];
     
-    setFormData(prev => ({
-      ...prev,
-      [fieldKey]: {
-        ...prev[fieldKey],
-        files: prev[fieldKey].files?.filter((_, index) => index !== fileIndex) || []
-      }
-    }));
+    setFormData(prev => {
+      const updatedFormData = {
+        ...prev,
+        [fieldKey]: {
+          ...prev[fieldKey],
+          files: prev[fieldKey].files?.filter((_, index) => index !== fileIndex) || []
+        }
+      };
+      
+      // Trigger immediate save after state update
+      setTimeout(() => {
+        saveFormData(updatedFormData);
+      }, 0);
+      
+      return updatedFormData;
+    });
     
     // Remove file from uploaded set if it was a File object
     if (fileToRemove && fileToRemove instanceof File) {
