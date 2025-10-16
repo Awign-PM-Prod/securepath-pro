@@ -86,6 +86,7 @@ export default function GigWorkerDashboard() {
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [lastAutoSaveTime, setLastAutoSaveTime] = useState<Date | null>(null);
   const [gigWorkerVendorInfo, setGigWorkerVendorInfo] = useState<any>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -95,8 +96,42 @@ export default function GigWorkerDashboard() {
       // Set up interval to check for timeouts every minute
       const interval = setInterval(checkTimeouts, 60000);
       return () => clearInterval(interval);
+    } else {
+      // If no user, ensure loading state is cleared
+      setIsLoading(false);
     }
   }, [user]);
+
+  // Load cases when gigWorkerId becomes available
+  useEffect(() => {
+    if (gigWorkerId) {
+      loadAllocatedCases();
+    }
+  }, [gigWorkerId]);
+
+  // Mobile detection and responsive behavior
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Fallback timeout to ensure page loads even if there are network issues
+  useEffect(() => {
+    const fallbackTimeout = setTimeout(() => {
+      if (isLoading) {
+        console.warn('Page loading timeout - forcing page to load');
+        setIsLoading(false);
+      }
+    }, 20000); // 20 second fallback
+
+    return () => clearTimeout(fallbackTimeout);
+  }, [isLoading]);
 
   // Cleanup auto-save timer when component unmounts or dialog closes
   useEffect(() => {
@@ -117,7 +152,16 @@ export default function GigWorkerDashboard() {
 
   const initializeGigWorker = async () => {
     try {
-      const result = await gigWorkerService.getGigWorkerId(user?.id || '');
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Gig worker initialization timeout')), 15000)
+      );
+      
+      const result = await Promise.race([
+        gigWorkerService.getGigWorkerId(user?.id || ''),
+        timeoutPromise
+      ]);
+      
       if (result.success && result.gigWorkerId) {
         setGigWorkerId(result.gigWorkerId);
         
@@ -125,7 +169,7 @@ export default function GigWorkerDashboard() {
         const vendorInfo = await getGigWorkerVendorInfo(result.gigWorkerId);
         setGigWorkerVendorInfo(vendorInfo);
         
-        loadAllocatedCases();
+        // loadAllocatedCases() will be called automatically via useEffect when gigWorkerId changes
       } else {
         toast({
           title: 'Error',
@@ -135,11 +179,14 @@ export default function GigWorkerDashboard() {
       }
     } catch (error) {
       console.error('Error initializing gig worker:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to initialize gig worker profile',
-        variant: 'destructive',
-      });
+      // Don't show error toast for timeout to avoid blocking UX
+      if (error.message !== 'Gig worker initialization timeout') {
+        toast({
+          title: 'Error',
+          description: 'Failed to initialize gig worker profile',
+          variant: 'destructive',
+        });
+      }
     }
   };
 
@@ -155,7 +202,10 @@ export default function GigWorkerDashboard() {
   };
 
   const loadAllocatedCases = async () => {
-    if (!gigWorkerId) return;
+    if (!gigWorkerId) {
+      setIsLoading(false); // Ensure loading state is cleared even without gigWorkerId
+      return;
+    }
     
     try {
       setIsLoading(true);
@@ -586,6 +636,134 @@ export default function GigWorkerDashboard() {
   const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress');
   const submittedCases = allocatedCases.filter(c => c.status === 'submitted');
 
+  // Mobile-friendly case card component
+  const MobileCaseCard = ({ caseItem, onAccept, onReject, onSubmit, onViewSubmission, showEditDraft = false }: {
+    caseItem: AllocatedCase;
+    onAccept?: () => void;
+    onReject?: () => void;
+    onSubmit?: () => void;
+    onViewSubmission?: () => void;
+    showEditDraft?: boolean;
+  }) => {
+    const isExpired = (deadline: string) => new Date() > new Date(deadline);
+    const getTimeRemaining = (deadline: string) => {
+      const now = new Date();
+      const deadlineDate = new Date(deadline);
+      const diffMinutes = differenceInMinutes(deadlineDate, now);
+      
+      if (diffMinutes <= 0) return 'Expired';
+      if (diffMinutes < 60) return `${diffMinutes}m remaining`;
+      const hours = Math.floor(diffMinutes / 60);
+      const minutes = diffMinutes % 60;
+      return `${hours}h ${minutes}m remaining`;
+    };
+
+    return (
+      <Card className="mb-4">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <CardTitle className="text-sm font-medium truncate">{caseItem.case_number}</CardTitle>
+              <CardDescription className="text-xs">{caseItem.clients?.name}</CardDescription>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              {getStatusBadge(caseItem.status)}
+              {getPriorityBadge(caseItem.priority)}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Candidate Info */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium text-sm">{caseItem.candidate_name}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Phone className="h-3 w-3" />
+              <span>{caseItem.phone_primary}</span>
+            </div>
+          </div>
+
+          {/* Location */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <span className="truncate">{caseItem.locations?.address_line || caseItem.address}</span>
+            </div>
+            <div className="text-xs text-muted-foreground ml-6">
+              {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+            </div>
+          </div>
+
+          {/* Payout and Time */}
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2">
+              <Building className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">
+                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span className={`text-xs ${isExpired(caseItem.acceptance_deadline) ? 'text-red-600' : 'text-orange-600'}`}>
+                {getTimeRemaining(caseItem.acceptance_deadline)}
+              </span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-2">
+            {onAccept && (
+              <Button
+                size="sm"
+                onClick={onAccept}
+                disabled={isExpired(caseItem.acceptance_deadline)}
+                className="flex-1"
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Accept
+              </Button>
+            )}
+            {onReject && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onReject}
+                disabled={isExpired(caseItem.acceptance_deadline)}
+                className="flex-1"
+              >
+                <XCircle className="h-4 w-4 mr-1" />
+                Reject
+              </Button>
+            )}
+            {onSubmit && (
+              <Button
+                size="sm"
+                onClick={onSubmit}
+                className="flex-1"
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                {showEditDraft ? 'Edit Draft' : 'Submit'}
+              </Button>
+            )}
+            {onViewSubmission && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onViewSubmission}
+                className="flex-1"
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                View
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
 
   if (isLoading) {
     return (
@@ -605,9 +783,25 @@ export default function GigWorkerDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Mobile Header */}
+      {isMobile && (
+        <div className="bg-white shadow-sm border-b sticky top-0 z-10">
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-lg font-semibold">Gig Worker Dashboard</h1>
+                <p className="text-sm text-muted-foreground">Background Verification</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Notification Center */}
       {gigWorkerId && (
-        <NotificationCenter gigWorkerId={gigWorkerId} />
+        <div className="notification-container">
+          <NotificationCenter gigWorkerId={gigWorkerId} />
+        </div>
       )}
 
       <Card>
@@ -619,18 +813,18 @@ export default function GigWorkerDashboard() {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="pending" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="pending">
-                Pending ({pendingCases.length})
+            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>
+              <TabsTrigger value="pending" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
+                {isMobile ? `Pending (${pendingCases.length})` : `Pending (${pendingCases.length})`}
               </TabsTrigger>
-              <TabsTrigger value="accepted">
-                Accepted ({acceptedCases.length})
+              <TabsTrigger value="accepted" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
+                {isMobile ? `Accepted (${acceptedCases.length})` : `Accepted (${acceptedCases.length})`}
               </TabsTrigger>
-              <TabsTrigger value="in_progress">
-                In Progress ({inProgressCases.length})
+              <TabsTrigger value="in_progress" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
+                {isMobile ? `Progress (${inProgressCases.length})` : `In Progress (${inProgressCases.length})`}
               </TabsTrigger>
-              <TabsTrigger value="submitted">
-                Submitted ({submittedCases.length})
+              <TabsTrigger value="submitted" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
+                {isMobile ? `Submitted (${submittedCases.length})` : `Submitted (${submittedCases.length})`}
               </TabsTrigger>
             </TabsList>
 
@@ -643,82 +837,105 @@ export default function GigWorkerDashboard() {
                   </AlertDescription>
                 </Alert>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Case Number</TableHead>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Candidate</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Payout</TableHead>
-                      <TableHead>Time Remaining</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pendingCases.map((caseItem) => (
-                      <TableRow key={caseItem.id}>
-                        <TableCell className="font-medium">
-                          {caseItem.case_number}
-                        </TableCell>
-                        <TableCell>{caseItem.clients?.name}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{caseItem.candidate_name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {caseItem.phone_primary}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium">{caseItem.locations?.city}</div>
-                            <div className="text-muted-foreground">
-                              {caseItem.locations?.pincode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">
-                            {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className={`text-sm ${isExpired(caseItem.acceptance_deadline) ? 'text-red-600' : 'text-orange-600'}`}>
-                            {getTimeRemaining(caseItem.acceptance_deadline)}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                setSelectedCase(caseItem);
-                                setIsAcceptDialogOpen(true);
-                              }}
-                              disabled={isExpired(caseItem.acceptance_deadline)}
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Accept
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedCase(caseItem);
-                                setIsRejectDialogOpen(true);
-                              }}
-                              disabled={isExpired(caseItem.acceptance_deadline)}
-                            >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              Reject
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-4">
+                      {pendingCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onAccept={() => {
+                            setSelectedCase(caseItem);
+                            setIsAcceptDialogOpen(true);
+                          }}
+                          onReject={() => {
+                            setSelectedCase(caseItem);
+                            setIsRejectDialogOpen(true);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Case Number</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Candidate</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Payout</TableHead>
+                          <TableHead>Time Remaining</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingCases.map((caseItem) => (
+                          <TableRow key={caseItem.id}>
+                            <TableCell className="font-medium">
+                              {caseItem.case_number}
+                            </TableCell>
+                            <TableCell>{caseItem.clients?.name}</TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{caseItem.candidate_name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.phone_primary}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div className="font-medium">{caseItem.locations?.city}</div>
+                                <div className="text-muted-foreground">
+                                  {caseItem.locations?.pincode}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">
+                                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className={`text-sm ${isExpired(caseItem.acceptance_deadline) ? 'text-red-600' : 'text-orange-600'}`}>
+                                {getTimeRemaining(caseItem.acceptance_deadline)}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedCase(caseItem);
+                                    setIsAcceptDialogOpen(true);
+                                  }}
+                                  disabled={isExpired(caseItem.acceptance_deadline)}
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Accept
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedCase(caseItem);
+                                    setIsRejectDialogOpen(true);
+                                  }}
+                                  disabled={isExpired(caseItem.acceptance_deadline)}
+                                >
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Reject
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
               )}
             </TabsContent>
 
@@ -731,67 +948,86 @@ export default function GigWorkerDashboard() {
                   </AlertDescription>
                 </Alert>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Case Number</TableHead>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Candidate</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Payout</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {acceptedCases.map((caseItem) => (
-                      <TableRow key={caseItem.id}>
-                        <TableCell className="font-medium">
-                          {caseItem.case_number}
-                        </TableCell>
-                        <TableCell>{caseItem.clients?.name}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{caseItem.candidate_name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {caseItem.phone_primary}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium">{caseItem.locations?.city}</div>
-                            <div className="text-muted-foreground">
-                              {caseItem.locations?.pincode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">
-                            {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            {format(new Date(caseItem.due_at), 'MMM dd, yyyy HH:mm')}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setSelectedCase(caseItem);
-                              setIsSubmissionDialogOpen(true);
-                            }}
-                          >
-                            <FileText className="h-4 w-4 mr-1" />
-                            Submit
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-4">
+                      {acceptedCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onSubmit={() => {
+                            setSelectedCase(caseItem);
+                            setIsSubmissionDialogOpen(true);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Case Number</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Candidate</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Payout</TableHead>
+                          <TableHead>Due Date</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {acceptedCases.map((caseItem) => (
+                          <TableRow key={caseItem.id}>
+                            <TableCell className="font-medium">
+                              {caseItem.case_number}
+                            </TableCell>
+                            <TableCell>{caseItem.clients?.name}</TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{caseItem.candidate_name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.phone_primary}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div className="font-medium">{caseItem.locations?.city}</div>
+                                <div className="text-muted-foreground">
+                                  {caseItem.locations?.pincode}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">
+                                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                {format(new Date(caseItem.due_at), 'MMM dd, yyyy HH:mm')}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedCase(caseItem);
+                                  setIsSubmissionDialogOpen(true);
+                                }}
+                              >
+                                <FileText className="h-4 w-4 mr-1" />
+                                Submit
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
               )}
             </TabsContent>
 
@@ -804,99 +1040,117 @@ export default function GigWorkerDashboard() {
                   </AlertDescription>
                 </Alert>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Case Number</TableHead>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Candidate</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Payout</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {inProgressCases.map((caseItem) => (
-                      <TableRow key={caseItem.id}>
-                        <TableCell className="font-medium">{caseItem.case_number}</TableCell>
-                        <TableCell>{caseItem.clients?.name || 'N/A'}</TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-medium">{caseItem.candidate_name}</div>
-                            <div className="text-sm text-muted-foreground flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {caseItem.phone_primary}
-                            </div>
-                            {caseItem.phone_secondary && (
-                              <div className="text-sm text-muted-foreground flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
-                                {caseItem.phone_secondary}
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-4">
+                      {inProgressCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onSubmit={() => handleSubmitResponse(caseItem)}
+                          onViewSubmission={() => handleViewSubmission(caseItem)}
+                          showEditDraft={true}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Case Number</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Candidate</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Payout</TableHead>
+                          <TableHead>Due Date</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {inProgressCases.map((caseItem) => (
+                          <TableRow key={caseItem.id}>
+                            <TableCell className="font-medium">{caseItem.case_number}</TableCell>
+                            <TableCell>{caseItem.clients?.name || 'N/A'}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{caseItem.candidate_name}</div>
+                                <div className="text-sm text-muted-foreground flex items-center gap-1">
+                                  <Phone className="h-3 w-3" />
+                                  {caseItem.phone_primary}
+                                </div>
+                                {caseItem.phone_secondary && (
+                                  <div className="text-sm text-muted-foreground flex items-center gap-1">
+                                    <Phone className="h-3 w-3" />
+                                    {caseItem.phone_secondary}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1 text-sm">
-                              <MapPin className="h-3 w-3" />
-                              {caseItem.locations?.address_line || caseItem.address}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-medium">
-                              {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
-                            </div>
-                            {!shouldHidePayout(caseItem) && (
-                              <div className="text-sm text-muted-foreground">
-                                Base: ₹{caseItem.base_rate_inr}
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 text-sm">
+                                  <MapPin className="h-3 w-3" />
+                                  {caseItem.locations?.address_line || caseItem.address}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {format(new Date(caseItem.due_at), 'MMM dd, yyyy')}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {isExpired(caseItem.due_at) ? (
-                                <span className="text-red-600">Overdue</span>
-                              ) : (
-                                `${differenceInMinutes(new Date(caseItem.due_at), new Date())} min left`
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              size="sm"
-                              onClick={() => handleSubmitResponse(caseItem)}
-                              className="bg-blue-600 hover:bg-blue-700"
-                            >
-                              <FileText className="h-4 w-4 mr-1" />
-                              Continue Draft
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleViewSubmission(caseItem)}
-                            >
-                              View Submission
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">
+                                  {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                                </div>
+                                {!shouldHidePayout(caseItem) && (
+                                  <div className="text-sm text-muted-foreground">
+                                    Base: ₹{caseItem.base_rate_inr}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {format(new Date(caseItem.due_at), 'MMM dd, yyyy')}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {isExpired(caseItem.due_at) ? (
+                                    <span className="text-red-600">Overdue</span>
+                                  ) : (
+                                    `${differenceInMinutes(new Date(caseItem.due_at), new Date())} min left`
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSubmitResponse(caseItem)}
+                                  className="bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <FileText className="h-4 w-4 mr-1" />
+                                  Continue Draft
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleViewSubmission(caseItem)}
+                                >
+                                  View Submission
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
               )}
             </TabsContent>
 
@@ -909,85 +1163,104 @@ export default function GigWorkerDashboard() {
                   </AlertDescription>
                 </Alert>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Case Number</TableHead>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Candidate</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Payout</TableHead>
-                      <TableHead>Submitted At</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {submittedCases.map((caseItem) => (
-                      <TableRow key={caseItem.id}>
-                        <TableCell className="font-medium">
-                          {caseItem.case_number}
-                        </TableCell>
-                        <TableCell>{caseItem.clients?.name}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{caseItem.candidate_name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {caseItem.phone_primary}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium">{caseItem.locations?.city}</div>
-                            <div className="text-muted-foreground">
-                              {caseItem.locations?.pincode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">
-                            {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            {(() => {
-                              console.log('Case submission debug:', {
-                                case_number: caseItem.case_number,
-                                status: caseItem.status,
-                                actual_submitted_at: caseItem.actual_submitted_at,
-                                vendor_tat_start_date: caseItem.vendor_tat_start_date
-                              });
-                              
-                              if (caseItem.actual_submitted_at) {
-                                return format(new Date(caseItem.actual_submitted_at), 'MMM dd, yyyy HH:mm');
-                              } else {
-                                return format(new Date(caseItem.vendor_tat_start_date), 'MMM dd, yyyy HH:mm');
-                              }
-                            })()}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {getStatusBadge(caseItem.status)}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSubmissionCase(caseItem);
-                              setIsViewSubmissionDialogOpen(true);
-                            }}
-                          >
-                            <FileText className="h-4 w-4 mr-2" />
-                            View Submission
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-4">
+                      {submittedCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onViewSubmission={() => {
+                            setSelectedSubmissionCase(caseItem);
+                            setIsViewSubmissionDialogOpen(true);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Case Number</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Candidate</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Payout</TableHead>
+                          <TableHead>Submitted At</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {submittedCases.map((caseItem) => (
+                          <TableRow key={caseItem.id}>
+                            <TableCell className="font-medium">
+                              {caseItem.case_number}
+                            </TableCell>
+                            <TableCell>{caseItem.clients?.name}</TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{caseItem.candidate_name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.phone_primary}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div className="font-medium">{caseItem.locations?.city}</div>
+                                <div className="text-muted-foreground">
+                                  {caseItem.locations?.pincode}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">
+                                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                {(() => {
+                                  console.log('Case submission debug:', {
+                                    case_number: caseItem.case_number,
+                                    status: caseItem.status,
+                                    actual_submitted_at: caseItem.actual_submitted_at,
+                                    vendor_tat_start_date: caseItem.vendor_tat_start_date
+                                  });
+                                  
+                                  if (caseItem.actual_submitted_at) {
+                                    return format(new Date(caseItem.actual_submitted_at), 'MMM dd, yyyy HH:mm');
+                                  } else {
+                                    return format(new Date(caseItem.vendor_tat_start_date), 'MMM dd, yyyy HH:mm');
+                                  }
+                                })()}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {getStatusBadge(caseItem.status)}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedSubmissionCase(caseItem);
+                                  setIsViewSubmissionDialogOpen(true);
+                                }}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                View Submission
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
               )}
             </TabsContent>
           </Tabs>
@@ -996,7 +1269,7 @@ export default function GigWorkerDashboard() {
 
       {/* Accept Case Dialog */}
       <Dialog open={isAcceptDialogOpen} onOpenChange={setIsAcceptDialogOpen}>
-        <DialogContent>
+        <DialogContent className={isMobile ? 'max-w-[95vw] mx-2' : ''}>
           <DialogHeader>
             <DialogTitle>Accept Case</DialogTitle>
             <DialogDescription>
@@ -1005,7 +1278,7 @@ export default function GigWorkerDashboard() {
           </DialogHeader>
           {selectedCase && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className={`grid gap-4 text-sm ${isMobile ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 <div>
                   <span className="font-medium">Case Number:</span> {selectedCase.case_number}
                 </div>
@@ -1027,11 +1300,11 @@ export default function GigWorkerDashboard() {
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAcceptDialogOpen(false)}>
+          <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
+            <Button variant="outline" onClick={() => setIsAcceptDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
               Cancel
             </Button>
-            <Button onClick={handleAcceptCase}>
+            <Button onClick={handleAcceptCase} className={isMobile ? 'w-full' : ''}>
               Accept Case
             </Button>
           </DialogFooter>
@@ -1040,7 +1313,7 @@ export default function GigWorkerDashboard() {
 
       {/* Reject Case Dialog */}
       <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
-        <DialogContent>
+        <DialogContent className={isMobile ? 'max-w-[95vw] mx-2' : ''}>
           <DialogHeader>
             <DialogTitle>Reject Case</DialogTitle>
             <DialogDescription>
@@ -1059,11 +1332,11 @@ export default function GigWorkerDashboard() {
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRejectDialogOpen(false)}>
+          <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
+            <Button variant="outline" onClick={() => setIsRejectDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleRejectCase}>
+            <Button variant="destructive" onClick={handleRejectCase} className={isMobile ? 'w-full' : ''}>
               Reject Case
             </Button>
           </DialogFooter>
@@ -1072,53 +1345,57 @@ export default function GigWorkerDashboard() {
 
       {/* Submit Case Dialog */}
       <Dialog open={isSubmissionDialogOpen} onOpenChange={setIsSubmissionDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[95vh] mx-2' : 'max-w-4xl max-h-[90vh]'} flex flex-col`}>
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Submit Case</DialogTitle>
             <DialogDescription>
               Fill in the verification details and submit your findings.
             </DialogDescription>
           </DialogHeader>
-          {selectedCase && (
-            <DynamicForm
-              contractTypeId={selectedCase.contract_type}
-              caseId={selectedCase.id}
-              gigWorkerId={gigWorkerId}
-              onSubmit={handleDynamicFormSubmit}
-              onSaveDraft={handleSaveDraft}
-              onAutoSave={handleAutoSave}
-              onCancel={() => {
-                setIsSubmissionDialogOpen(false);
-                setDraftData(null);
-                // Clear auto-save timer when canceling
-                if (autoSaveTimer) {
-                  clearInterval(autoSaveTimer);
-                  setAutoSaveTimer(null);
-                }
-              }}
-              loading={isSubmitting}
-              draftData={draftData}
-              isAutoSaving={isAutoSaving}
-              lastAutoSaveTime={lastAutoSaveTime}
-            />
-          )}
+          <div className="flex-1 overflow-hidden">
+            {selectedCase && (
+              <DynamicForm
+                contractTypeId={selectedCase.contract_type}
+                caseId={selectedCase.id}
+                gigWorkerId={gigWorkerId}
+                onSubmit={handleDynamicFormSubmit}
+                onSaveDraft={handleSaveDraft}
+                onAutoSave={handleAutoSave}
+                onCancel={() => {
+                  setIsSubmissionDialogOpen(false);
+                  setDraftData(null);
+                  // Clear auto-save timer when canceling
+                  if (autoSaveTimer) {
+                    clearInterval(autoSaveTimer);
+                    setAutoSaveTimer(null);
+                  }
+                }}
+                loading={isSubmitting}
+                draftData={draftData}
+                isAutoSaving={isAutoSaving}
+                lastAutoSaveTime={lastAutoSaveTime}
+              />
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* View Form Submission Dialog */}
       <Dialog open={isViewSubmissionDialogOpen} onOpenChange={setIsViewSubmissionDialogOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[95vh] mx-2' : 'max-w-6xl max-h-[90vh]'} flex flex-col`}>
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Form Submission Details</DialogTitle>
             <DialogDescription>
               View the submitted form data and files for this case.
             </DialogDescription>
           </DialogHeader>
-          {selectedSubmissionCase && (
-            <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsViewSubmissionDialogOpen(false)}>
+          <div className="flex-1 overflow-hidden">
+            {selectedSubmissionCase && (
+              <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
+            )}
+          </div>
+          <DialogFooter className="flex-shrink-0">
+            <Button variant="outline" onClick={() => setIsViewSubmissionDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
               Close
             </Button>
           </DialogFooter>

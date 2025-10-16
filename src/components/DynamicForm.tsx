@@ -48,6 +48,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   const [template, setTemplate] = useState<FormTemplate | null>(null);
   const [formData, setFormData] = useState<FormData>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isMobile, setIsMobile] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState(true);
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<Record<string, boolean>>({});
@@ -129,6 +130,18 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     setDraftLoaded(false);
     loadFormTemplate();
   }, [contractTypeId, draftData]);
+
+  // Mobile detection
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Auto-save timer setup
   useEffect(() => {
@@ -1114,7 +1127,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                   />
                   <label
                     htmlFor={field.field_key}
-                    className={`cursor-pointer flex flex-col items-center space-y-2 ${uploadingFiles[field.field_key] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`cursor-pointer flex flex-col items-center space-y-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors ${uploadingFiles[field.field_key] ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <Upload className="h-8 w-8 text-gray-400" />
                     <span className="text-sm text-gray-600">
@@ -1149,7 +1162,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                     type="button"
                     variant="outline"
                     onClick={() => handleCameraCapture(field.field_key)}
-                    className="w-full"
+                    className={`w-full ${isMobile ? 'h-12 text-base' : ''}`}
                     disabled={uploadingFiles[field.field_key]}
                   >
                     <Camera className="h-4 w-4 mr-2" />
@@ -1423,19 +1436,21 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           </div>
         )}
       </CardHeader>
-      <CardContent className="space-y-6">
-        {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
+      <CardContent className="p-0">
+        <div className="max-h-[60vh] overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+          {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
+        </div>
         
-        <div className="flex justify-end space-x-4 pt-6">
-          <Button variant="outline" onClick={onCancel} disabled={loading}>
+        <div className={`flex p-6 pt-4 border-t bg-gray-50 ${isMobile ? 'flex-col gap-3' : 'justify-end space-x-4'}`}>
+          <Button variant="outline" onClick={onCancel} disabled={loading} className={isMobile ? 'w-full' : ''}>
             Cancel
           </Button>
           {onSaveDraft && (
-            <Button variant="secondary" onClick={handleSaveDraft} disabled={loading}>
+            <Button variant="secondary" onClick={handleSaveDraft} disabled={loading} className={isMobile ? 'w-full' : ''}>
               {loading ? 'Saving...' : 'Save as Draft'}
             </Button>
           )}
-          <Button onClick={handleSubmit} disabled={loading || !isFormComplete()}>
+          <Button onClick={handleSubmit} disabled={loading || !isFormComplete()} className={isMobile ? 'w-full' : ''}>
             {loading ? 'Submitting...' : 'Submit Form'}
           </Button>
         </div>

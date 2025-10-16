@@ -387,7 +387,7 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-h-[70vh] overflow-y-auto space-y-6 p-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
       {submissions.map((submission) => (
         <Card key={submission.id}>
           <CardHeader>

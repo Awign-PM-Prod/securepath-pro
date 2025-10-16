@@ -31,13 +31,27 @@ export default function NotificationCenter({ gigWorkerId }: NotificationCenterPr
   useEffect(() => {
     if (gigWorkerId) {
       loadNotifications();
+    } else {
+      // Reset state when gigWorkerId is not available
+      setNotifications([]);
+      setUnreadCount(0);
+      setIsLoading(false);
     }
   }, [gigWorkerId]);
 
   const loadNotifications = async () => {
     try {
       setIsLoading(true);
-      const result = await notificationService.getNotifications(gigWorkerId, 50);
+      
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Notification loading timeout')), 10000)
+      );
+      
+      const result = await Promise.race([
+        notificationService.getNotifications(gigWorkerId, 50),
+        timeoutPromise
+      ]);
       
       if (result.success && result.notifications) {
         setNotifications(result.notifications);
@@ -46,11 +60,14 @@ export default function NotificationCenter({ gigWorkerId }: NotificationCenterPr
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load notifications',
-        variant: 'destructive',
-      });
+      // Don't show error toast for timeout or network issues to avoid blocking UX
+      if (error.message !== 'Notification loading timeout') {
+        toast({
+          title: 'Error',
+          description: 'Failed to load notifications',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -104,6 +121,10 @@ export default function NotificationCenter({ gigWorkerId }: NotificationCenterPr
         return <Badge variant="outline">{status}</Badge>;
     }
   };
+
+  if (!gigWorkerId) {
+    return null; // Don't render anything if no gigWorkerId
+  }
 
   if (isLoading) {
     return (
