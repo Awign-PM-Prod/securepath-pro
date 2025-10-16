@@ -12,7 +12,6 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { gigWorkerService } from '@/services/gigWorkerService';
-import NotificationCenter from '@/components/NotificationCenter';
 import { DynamicForm } from '@/components/DynamicForm';
 import { FormData } from '@/types/form';
 import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
@@ -112,13 +111,25 @@ export default function GigWorkerDashboard() {
   // Mobile detection and responsive behavior
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      // More comprehensive mobile detection
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const isSmallScreen = width < 768;
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      
+      // Consider it mobile if it's a small screen OR a mobile device OR touch device
+      setIsMobile(isSmallScreen || (isMobileDevice && width < 1024) || (isTouchDevice && width < 900));
     };
     
     checkMobile();
     window.addEventListener('resize', checkMobile);
+    window.addEventListener('orientationchange', checkMobile);
     
-    return () => window.removeEventListener('resize', checkMobile);
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+      window.removeEventListener('orientationchange', checkMobile);
+    };
   }, []);
 
   // Fallback timeout to ensure page loads even if there are network issues
@@ -162,11 +173,11 @@ export default function GigWorkerDashboard() {
         timeoutPromise
       ]);
       
-      if (result.success && result.gigWorkerId) {
-        setGigWorkerId(result.gigWorkerId);
+      if ((result as any).success && (result as any).gigWorkerId) {
+        setGigWorkerId((result as any).gigWorkerId);
         
         // Get vendor association info
-        const vendorInfo = await getGigWorkerVendorInfo(result.gigWorkerId);
+        const vendorInfo = await getGigWorkerVendorInfo((result as any).gigWorkerId);
         setGigWorkerVendorInfo(vendorInfo);
         
         // loadAllocatedCases() will be called automatically via useEffect when gigWorkerId changes
@@ -252,7 +263,7 @@ export default function GigWorkerDashboard() {
       const { error: caseError } = await supabase
         .from('cases')
         .update({
-          status: 'created',
+          status: 'created' as any,
           current_assignee_id: null,
           current_assignee_type: null,
           status_updated_at: new Date().toISOString()
@@ -265,7 +276,7 @@ export default function GigWorkerDashboard() {
       const { error: logError } = await supabase
         .from('allocation_logs')
         .update({
-          decision: 'timeout',
+          decision: 'timeout' as any,
           decision_at: new Date().toISOString(),
           reallocation_reason: 'Not accepted within 1 hour'
         })
@@ -276,8 +287,8 @@ export default function GigWorkerDashboard() {
 
       // Free up capacity
       const { error: capacityError } = await supabase
-        .rpc('free_capacity', {
-          p_gig_partner_id: (await getGigWorkerId()),
+        .rpc('free_capacity' as any, {
+          p_gig_partner_id: gigWorkerId,
           p_case_id: caseId,
           p_reason: 'Case timeout - not accepted'
         });
@@ -652,76 +663,94 @@ export default function GigWorkerDashboard() {
       const diffMinutes = differenceInMinutes(deadlineDate, now);
       
       if (diffMinutes <= 0) return 'Expired';
-      if (diffMinutes < 60) return `${diffMinutes}m remaining`;
+      if (diffMinutes < 60) return `${diffMinutes}m`;
       const hours = Math.floor(diffMinutes / 60);
       const minutes = diffMinutes % 60;
-      return `${hours}h ${minutes}m remaining`;
+      return `${hours}h ${minutes}m`;
     };
 
     return (
-      <Card className="mb-4">
-        <CardHeader className="pb-3">
+      <Card className="mb-3 shadow-sm border-0 bg-white">
+        <CardHeader className="pb-2 px-4 pt-4">
           <div className="flex items-start justify-between">
-            <div className="flex-1 min-w-0">
-              <CardTitle className="text-sm font-medium truncate">{caseItem.case_number}</CardTitle>
-              <CardDescription className="text-xs">{caseItem.clients?.name}</CardDescription>
+            <div className="flex-1 min-w-0 pr-2">
+              <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
+                {caseItem.case_number}
+              </CardTitle>
+              <CardDescription className="text-sm text-gray-600 mt-1">
+                {caseItem.clients?.name}
+              </CardDescription>
             </div>
-            <div className="flex flex-col items-end gap-1">
+            <div className="flex flex-col items-end gap-1.5">
               {getStatusBadge(caseItem.status)}
               {getPriorityBadge(caseItem.priority)}
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="px-4 pb-4 space-y-3">
           {/* Candidate Info */}
-          <div className="space-y-1">
+          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
             <div className="flex items-center gap-2">
-              <User className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium text-sm">{caseItem.candidate_name}</span>
+              <User className="h-4 w-4 text-blue-600 flex-shrink-0" />
+              <span className="font-semibold text-sm text-gray-900">{caseItem.candidate_name}</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Phone className="h-3 w-3" />
-              <span>{caseItem.phone_primary}</span>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Phone className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+              <span className="break-all">{caseItem.phone_primary}</span>
+              {caseItem.phone_secondary && (
+                <>
+                  <span className="text-gray-400">•</span>
+                  <span className="break-all">{caseItem.phone_secondary}</span>
+                </>
+              )}
             </div>
           </div>
 
           {/* Location */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-sm">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-              <span className="truncate">{caseItem.locations?.address_line || caseItem.address}</span>
-            </div>
-            <div className="text-xs text-muted-foreground ml-6">
-              {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <MapPin className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-900 leading-tight">
+                  {caseItem.locations?.address_line || caseItem.address}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Payout and Time */}
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between bg-blue-50 rounded-lg p-3">
             <div className="flex items-center gap-2">
-              <Building className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium">
+              <Building className="h-4 w-4 text-blue-600 flex-shrink-0" />
+              <span className="font-bold text-sm text-blue-900">
                 {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className={`text-xs ${isExpired(caseItem.acceptance_deadline) ? 'text-red-600' : 'text-orange-600'}`}>
+              <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
+              <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                isExpired(caseItem.acceptance_deadline) 
+                  ? 'bg-red-100 text-red-700' 
+                  : 'bg-orange-100 text-orange-700'
+              }`}>
                 {getTimeRemaining(caseItem.acceptance_deadline)}
               </span>
             </div>
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-1">
             {onAccept && (
               <Button
                 size="sm"
                 onClick={onAccept}
                 disabled={isExpired(caseItem.acceptance_deadline)}
-                className="flex-1"
+                className="flex-1 h-10 text-sm font-medium bg-green-600 hover:bg-green-700 disabled:bg-gray-300"
               >
-                <CheckCircle className="h-4 w-4 mr-1" />
+                <CheckCircle className="h-4 w-4 mr-1.5" />
                 Accept
               </Button>
             )}
@@ -731,9 +760,9 @@ export default function GigWorkerDashboard() {
                 variant="outline"
                 onClick={onReject}
                 disabled={isExpired(caseItem.acceptance_deadline)}
-                className="flex-1"
+                className="flex-1 h-10 text-sm font-medium border-red-300 text-red-700 hover:bg-red-50 disabled:bg-gray-100"
               >
-                <XCircle className="h-4 w-4 mr-1" />
+                <XCircle className="h-4 w-4 mr-1.5" />
                 Reject
               </Button>
             )}
@@ -741,9 +770,9 @@ export default function GigWorkerDashboard() {
               <Button
                 size="sm"
                 onClick={onSubmit}
-                className="flex-1"
+                className="flex-1 h-10 text-sm font-medium bg-blue-600 hover:bg-blue-700"
               >
-                <FileText className="h-4 w-4 mr-1" />
+                <FileText className="h-4 w-4 mr-1.5" />
                 {showEditDraft ? 'Edit Draft' : 'Submit'}
               </Button>
             )}
@@ -752,9 +781,9 @@ export default function GigWorkerDashboard() {
                 size="sm"
                 variant="outline"
                 onClick={onViewSubmission}
-                className="flex-1"
+                className="flex-1 h-10 text-sm font-medium border-blue-300 text-blue-700 hover:bg-blue-50"
               >
-                <FileText className="h-4 w-4 mr-1" />
+                <FileText className="h-4 w-4 mr-1.5" />
                 View
               </Button>
             )}
@@ -782,55 +811,84 @@ export default function GigWorkerDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-4 ${isMobile ? 'min-h-screen bg-gray-50 pb-4' : 'space-y-6'}`}>
       {/* Mobile Header */}
       {isMobile && (
         <div className="bg-white shadow-sm border-b sticky top-0 z-10">
           <div className="px-4 py-3">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-lg font-semibold">Gig Worker Dashboard</h1>
-                <p className="text-sm text-muted-foreground">Background Verification</p>
+                <h1 className="text-lg font-bold text-gray-900">Gig Worker Dashboard</h1>
+                <p className="text-sm text-gray-600">Background Verification</p>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-gray-500">Total Cases</div>
+                <div className="text-lg font-bold text-blue-600">{allocatedCases.length}</div>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Notification Center */}
-      {gigWorkerId && (
-        <div className="notification-container">
-          <NotificationCenter gigWorkerId={gigWorkerId} />
-        </div>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>My Allocated Cases</CardTitle>
-          <CardDescription>
+      <Card className={isMobile ? 'mx-2 shadow-sm border-0' : ''}>
+        <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
+          <CardTitle className={isMobile ? 'text-lg' : ''}>My Allocated Cases</CardTitle>
+          <CardDescription className={isMobile ? 'text-sm' : ''}>
             Manage your assigned background verification cases
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className={isMobile ? 'px-2' : ''}>
           <Tabs defaultValue="pending" className="w-full">
-            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>
-              <TabsTrigger value="pending" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
-                {isMobile ? `Pending (${pendingCases.length})` : `Pending (${pendingCases.length})`}
+            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4 gap-1 h-12' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>
+              <TabsTrigger 
+                value="pending" 
+                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+              >
+                <span className={isMobile ? 'text-xs font-medium' : ''}>
+                  {isMobile ? 'Pending' : 'Pending'}
+                </span>
+                <span className={isMobile ? 'text-xs font-bold text-blue-600' : ''}>
+                  ({pendingCases.length})
+                </span>
               </TabsTrigger>
-              <TabsTrigger value="accepted" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
-                {isMobile ? `Accepted (${acceptedCases.length})` : `Accepted (${acceptedCases.length})`}
+              <TabsTrigger 
+                value="accepted" 
+                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+              >
+                <span className={isMobile ? 'text-xs font-medium' : ''}>
+                  {isMobile ? 'Accepted' : 'Accepted'}
+                </span>
+                <span className={isMobile ? 'text-xs font-bold text-green-600' : ''}>
+                  ({acceptedCases.length})
+                </span>
               </TabsTrigger>
-              <TabsTrigger value="in_progress" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
-                {isMobile ? `Progress (${inProgressCases.length})` : `In Progress (${inProgressCases.length})`}
+              <TabsTrigger 
+                value="in_progress" 
+                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+              >
+                <span className={isMobile ? 'text-xs font-medium' : ''}>
+                  {isMobile ? 'Progress' : 'In Progress'}
+                </span>
+                <span className={isMobile ? 'text-xs font-bold text-orange-600' : ''}>
+                  ({inProgressCases.length})
+                </span>
               </TabsTrigger>
-              <TabsTrigger value="submitted" className={isMobile ? 'text-xs px-1 min-w-0' : ''}>
-                {isMobile ? `Submitted (${submittedCases.length})` : `Submitted (${submittedCases.length})`}
+              <TabsTrigger 
+                value="submitted" 
+                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+              >
+                <span className={isMobile ? 'text-xs font-medium' : ''}>
+                  {isMobile ? 'Submitted' : 'Submitted'}
+                </span>
+                <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
+                  ({submittedCases.length})
+                </span>
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="pending" className="space-y-4">
+            <TabsContent value="pending" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {pendingCases.length === 0 ? (
-                <Alert>
+                <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
                     No pending cases to accept or reject.
@@ -840,7 +898,7 @@ export default function GigWorkerDashboard() {
                 <>
                   {isMobile ? (
                     // Mobile: Card layout
-                    <div className="space-y-4">
+                    <div className="space-y-3 px-1">
                       {pendingCases.map((caseItem) => (
                         <MobileCaseCard
                           key={caseItem.id}
@@ -939,9 +997,9 @@ export default function GigWorkerDashboard() {
               )}
             </TabsContent>
 
-            <TabsContent value="accepted" className="space-y-4">
+            <TabsContent value="accepted" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {acceptedCases.length === 0 ? (
-                <Alert>
+                <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
                     No accepted cases. Accept cases from the Pending tab to start working on them.
@@ -951,7 +1009,7 @@ export default function GigWorkerDashboard() {
                 <>
                   {isMobile ? (
                     // Mobile: Card layout
-                    <div className="space-y-4">
+                    <div className="space-y-3 px-1">
                       {acceptedCases.map((caseItem) => (
                         <MobileCaseCard
                           key={caseItem.id}
@@ -1031,9 +1089,9 @@ export default function GigWorkerDashboard() {
               )}
             </TabsContent>
 
-            <TabsContent value="in_progress" className="space-y-4">
+            <TabsContent value="in_progress" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {inProgressCases.length === 0 ? (
-                <Alert>
+                <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
                     No cases in progress. Start working on accepted cases to see them here.
@@ -1043,7 +1101,7 @@ export default function GigWorkerDashboard() {
                 <>
                   {isMobile ? (
                     // Mobile: Card layout
-                    <div className="space-y-4">
+                    <div className="space-y-3 px-1">
                       {inProgressCases.map((caseItem) => (
                         <MobileCaseCard
                           key={caseItem.id}
@@ -1154,9 +1212,9 @@ export default function GigWorkerDashboard() {
               )}
             </TabsContent>
 
-            <TabsContent value="submitted" className="space-y-4">
+            <TabsContent value="submitted" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {submittedCases.length === 0 ? (
-                <Alert>
+                <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
                     No submitted cases yet. Submit cases from the Accepted tab.
@@ -1166,7 +1224,7 @@ export default function GigWorkerDashboard() {
                 <>
                   {isMobile ? (
                     // Mobile: Card layout
-                    <div className="space-y-4">
+                    <div className="space-y-3 px-1">
                       {submittedCases.map((caseItem) => (
                         <MobileCaseCard
                           key={caseItem.id}
@@ -1269,7 +1327,7 @@ export default function GigWorkerDashboard() {
 
       {/* Accept Case Dialog */}
       <Dialog open={isAcceptDialogOpen} onOpenChange={setIsAcceptDialogOpen}>
-        <DialogContent className={isMobile ? 'max-w-[95vw] mx-2' : ''}>
+        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2' : ''}>
           <DialogHeader>
             <DialogTitle>Accept Case</DialogTitle>
             <DialogDescription>
@@ -1313,7 +1371,7 @@ export default function GigWorkerDashboard() {
 
       {/* Reject Case Dialog */}
       <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
-        <DialogContent className={isMobile ? 'max-w-[95vw] mx-2' : ''}>
+        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2' : ''}>
           <DialogHeader>
             <DialogTitle>Reject Case</DialogTitle>
             <DialogDescription>
@@ -1404,7 +1462,7 @@ export default function GigWorkerDashboard() {
 
       {/* Draft Resume Dialog */}
       <Dialog open={isDraftResumeDialogOpen} onOpenChange={setIsDraftResumeDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className={isMobile ? 'max-w-[95vw] mx-2 my-2' : 'max-w-md'}>
           <DialogHeader>
             <DialogTitle>Resume Draft or Start Fresh?</DialogTitle>
             <DialogDescription>

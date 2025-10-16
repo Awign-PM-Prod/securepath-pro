@@ -74,8 +74,28 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
   const [hasFormData, setHasFormData] = useState(false);
   
+  // Track uploaded files to prevent duplicates in auto-save
+  const [uploadedFileHashes, setUploadedFileHashes] = useState<Set<string>>(new Set());
+  
   // Debug text fields
   const textFields = ['additional_notes', 'contact_person_designation', 'contact_person_name', 'business_name', 'premises_other'];
+
+  // Generate a simple hash for file comparison
+  const generateFileHash = (file: File): string => {
+    return `${file.name}-${file.size}-${file.lastModified}`;
+  };
+
+  // Check if file is already uploaded
+  const isFileAlreadyUploaded = (file: File): boolean => {
+    const fileHash = generateFileHash(file);
+    return uploadedFileHashes.has(fileHash);
+  };
+
+  // Mark file as uploaded
+  const markFileAsUploaded = (file: File) => {
+    const fileHash = generateFileHash(file);
+    setUploadedFileHashes(prev => new Set(prev).add(fileHash));
+  };
 
   // Image compression utility
   const compressImage = (file: File, maxSizeMB: number = 1, quality: number = 0.8): Promise<File> => {
@@ -151,22 +171,40 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         clearInterval(autoSaveTimer);
       }
 
-      // Set up new timer for auto-save every 2 seconds
+      // Set up new timer for auto-save every 30 seconds
       const timer = setInterval(() => {
         if (onAutoSave && formData && Object.keys(formData).length > 0) {
-          // Prepare form data with location information for auto-save
-          const formDataWithLocation = {
-            ...formData,
-            _metadata: {
-              file_locations: fileLocations,
-              individual_file_locations: individualFileLocations,
-              submission_timestamp: new Date().toISOString(),
-              auto_save: true
-            }
-          };
-          onAutoSave(formDataWithLocation);
+          // Create a deep copy of form data for auto-save
+          const autoSaveFormData = JSON.parse(JSON.stringify(formData));
+          
+          // Check if there are any changes worth auto-saving
+          const hasFileChanges = Object.keys(autoSaveFormData).some(fieldKey => {
+            if (fieldKey === '_metadata') return false;
+            const fieldData = autoSaveFormData[fieldKey];
+            return fieldData && fieldData.files && fieldData.files.length > 0;
+          });
+          
+          const hasNonFileChanges = Object.keys(autoSaveFormData).some(fieldKey => {
+            if (fieldKey === '_metadata') return false;
+            const fieldData = autoSaveFormData[fieldKey];
+            return fieldData && fieldData.value !== undefined && fieldData.value !== '';
+          });
+          
+          if (hasFileChanges || hasNonFileChanges) {
+            // Prepare form data with location information for auto-save
+            const formDataWithLocation = {
+              ...autoSaveFormData,
+              _metadata: {
+                file_locations: fileLocations,
+                individual_file_locations: individualFileLocations,
+                submission_timestamp: new Date().toISOString(),
+                auto_save: true
+              }
+            };
+            onAutoSave(formDataWithLocation);
+          }
         }
-      }, 2000); // 2 seconds
+      }, 30000); // 30 seconds
 
       setAutoSaveTimer(timer);
 
@@ -293,6 +331,18 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
            // REPLACE files instead of adding to existing ones
            initialData[fieldKey].files = uniqueFiles;
            console.log(`Set ${uniqueFiles.length} unique files for field ${fieldKey}:`, uniqueFiles);
+           
+           // Mark loaded files as uploaded to prevent duplicates in auto-save
+           uniqueFiles.forEach(file => {
+             // Create a File object for marking (we'll use the file data we have)
+             const fileObj = new File([], file.name, {
+               type: file.type || 'application/octet-stream',
+               lastModified: new Date(file.uploaded_at || Date.now()).getTime()
+             });
+             // Override the size property since we can't set it in File constructor
+             Object.defineProperty(fileObj, 'size', { value: file.size || 0 });
+             markFileAsUploaded(fileObj);
+           });
          }
        });
 
@@ -305,7 +355,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     setLoadingTemplate(true);
     setDraftLoaded(false);
     console.log('Loading form template for contract type:', contractTypeId);
-    console.log('Current form data before loading:', formData);
     const result = await formService.getFormTemplate(contractTypeId);
     console.log('Form template result:', result);
     
@@ -327,26 +376,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       
       if (draftData && draftData.submission_data) {
         console.log('Loading draft data:', draftData.submission_data);
-        console.log('Current form data before merge:', formData);
         
-        // Debug: Check if draft data contains files
-        console.log('=== DRAFT DATA FILE ANALYSIS ===');
-        Object.entries(draftData.submission_data).forEach(([key, value]) => {
-          if (key !== '_metadata' && value && typeof value === 'object' && 'files' in value) {
-            console.log(`Field ${key} has files in draft data:`, value.files);
-          }
-        });
-        console.log('=== END DRAFT DATA FILE ANALYSIS ===');
         
-        // IMMEDIATE DEBUG: Check text fields in draft data
-        console.log('=== DRAFT DATA ANALYSIS ===');
-        console.log('All draft keys:', Object.keys(draftData.submission_data));
-        textFields.forEach(fieldKey => {
-          const draftValue = draftData.submission_data[fieldKey];
-          console.log(`DRAFT DATA for ${fieldKey}:`, draftValue);
-          console.log(`DRAFT DATA type for ${fieldKey}:`, typeof draftValue);
-        });
-        console.log('=== END DRAFT DATA ANALYSIS ===');
         
         // initialData is already initialized with template fields above
         
@@ -362,7 +393,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         });
         
         // Merge draft data with current form data (only update fields that have values in draft)
-        console.log('=== STARTING MERGE PROCESS ===');
         Object.entries(draftData.submission_data).forEach(([key, value]) => {
           if (key === '_metadata') {
             // Handle metadata separately
@@ -430,14 +460,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         setHasFormData(true);
       }
       
-      console.log('Final form data being set:', initialData);
-      console.log('Setting form data with keys:', Object.keys(initialData));
       
-      // IMMEDIATE DEBUG: Check text fields in final data
-      textFields.forEach(fieldKey => {
-        const finalValue = initialData[fieldKey];
-        console.log(`FINAL DATA for ${fieldKey}:`, finalValue);
-      });
       
       // Mark as loaded after all data is processed
       setDraftLoaded(true);
@@ -608,6 +631,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
       }));
 
+      // Mark files as uploaded to prevent duplicates in auto-save
+      processedFiles.forEach(file => markFileAsUploaded(file));
+
     } catch (locationError) {
       console.warn('Could not get location for file upload:', locationError);
       
@@ -640,6 +666,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           files: [...currentFiles, ...processedFiles]
         }
       }));
+
+      // Mark files as uploaded to prevent duplicates in auto-save
+      processedFiles.forEach(file => markFileAsUploaded(file));
     }
 
     // Complete upload
@@ -662,6 +691,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   };
 
   const removeFile = (fieldKey: string, fileIndex: number) => {
+    // Get the file being removed to update the uploaded set
+    const fileToRemove = formData[fieldKey]?.files?.[fileIndex];
+    
     setFormData(prev => ({
       ...prev,
       [fieldKey]: {
@@ -669,6 +701,16 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         files: prev[fieldKey].files?.filter((_, index) => index !== fileIndex) || []
       }
     }));
+    
+    // Remove file from uploaded set if it was a File object
+    if (fileToRemove && fileToRemove instanceof File) {
+      const fileHash = generateFileHash(fileToRemove);
+      setUploadedFileHashes(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(fileHash);
+        return newSet;
+      });
+    }
     
     // Remove individual file location and reindex remaining locations
     setIndividualFileLocations(prev => {
@@ -819,6 +861,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         files: [...currentFiles, processedFile]
       }
     }));
+
+    // Mark file as uploaded to prevent duplicates in auto-save
+    markFileAsUploaded(processedFile);
 
     // Complete upload
     clearInterval(progressInterval);
@@ -1019,12 +1064,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 placeholder={field.field_config.placeholder}
                 maxLength={field.field_config.maxLength}
               />
-              {/* Debug info for this field */}
-              {draftData && (
-                <div className="text-xs text-gray-500">
-                  Debug: value="{fieldData.value}", type={typeof fieldData.value}, raw="{JSON.stringify(rawFieldData)}"
-                </div>
-              )}
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>
               )}
@@ -1047,12 +1086,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 maxLength={field.field_config.maxLength}
                 rows={4}
               />
-              {/* Debug info for this field */}
-              {draftData && (
-                <div className="text-xs text-gray-500">
-                  Debug: value="{fieldData.value}", type={typeof fieldData.value}, raw="{JSON.stringify(rawFieldData)}"
-                </div>
-              )}
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>
               )}
@@ -1090,12 +1123,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               </div>
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>
-              )}
-              {/* Debug info for this field */}
-              {draftData && (
-                <div className="text-xs text-gray-500">
-                  Debug: value={JSON.stringify(fieldData.value)}, type={typeof fieldData.value}
-                </div>
               )}
               {fieldError && <p className="text-sm text-red-500">{fieldError}</p>}
             </div>
@@ -1215,16 +1242,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                   </div>
                 )}
                 
-                {/* Debug info */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="text-xs text-gray-400">
-                    Field location: {JSON.stringify(fileLocations[field.field_key] || 'No location')}
-                    <br />
-                    Files count: {fieldData.files?.length || 0}
-                    <br />
-                    All field locations: {JSON.stringify(fileLocations)}
-                  </div>
-                )}
               </div>
               
               {/* Display uploaded files */}
@@ -1411,37 +1428,16 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         {draftData && (
           <div className="text-sm text-blue-600">
             <p>📝 Resuming draft - Previous data loaded</p>
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs">Debug: Form Data</summary>
-              <pre className="text-xs bg-gray-100 p-2 mt-1 rounded overflow-auto max-h-32">
-                {JSON.stringify(formData, null, 2)}
-              </pre>
-            </details>
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs">Debug: Field Values</summary>
-              <div className="text-xs bg-gray-100 p-2 mt-1 rounded overflow-auto max-h-32">
-                {Object.entries(formData).map(([key, field]) => {
-                  if (key === '_metadata') return null;
-                  if (field && typeof field === 'object' && 'value' in field) {
-                    return (
-                      <div key={key} className="mb-1">
-                        <strong>{key}:</strong> {JSON.stringify(field.value)} ({typeof field.value})
-                      </div>
-                    );
-                  }
-                  return null;
-                })}
-              </div>
-            </details>
           </div>
         )}
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="max-h-[60vh] overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+      <CardContent className="p-0 flex flex-col h-[70vh]">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
           {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
         </div>
         
-        <div className={`flex p-6 pt-4 border-t bg-gray-50 ${isMobile ? 'flex-col gap-3' : 'justify-end space-x-4'}`}>
+        {/* Sticky Footer */}
+        <div className={`flex p-6 pt-4 border-t bg-gray-50 sticky bottom-0 z-10 ${isMobile ? 'flex-col gap-3' : 'justify-end space-x-4'}`}>
           <Button variant="outline" onClick={onCancel} disabled={loading} className={isMobile ? 'w-full' : ''}>
             Cancel
           </Button>

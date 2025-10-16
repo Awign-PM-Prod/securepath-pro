@@ -94,7 +94,7 @@ export default function GigWorkerAuth() {
 
       // Redirect to login after 2 seconds
       setTimeout(() => {
-        navigate('/login');
+        navigate('/');
       }, 2000);
 
     } catch (error) {
@@ -322,7 +322,7 @@ export default function GigWorkerAuth() {
               <Button
                 variant="link"
                 className="p-0 h-auto font-normal"
-                onClick={() => navigate('/login')}
+                onClick={() => navigate('/')}
               >
                 Sign in here
               </Button>

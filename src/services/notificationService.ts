@@ -4,7 +4,7 @@ export interface NotificationData {
   title: string;
   body: string;
   type: 'case_allocated' | 'case_timeout' | 'case_accepted' | 'case_rejected' | 'case_submitted';
-  caseId?: string;
+  caseId?: string | undefined;
   gigWorkerId?: string;
   metadata?: Record<string, any>;
 }
@@ -15,10 +15,30 @@ export class NotificationService {
    */
   async sendNotification(data: NotificationData): Promise<{ success: boolean; error?: string }> {
     try {
-      // Skip notification creation for now due to RLS issues
-      // TODO: Re-enable once RLS policies are fixed
-      console.log('Skipping notification creation due to RLS issues');
-      
+      const { data: insertedData, error } = await supabase
+        .from('notifications')
+        .insert({
+          recipient_type: 'gig_partner',
+          recipient_id: data.gigWorkerId,
+          recipient_contact: '', // Will be populated by trigger
+          subject: data.title,
+          body: data.body,
+          variables: data.metadata || {},
+          channel: 'push',
+          priority: 'medium',
+          status: 'pending',
+          case_id: data.caseId || null, // Allow null for test notifications
+          related_entity_type: data.caseId ? 'case' : null,
+          related_entity_id: data.caseId || null,
+          created_at: new Date().toISOString()
+        })
+        .select();
+
+      if (error) {
+        console.error('Error inserting notification:', error);
+        throw error;
+      }
+
       return { success: true };
     } catch (error) {
       console.error('Error sending notification:', error);
@@ -127,7 +147,10 @@ export class NotificationService {
         .order('created_at', { ascending: false })
         .limit(limit);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
       return { success: true, notifications: data };
     } catch (error) {

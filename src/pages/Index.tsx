@@ -65,8 +65,8 @@ const Index = () => {
           </p>
           <Button 
             onClick={() => {
-              console.log('Sign in button clicked, navigating to /login');
-              navigate('/login');
+              console.log('Sign in button clicked, navigating to /');
+              navigate('/');
             }} 
             className="w-full bg-blue-600 hover:bg-blue-700 text-white"
           >

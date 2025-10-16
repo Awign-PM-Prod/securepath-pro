@@ -165,13 +165,33 @@ export class FormService {
           // Store metadata separately
           submissionData[fieldKey] = fieldValue;
         } else if (fieldValue.files && fieldValue.files.length > 0) {
-          // Handle file uploads separately - don't store files in submission_data
-          filesToUpload.push({
-            fieldId: fieldKey,
-            files: fieldValue.files
-          });
-          // Store only the field value, not the files
-          submissionData[fieldKey] = fieldValue.value;
+          // Check if this is an auto-save operation
+          const isAutoSave = formData._metadata?.auto_save === true;
+          
+          if (isAutoSave) {
+            // For auto-save, store file metadata but don't upload files
+            // This preserves the file information in the draft without re-uploading
+            submissionData[fieldKey] = {
+              value: fieldValue.value,
+              files: fieldValue.files.map(file => ({
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                lastModified: file.lastModified,
+                // Add any other metadata we need to preserve
+                url: (file as any).url || null,
+                uploaded_at: (file as any).uploaded_at || null
+              }))
+            };
+            console.log(`Auto-save: Preserving file metadata for field ${fieldKey} (${fieldValue.files.length} files)`);
+          } else {
+            // For regular submission, upload files and store only the field value
+            filesToUpload.push({
+              fieldId: fieldKey,
+              files: fieldValue.files
+            });
+            submissionData[fieldKey] = fieldValue.value;
+          }
         } else {
           // Store regular field values
           submissionData[fieldKey] = fieldValue.value;

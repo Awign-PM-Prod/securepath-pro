@@ -10,7 +10,7 @@ export function useRequireAuth(allowedRoles?: UserRole[]) {
   useEffect(() => {
     if (!loading) {
       if (!user) {
-        navigate('/login', { replace: true });
+        navigate('/', { replace: true });
         return;
       }
 

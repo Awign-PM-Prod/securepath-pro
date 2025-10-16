@@ -8,7 +8,6 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/Layout/AppLayout";
 import { LoadingFallback, ErrorFallback } from "@/components/LoadingFallback";
 import Index from "./pages/Index";
-import TestPage from "./pages/TestPage";
 import Login from "./pages/Login";
 import Unauthorized from "./pages/Unauthorized";
 import NotFound from "./pages/NotFound";
@@ -22,6 +21,7 @@ import VendorDashboard from "./pages/VendorDashboard";
 import GigWorkerDashboard from "./pages/GigWorkerDashboard";
 import GigWorkerAuth from "./pages/GigWorkerAuth";
 import GigWorkerResetPassword from "./pages/GigWorkerResetPassword";
+import Notifications from "./pages/Notifications";
 import ClientDashboard from "./pages/dashboards/ClientDashboard";
 import CaseManagement from "./pages/CaseManagement";
 import AllocationManagement from "./pages/AllocationManagement";
@@ -84,10 +84,9 @@ const App = () => {
           <AuthProvider>
             <BrowserRouter>
               <Routes>
-                {/* Test route */}
-                <Route path="/" element={<TestPage />} />
+                {/* Landing page - Login */}
+                <Route path="/" element={<Login />} />
                 <Route path="/original" element={<Index />} />
-                <Route path="/login" element={<Login />} />
                 <Route path="/unauthorized" element={<Unauthorized />} />
                 <Route path="/db-test" element={<DatabaseTest />} />
                 
@@ -151,6 +150,7 @@ const App = () => {
                   </ProtectedRoute>
                 }>
                   <Route index element={<GigWorkerDashboard />} />
+                  <Route path="notifications" element={<Notifications />} />
                 </Route>
 
                 {/* Public gig worker auth routes */}

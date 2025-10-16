@@ -30,7 +30,9 @@ import {
   Eye,
   UserCheck,
   ArrowRightLeft,
-  Loader2
+  Loader2,
+  Building,
+  Calendar
 } from 'lucide-react';
 
 interface GigWorker {
@@ -127,6 +129,7 @@ const VendorDashboard: React.FC = () => {
   const [pendingCases, setPendingCases] = useState<Case[]>([]);
   const [inProgressCases, setInProgressCases] = useState<Case[]>([]);
   const [unassignedCases, setUnassignedCases] = useState<Case[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
   
   // Assignment dialog state
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
@@ -136,6 +139,10 @@ const VendorDashboard: React.FC = () => {
   const [reassignCaseId, setReassignCaseId] = useState<string>('');
   const [vendorAssignCaseId, setVendorAssignCaseId] = useState<string>('');
   const [vendorAssignmentDialogOpen, setVendorAssignmentDialogOpen] = useState(false);
+  
+  // View case dialog state
+  const [viewCaseDialogOpen, setViewCaseDialogOpen] = useState(false);
+  const [viewingCase, setViewingCase] = useState<Case | null>(null);
 
   // Fetch vendor ID
   const fetchVendorId = async () => {
@@ -332,6 +339,12 @@ const VendorDashboard: React.FC = () => {
         variant: 'destructive',
       });
     }
+  };
+
+  // View case details
+  const handleViewCase = (caseItem: Case) => {
+    setViewingCase(caseItem);
+    setViewCaseDialogOpen(true);
   };
 
   // Assign case to vendor with 30-minute timer
@@ -575,6 +588,30 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Mobile detection and responsive behavior
+  useEffect(() => {
+    const checkMobile = () => {
+      // More comprehensive mobile detection
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const isSmallScreen = width < 768;
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      
+      // Consider it mobile if it's a small screen OR a mobile device OR touch device
+      setIsMobile(isSmallScreen || (isMobileDevice && width < 1024) || (isTouchDevice && width < 900));
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    window.addEventListener('orientationchange', checkMobile);
+    
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+      window.removeEventListener('orientationchange', checkMobile);
+    };
+  }, []);
+
   // Load data on mount
   useEffect(() => {
     const loadData = async () => {
@@ -610,7 +647,7 @@ const VendorDashboard: React.FC = () => {
 
   if (!vendorId) {
     return (
-      <div className="p-6">
+      <div className={`${isMobile ? 'p-4' : 'p-6'}`}>
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -621,17 +658,211 @@ const VendorDashboard: React.FC = () => {
     );
   }
 
+  // Mobile-friendly case card component
+  const MobileCaseCard = ({ caseItem, onAccept, onReject, onAssign, onReassign, onView, showActions = true }: {
+    caseItem: Case;
+    onAccept?: () => void;
+    onReject?: () => void;
+    onAssign?: () => void;
+    onReassign?: () => void;
+    onView?: () => void;
+    showActions?: boolean;
+  }) => {
+    const getTimeRemaining = (deadline?: string) => {
+      if (!deadline) return 'No deadline';
+      const now = new Date();
+      const deadlineDate = new Date(deadline);
+      const diffMs = deadlineDate.getTime() - now.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      
+      if (diffMinutes <= 0) return 'Expired';
+      if (diffMinutes < 60) return `${diffMinutes}m`;
+      
+      const diffHours = Math.floor(diffMinutes / 60);
+      const remainingMinutes = diffMinutes % 60;
+      return `${diffHours}h ${remainingMinutes}m`;
+    };
+
+    const isExpired = caseItem.acceptance_deadline && new Date(caseItem.acceptance_deadline) < new Date();
+    const timeRemaining = getTimeRemaining(caseItem.acceptance_deadline);
+
+    return (
+      <Card className="mb-3 shadow-sm border-0 bg-white">
+        <CardHeader className="pb-2 px-4 pt-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0 pr-2">
+              <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
+                {caseItem.case_number}
+              </CardTitle>
+              <CardDescription className="text-sm text-gray-600 mt-1">
+                {caseItem.title}
+              </CardDescription>
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              <Badge variant={
+                caseItem.priority === 'high' ? 'destructive' :
+                caseItem.priority === 'medium' ? 'default' : 'secondary'
+              }>
+                {caseItem.priority}
+              </Badge>
+              {caseItem.status && (
+                <Badge variant={
+                  caseItem.status === 'submitted' ? 'default' :
+                  caseItem.status === 'in_progress' ? 'secondary' : 'outline'
+                }>
+                  {caseItem.status.replace('_', ' ')}
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-3">
+          {/* Client Info */}
+          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Building className="h-4 w-4 text-blue-600 flex-shrink-0" />
+              <span className="font-semibold text-sm text-gray-900">{caseItem.client_name}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Mail className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+              <span className="break-all">{caseItem.client_email}</span>
+            </div>
+          </div>
+
+          {/* Location */}
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <MapPin className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-900 leading-tight">
+                  {caseItem.address_line}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  {caseItem.city}, {caseItem.state} - {caseItem.pincode}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Time and Due Date */}
+          <div className="flex items-center justify-between bg-blue-50 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-blue-600 flex-shrink-0" />
+              <span className="font-bold text-sm text-blue-900">
+                Due: {new Date(caseItem.due_at).toLocaleDateString()}
+              </span>
+            </div>
+            {caseItem.acceptance_deadline && (
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
+                <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                  isExpired 
+                    ? 'bg-red-100 text-red-700' 
+                    : 'bg-orange-100 text-orange-700'
+                }`}>
+                  {timeRemaining}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          {showActions && (
+            <div className="flex gap-2 pt-1">
+              {onAccept && (
+                <Button
+                  size="sm"
+                  onClick={onAccept}
+                  disabled={isExpired}
+                  className="flex-1 h-10 text-sm font-medium bg-green-600 hover:bg-green-700 disabled:bg-gray-300"
+                >
+                  <CheckCircle className="h-4 w-4 mr-1.5" />
+                  Accept
+                </Button>
+              )}
+              {onReject && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onReject}
+                  disabled={isExpired}
+                  className="flex-1 h-10 text-sm font-medium border-red-300 text-red-700 hover:bg-red-50 disabled:bg-gray-100"
+                >
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  Reject
+                </Button>
+              )}
+              {onAssign && (
+                <Button
+                  size="sm"
+                  onClick={onAssign}
+                  className="flex-1 h-10 text-sm font-medium bg-blue-600 hover:bg-blue-700"
+                >
+                  <Users className="h-4 w-4 mr-1.5" />
+                  Assign
+                </Button>
+              )}
+              {onReassign && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onReassign}
+                  className="flex-1 h-10 text-sm font-medium border-blue-300 text-blue-700 hover:bg-blue-50"
+                >
+                  <ArrowRightLeft className="h-4 w-4 mr-1.5" />
+                  Reassign
+                </Button>
+              )}
+              {onView && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onView}
+                  className="flex-1 h-10 text-sm font-medium border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  <Eye className="h-4 w-4 mr-1.5" />
+                  View
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Vendor Dashboard</h1>
-          <p className="text-muted-foreground">Manage your gig workers and case assignments</p>
+    <div className={`space-y-4 ${isMobile ? 'min-h-screen bg-gray-50 pb-4' : 'p-6 space-y-6'}`}>
+      {/* Mobile Header */}
+      {isMobile && (
+        <div className="bg-white shadow-sm border-b sticky top-0 z-10">
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-lg font-bold text-gray-900">Vendor Dashboard</h1>
+                <p className="text-sm text-gray-600">Manage gig workers & cases</p>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-gray-500">Total Cases</div>
+                <div className="text-lg font-bold text-blue-600">{assignedCases.length}</div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Desktop Header */}
+      {!isMobile && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Vendor Dashboard</h1>
+            <p className="text-muted-foreground">Manage your gig workers and case assignments</p>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className={`grid gap-4 ${isMobile ? 'grid-cols-2 mx-2' : 'grid-cols-1 md:grid-cols-4'}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Gig Workers</CardTitle>
@@ -679,30 +910,85 @@ const VendorDashboard: React.FC = () => {
         </Card>
       </div>
 
-      <Tabs defaultValue="pending" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="pending">Pending Cases ({pendingCases.length})</TabsTrigger>
-          <TabsTrigger value="in-progress">In Progress ({inProgressCases.length})</TabsTrigger>
-          <TabsTrigger value="unassigned">Unassigned Cases</TabsTrigger>
-          <TabsTrigger value="gig-workers">Gig Workers ({gigWorkers.length})</TabsTrigger>
+      <Tabs defaultValue="pending" className={`space-y-4 ${isMobile ? 'mx-2' : ''}`}>
+        <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4 gap-1 h-12' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>
+          <TabsTrigger 
+            value="pending" 
+            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+          >
+            <span className={isMobile ? 'text-xs font-medium' : ''}>
+              {isMobile ? 'Pending' : 'Pending Cases'}
+            </span>
+            <span className={isMobile ? 'text-xs font-bold text-blue-600' : ''}>
+              ({pendingCases.length})
+            </span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="in-progress" 
+            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+          >
+            <span className={isMobile ? 'text-xs font-medium' : ''}>
+              {isMobile ? 'Progress' : 'In Progress'}
+            </span>
+            <span className={isMobile ? 'text-xs font-bold text-orange-600' : ''}>
+              ({inProgressCases.length})
+            </span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="unassigned" 
+            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+          >
+            <span className={isMobile ? 'text-xs font-medium' : ''}>
+              {isMobile ? 'Available' : 'Unassigned Cases'}
+            </span>
+            <span className={isMobile ? 'text-xs font-bold text-green-600' : ''}>
+              ({unassignedCases.length})
+            </span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="gig-workers" 
+            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+          >
+            <span className={isMobile ? 'text-xs font-medium' : ''}>
+              {isMobile ? 'Workers' : 'Gig Workers'}
+            </span>
+            <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
+              ({gigWorkers.length})
+            </span>
+          </TabsTrigger>
         </TabsList>
 
         {/* Pending Cases Tab */}
-        <TabsContent value="pending" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Pending Cases</CardTitle>
-              <CardDescription>
+        <TabsContent value="pending" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          <Card className={isMobile ? 'shadow-sm border-0' : ''}>
+            <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
+              <CardTitle className={isMobile ? 'text-lg' : ''}>Pending Cases</CardTitle>
+              <CardDescription className={isMobile ? 'text-sm' : ''}>
                 Cases assigned to you that need acceptance or rejection
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className={isMobile ? 'px-2' : ''}>
               {pendingCases.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className={`text-center py-8 text-muted-foreground ${isMobile ? 'mx-2' : ''}`}>
                   No pending cases
                 </div>
               ) : (
-                <Table>
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-3 px-1">
+                      {pendingCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onAccept={() => handleAcceptCase(caseItem.id)}
+                          onReject={() => handleRejectCase(caseItem.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Case Number</TableHead>
@@ -789,27 +1075,50 @@ const VendorDashboard: React.FC = () => {
                     })}
                   </TableBody>
                 </Table>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* In Progress Cases Tab */}
-        <TabsContent value="in-progress" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>In Progress Cases</CardTitle>
-              <CardDescription>
+        <TabsContent value="in-progress" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          <Card className={isMobile ? 'shadow-sm border-0' : ''}>
+            <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
+              <CardTitle className={isMobile ? 'text-lg' : ''}>In Progress Cases</CardTitle>
+              <CardDescription className={isMobile ? 'text-sm' : ''}>
                 Cases currently being worked on by your gig workers
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className={isMobile ? 'px-2' : ''}>
               {inProgressCases.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className={`text-center py-8 text-muted-foreground ${isMobile ? 'mx-2' : ''}`}>
                   No cases in progress
                 </div>
               ) : (
-                <Table>
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-3 px-1">
+                      {inProgressCases.map((caseItem) => {
+                        const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
+                        return (
+                          <MobileCaseCard
+                            key={caseItem.id}
+                            caseItem={caseItem}
+                            onReassign={() => {
+                              setReassignCaseId(caseItem.id);
+                              setReassignmentDialogOpen(true);
+                            }}
+                            onView={() => handleViewCase(caseItem)}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Case Number</TableHead>
@@ -870,10 +1179,7 @@ const VendorDashboard: React.FC = () => {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => {
-                                  setSelectedCase(caseItem.id);
-                                  setAssignmentDialogOpen(true);
-                                }}
+                                onClick={() => handleViewCase(caseItem)}
                               >
                                 <Eye className="h-4 w-4 mr-1" />
                                 View
@@ -885,27 +1191,47 @@ const VendorDashboard: React.FC = () => {
                     })}
                   </TableBody>
                 </Table>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* Unassigned Cases Tab */}
-        <TabsContent value="unassigned" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Unassigned Cases</CardTitle>
-              <CardDescription>
+        <TabsContent value="unassigned" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          <Card className={isMobile ? 'shadow-sm border-0' : ''}>
+            <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
+              <CardTitle className={isMobile ? 'text-lg' : ''}>Unassigned Cases</CardTitle>
+              <CardDescription className={isMobile ? 'text-sm' : ''}>
                 Cases available for assignment to your vendor or gig workers
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className={isMobile ? 'px-2' : ''}>
               {unassignedCases.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className={`text-center py-8 text-muted-foreground ${isMobile ? 'mx-2' : ''}`}>
                   No unassigned cases available
                 </div>
               ) : (
-                <Table>
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-3 px-1">
+                      {unassignedCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onAssign={() => {
+                            setVendorAssignCaseId(caseItem.id);
+                            setVendorAssignmentDialogOpen(true);
+                          }}
+                          onView={() => handleViewCase(caseItem)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Case Number</TableHead>
@@ -953,13 +1279,10 @@ const VendorDashboard: React.FC = () => {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => {
-                                setSelectedCase(caseItem.id);
-                                setAssignmentDialogOpen(true);
-                              }}
+                              onClick={() => handleViewCase(caseItem)}
                             >
-                              <Users className="h-4 w-4 mr-1" />
-                              Assign to Gig Worker
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
                             </Button>
                           </div>
                         </TableCell>
@@ -967,27 +1290,97 @@ const VendorDashboard: React.FC = () => {
                     ))}
                   </TableBody>
                 </Table>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* Gig Workers Tab */}
-        <TabsContent value="gig-workers" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Gig Workers</CardTitle>
-              <CardDescription>
+        <TabsContent value="gig-workers" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          <Card className={isMobile ? 'shadow-sm border-0' : ''}>
+            <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
+              <CardTitle className={isMobile ? 'text-lg' : ''}>Gig Workers</CardTitle>
+              <CardDescription className={isMobile ? 'text-sm' : ''}>
                 Manage your gig workers and their capacity
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className={isMobile ? 'px-2' : ''}>
               {gigWorkers.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className={`text-center py-8 text-muted-foreground ${isMobile ? 'mx-2' : ''}`}>
                   No gig workers found
                 </div>
               ) : (
-                <Table>
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout for gig workers
+                    <div className="space-y-3 px-1">
+                      {gigWorkers.map((worker) => (
+                        <Card key={worker.id} className="mb-3 shadow-sm border-0 bg-white">
+                          <CardHeader className="pb-2 px-4 pt-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0 pr-2">
+                                <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
+                                  {worker.first_name} {worker.last_name}
+                                </CardTitle>
+                                <CardDescription className="text-sm text-gray-600 mt-1">
+                                  {worker.email}
+                                </CardDescription>
+                              </div>
+                              <div className="flex flex-col items-end gap-1.5">
+                                <Badge variant={worker.is_available ? 'default' : 'secondary'}>
+                                  {worker.is_available ? 'Available' : 'Busy'}
+                                </Badge>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="px-4 pb-4 space-y-3">
+                            {/* Contact Info */}
+                            <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Phone className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                                <span className="font-semibold text-sm text-gray-900">{worker.phone}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-gray-600">
+                                <MapPin className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+                                <span className="break-all">{worker.city}, {worker.state}</span>
+                              </div>
+                            </div>
+
+                            {/* Capacity */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Capacity</span>
+                                <span className="text-sm font-bold text-blue-600">
+                                  {worker.capacity_available}/{worker.max_daily_capacity}
+                                </span>
+                              </div>
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-600 h-2 rounded-full" 
+                                  style={{ 
+                                    width: `${(worker.capacity_available / worker.max_daily_capacity) * 100}%` 
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Performance */}
+                            <div className="bg-blue-50 rounded-lg p-3">
+                              <div className="text-xs font-medium text-blue-900 mb-2">Performance</div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>Quality: {(worker.quality_score * 100).toFixed(1)}%</div>
+                                <div>Completion: {(worker.completion_rate * 100).toFixed(1)}%</div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
@@ -1049,6 +1442,8 @@ const VendorDashboard: React.FC = () => {
                     ))}
                   </TableBody>
                 </Table>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -1057,7 +1452,7 @@ const VendorDashboard: React.FC = () => {
 
       {/* Assignment Dialog */}
       <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-        <DialogContent>
+        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2' : ''}>
           <DialogHeader>
             <DialogTitle>Assign Case to Gig Worker</DialogTitle>
             <DialogDescription>
@@ -1084,11 +1479,11 @@ const VendorDashboard: React.FC = () => {
               </Select>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignmentDialogOpen(false)}>
+          <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
+            <Button variant="outline" onClick={() => setAssignmentDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
               Cancel
             </Button>
-            <Button onClick={handleAssignCase}>
+            <Button onClick={handleAssignCase} className={isMobile ? 'w-full' : ''}>
               Assign Case
             </Button>
           </DialogFooter>
@@ -1097,7 +1492,7 @@ const VendorDashboard: React.FC = () => {
 
       {/* Reassignment Dialog */}
       <Dialog open={reassignmentDialogOpen} onOpenChange={setReassignmentDialogOpen}>
-        <DialogContent>
+        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2' : ''}>
           <DialogHeader>
             <DialogTitle>Reassign Case</DialogTitle>
             <DialogDescription>
@@ -1124,11 +1519,11 @@ const VendorDashboard: React.FC = () => {
               </Select>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReassignmentDialogOpen(false)}>
+          <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
+            <Button variant="outline" onClick={() => setReassignmentDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
               Cancel
             </Button>
-            <Button onClick={handleReassignCase}>
+            <Button onClick={handleReassignCase} className={isMobile ? 'w-full' : ''}>
               Reassign Case
             </Button>
           </DialogFooter>
@@ -1137,7 +1532,7 @@ const VendorDashboard: React.FC = () => {
 
       {/* Vendor Assignment Dialog */}
       <Dialog open={vendorAssignmentDialogOpen} onOpenChange={setVendorAssignmentDialogOpen}>
-        <DialogContent>
+        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2' : ''}>
           <DialogHeader>
             <DialogTitle>Assign Case to Vendor</DialogTitle>
             <DialogDescription>
@@ -1149,10 +1544,11 @@ const VendorDashboard: React.FC = () => {
               The case will be assigned to your vendor and you'll have 30 minutes to accept or reject it.
             </p>
           </div>
-          <DialogFooter>
+          <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
             <Button
               variant="outline"
               onClick={() => setVendorAssignmentDialogOpen(false)}
+              className={isMobile ? 'w-full' : ''}
             >
               Cancel
             </Button>
@@ -1164,9 +1560,147 @@ const VendorDashboard: React.FC = () => {
                   setVendorAssignCaseId('');
                 }
               }}
-              className="bg-blue-600 hover:bg-blue-700"
+              className={`bg-blue-600 hover:bg-blue-700 ${isMobile ? 'w-full' : ''}`}
             >
               Assign to Vendor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Case Dialog */}
+      <Dialog open={viewCaseDialogOpen} onOpenChange={setViewCaseDialogOpen}>
+        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2 p-0' : 'max-w-4xl'}>
+          <DialogHeader className={isMobile ? 'px-4 pt-4 pb-2' : ''}>
+            <DialogTitle className={isMobile ? 'text-base' : ''}>Case Details</DialogTitle>
+            <DialogDescription className={isMobile ? 'text-sm' : ''}>
+              View detailed information about this case
+            </DialogDescription>
+          </DialogHeader>
+          {viewingCase && (
+            <div className={`space-y-4 ${isMobile ? 'px-4 pb-4 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100' : 'space-y-6'}`}>
+              {/* Case Header */}
+              <div className={`bg-gray-50 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
+                <div className={`flex items-start justify-between ${isMobile ? 'flex-col gap-2' : ''}`}>
+                  <div className={isMobile ? 'flex-1 min-w-0' : ''}>
+                    <h3 className={`font-semibold ${isMobile ? 'text-base' : 'text-lg'} ${isMobile ? 'truncate' : ''}`}>{viewingCase.case_number}</h3>
+                    <p className={`text-gray-600 ${isMobile ? 'text-xs mt-1' : 'text-sm'}`}>{viewingCase.title}</p>
+                  </div>
+                  <div className={`flex gap-2 ${isMobile ? 'flex-wrap' : ''}`}>
+                    <Badge variant={
+                      viewingCase.priority === 'high' ? 'destructive' :
+                      viewingCase.priority === 'medium' ? 'default' : 'secondary'
+                    } className={isMobile ? 'text-xs' : ''}>
+                      {viewingCase.priority}
+                    </Badge>
+                    {viewingCase.status && (
+                      <Badge variant={
+                        viewingCase.status === 'submitted' ? 'default' :
+                        viewingCase.status === 'in_progress' ? 'secondary' : 'outline'
+                      } className={isMobile ? 'text-xs' : ''}>
+                        {viewingCase.status.replace('_', ' ')}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Case Information Grid */}
+              <div className={`grid gap-3 ${isMobile ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                {/* Client Information */}
+                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
+                  <h4 className={`font-semibold text-gray-900 flex items-center gap-2 ${isMobile ? 'text-sm' : 'text-sm'}`}>
+                    <Building className="h-4 w-4 flex-shrink-0" />
+                    Client Information
+                  </h4>
+                  <div className={`space-y-1 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Name:</span> {viewingCase.client_name}</div>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Email:</span> {viewingCase.client_email}</div>
+                  </div>
+                </div>
+
+                {/* Location Information */}
+                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
+                  <h4 className={`font-semibold text-gray-900 flex items-center gap-2 ${isMobile ? 'text-sm' : 'text-sm'}`}>
+                    <MapPin className="h-4 w-4 flex-shrink-0" />
+                    Location
+                  </h4>
+                  <div className={`space-y-1 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Address:</span> {viewingCase.address_line}</div>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">City:</span> {viewingCase.city}, {viewingCase.state}</div>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Pincode:</span> {viewingCase.pincode}</div>
+                  </div>
+                </div>
+
+                {/* Case Details */}
+                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
+                  <h4 className={`font-semibold text-gray-900 flex items-center gap-2 ${isMobile ? 'text-sm' : 'text-sm'}`}>
+                    <Briefcase className="h-4 w-4 flex-shrink-0" />
+                    Case Details
+                  </h4>
+                  <div className={`space-y-1 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Contract Type:</span> {viewingCase.contract_type}</div>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Source:</span> {viewingCase.source}</div>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">TAT Hours:</span> {viewingCase.tat_hours}</div>
+                  </div>
+                </div>
+
+                {/* Timeline */}
+                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
+                  <h4 className={`font-semibold text-gray-900 flex items-center gap-2 ${isMobile ? 'text-sm' : 'text-sm'}`}>
+                    <Clock className="h-4 w-4 flex-shrink-0" />
+                    Timeline
+                  </h4>
+                  <div className={`space-y-1 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Created:</span> {new Date(viewingCase.created_at).toLocaleString()}</div>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Due Date:</span> {new Date(viewingCase.due_at).toLocaleString()}</div>
+                    {viewingCase.acceptance_deadline && (
+                      <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Acceptance Deadline:</span> {new Date(viewingCase.acceptance_deadline).toLocaleString()}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              {viewingCase.description && (
+                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
+                  <h4 className={`font-semibold text-gray-900 ${isMobile ? 'text-sm' : 'text-sm'}`}>Description</h4>
+                  <div className={`text-gray-700 bg-gray-50 rounded-lg p-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    {viewingCase.description}
+                  </div>
+                </div>
+              )}
+
+              {/* Instructions */}
+              {viewingCase.instructions && (
+                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
+                  <h4 className={`font-semibold text-gray-900 ${isMobile ? 'text-sm' : 'text-sm'}`}>Instructions</h4>
+                  <div className={`text-gray-700 bg-blue-50 rounded-lg p-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    {viewingCase.instructions}
+                  </div>
+                </div>
+              )}
+
+              {/* Financial Information */}
+              <div className={`bg-green-50 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
+                <h4 className={`font-semibold text-gray-900 ${isMobile ? 'text-sm mb-2' : 'text-sm mb-3'}`}>Financial Information</h4>
+                <div className={`grid gap-2 ${isMobile ? 'grid-cols-1' : 'grid-cols-3'}`}>
+                  <div className={isMobile ? 'text-xs' : 'text-sm'}>
+                    <span className="font-medium">Base Rate:</span> ₹{viewingCase.base_rate_inr}
+                  </div>
+                  <div className={isMobile ? 'text-xs' : 'text-sm'}>
+                    <span className="font-medium">Total Rate:</span> ₹{viewingCase.total_rate_inr}
+                  </div>
+                  <div className={isMobile ? 'text-xs' : 'text-sm'}>
+                    <span className="font-medium">Total Payout:</span> ₹{viewingCase.total_payout_inr}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className={`${isMobile ? 'flex-col gap-2 px-4 pb-4' : ''}`}>
+            <Button variant="outline" onClick={() => setViewCaseDialogOpen(false)} className={isMobile ? 'w-full h-10' : ''}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

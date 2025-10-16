@@ -55,7 +55,7 @@ export default function NotificationCenter({ gigWorkerId }: NotificationCenterPr
       
       if (result.success && result.notifications) {
         setNotifications(result.notifications);
-        const unread = result.notifications.filter(n => n.status === 'pending').length;
+        const unread = result.notifications.filter(n => n.status === 'pending' || n.status === 'sent').length;
         setUnreadCount(unread);
       }
     } catch (error) {
@@ -112,11 +112,15 @@ export default function NotificationCenter({ gigWorkerId }: NotificationCenterPr
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="outline" className="bg-yellow-100 text-yellow-800">Unread</Badge>;
+        return <Badge variant="outline" className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      case 'sent':
+        return <Badge variant="outline" className="bg-blue-100 text-blue-800">Sent</Badge>;
       case 'delivered':
         return <Badge variant="outline" className="bg-green-100 text-green-800">Read</Badge>;
       case 'failed':
         return <Badge variant="destructive">Failed</Badge>;
+      case 'cancelled':
+        return <Badge variant="outline" className="bg-gray-100 text-gray-800">Cancelled</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -179,12 +183,12 @@ export default function NotificationCenter({ gigWorkerId }: NotificationCenterPr
                 <div
                   key={notification.id}
                   className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                    notification.status === 'pending' 
+                    notification.status === 'pending' || notification.status === 'sent'
                       ? 'bg-blue-50 border-blue-200 hover:bg-blue-100' 
                       : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
                   }`}
                   onClick={() => {
-                    if (notification.status === 'pending') {
+                    if (notification.status === 'pending' || notification.status === 'sent') {
                       markAsRead(notification.id);
                     }
                   }}
