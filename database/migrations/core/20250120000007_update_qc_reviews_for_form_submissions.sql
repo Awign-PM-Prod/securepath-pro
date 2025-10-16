@@ -19,3 +19,4 @@ CHECK (submission_id IS NOT NULL OR form_submission_id IS NOT NULL);
 -- Add index for form_submission_id
 CREATE INDEX idx_qc_reviews_form_submission_id ON public.qc_reviews(form_submission_id);
 
+

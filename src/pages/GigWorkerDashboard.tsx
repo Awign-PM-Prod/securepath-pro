@@ -78,6 +78,8 @@ export default function GigWorkerDashboard() {
   const [gigWorkerId, setGigWorkerId] = useState<string>('');
   const [selectedSubmissionCase, setSelectedSubmissionCase] = useState<AllocatedCase | null>(null);
   const [isViewSubmissionDialogOpen, setIsViewSubmissionDialogOpen] = useState(false);
+  const [qcReviewData, setQcReviewData] = useState<any>(null);
+  const [allQcReviewData, setAllQcReviewData] = useState<Record<string, any>>({});
   const [draftData, setDraftData] = useState<any>(null);
   const [isDraftResumeDialogOpen, setIsDraftResumeDialogOpen] = useState(false);
   const [pendingDraftCase, setPendingDraftCase] = useState<AllocatedCase | null>(null);
@@ -207,6 +209,16 @@ export default function GigWorkerDashboard() {
       
       if (result.success && result.cases) {
         setAllocatedCases(result.cases);
+        
+        // Fetch QC review data for all cases
+        const qcDataMap: Record<string, any> = {};
+        for (const caseItem of result.cases) {
+          const qcData = await fetchQcReviewData(caseItem.id);
+          if (qcData && qcData.result === 'rework') {
+            qcDataMap[caseItem.id] = qcData;
+          }
+        }
+        setAllQcReviewData(qcDataMap);
       } else {
         throw new Error(result.error || 'Failed to load cases');
       }
@@ -525,9 +537,38 @@ export default function GigWorkerDashboard() {
     }
   };
 
+  // Fetch QC review data for a case
+  const fetchQcReviewData = async (caseId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('qc_reviews')
+        .select('*')
+        .eq('case_id', caseId)
+        .order('reviewed_at', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.error('Error fetching QC review data:', error);
+        return null;
+      }
+
+      return data && data.length > 0 ? data[0] : null;
+    } catch (error) {
+      console.error('Error fetching QC review data:', error);
+      return null;
+    }
+  };
+
   const handleViewSubmission = async (caseItem: AllocatedCase) => {
     setSelectedSubmissionCase(caseItem);
     setIsViewSubmissionDialogOpen(true);
+    
+    // Use the stored QC review data
+    if (allQcReviewData[caseItem.id]) {
+      setQcReviewData(allQcReviewData[caseItem.id]);
+    } else {
+      setQcReviewData(null);
+    }
   };
 
   const handleResumeDraft = async () => {
@@ -579,7 +620,14 @@ export default function GigWorkerDashboard() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, caseId?: string) => {
+    // Check if this is a QC rework case by looking at the allQcReviewData
+    const isQcRework = caseId && allQcReviewData[caseId] && allQcReviewData[caseId].result === 'rework';
+    
+    if (isQcRework && status === 'auto_allocated') {
+      return <Badge variant="destructive" className="bg-red-100 text-red-800">QC Rework - Pending Acceptance</Badge>;
+    }
+    
     switch (status) {
       case 'auto_allocated':
         return <Badge variant="outline" className="bg-yellow-100 text-yellow-800">Pending Acceptance</Badge>;
@@ -628,7 +676,14 @@ export default function GigWorkerDashboard() {
   const pendingCases = allocatedCases.filter(c => c.status === 'auto_allocated');
   const acceptedCases = allocatedCases.filter(c => c.status === 'accepted');
   const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress');
-  const submittedCases = allocatedCases.filter(c => c.status === 'submitted');
+  const submittedCases = allocatedCases
+    .filter(c => c.status === 'submitted')
+    .sort((a, b) => {
+      // Sort by submitted_at field in descending order (most recent first)
+      const aSubmittedAt = a.actual_submitted_at || a.due_at;
+      const bSubmittedAt = b.actual_submitted_at || b.due_at;
+      return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
+    });
 
   // Mobile-friendly case card component
   const MobileCaseCard = ({ caseItem, onAccept, onReject, onSubmit, onViewSubmission, showEditDraft = false }: {
@@ -665,7 +720,7 @@ export default function GigWorkerDashboard() {
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-1.5">
-              {getStatusBadge(caseItem.status)}
+              {getStatusBadge(caseItem.status, caseItem.id)}
               {getPriorityBadge(caseItem.priority)}
             </div>
           </div>
@@ -1281,7 +1336,7 @@ export default function GigWorkerDashboard() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {getStatusBadge(caseItem.status)}
+                              {getStatusBadge(caseItem.status, caseItem.id)}
                             </TableCell>
                             <TableCell>
                               <Button
@@ -1393,26 +1448,85 @@ export default function GigWorkerDashboard() {
               Fill in the verification details and submit your findings.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            {selectedCase && (
-              <DynamicForm
-                contractTypeId={selectedCase.contract_type}
-                caseId={selectedCase.id}
-                gigWorkerId={gigWorkerId}
-                onSubmit={handleDynamicFormSubmit}
-                onSaveDraft={handleSaveDraft}
-                onAutoSave={handleImmediateSave}
-                onCancel={() => {
-                  setIsSubmissionDialogOpen(false);
-                  setDraftData(null);
-                }}
-                loading={isSubmitting}
-                draftData={draftData}
-                isAutoSaving={isSaving}
-                lastAutoSaveTime={lastSaveTime}
-              />
-            )}
-          </div>
+           <div className="flex-1 overflow-y-auto">
+             {selectedCase && (
+               <>
+                 {/* QC Review Details for QC Rework Cases */}
+                 {allQcReviewData[selectedCase.id] && (
+                   <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                     <h4 className="font-semibold text-red-900 flex items-center gap-2 mb-3">
+                       <AlertCircle className="h-5 w-5" />
+                       QC Review - Rework Required
+                     </h4>
+                     <div className="space-y-3 text-sm">
+                       <div className="bg-red-100 rounded-lg p-3">
+                         <div className="font-medium text-red-800 mb-1">QC Decision: Rework Required</div>
+                         <div className="text-red-700">
+                           Reviewed by: QC Team (ID: {allQcReviewData[selectedCase.id].reviewer_id})
+                         </div>
+                         <div className="text-red-700">
+                           Reviewed on: {new Date(allQcReviewData[selectedCase.id].reviewed_at).toLocaleString()}
+                         </div>
+                       </div>
+                       
+                       {allQcReviewData[selectedCase.id].issues_found && allQcReviewData[selectedCase.id].issues_found.length > 0 && (
+                         <div>
+                           <div className="font-medium text-gray-900 mb-2">Issues Found:</div>
+                           <div className="space-y-1">
+                             {allQcReviewData[selectedCase.id].issues_found.map((issue: string, index: number) => (
+                               <div key={index} className="bg-yellow-50 rounded p-2 text-sm">
+                                 • {issue.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                               </div>
+                             ))}
+                           </div>
+                         </div>
+                       )}
+                       
+                       {allQcReviewData[selectedCase.id].rework_instructions && (
+                         <div>
+                           <div className="font-medium text-gray-900 mb-2">Rework Instructions:</div>
+                           <div className="bg-blue-50 rounded-lg p-3 text-sm">
+                             {allQcReviewData[selectedCase.id].rework_instructions}
+                           </div>
+                         </div>
+                       )}
+                       
+                       {allQcReviewData[selectedCase.id].rework_deadline && (
+                         <div>
+                           <div className="font-medium text-gray-900 mb-2">Original Rework Deadline:</div>
+                           <div className="bg-orange-50 rounded-lg p-3 text-sm">
+                             <div className="flex items-center gap-2">
+                               <Clock className="h-4 w-4 text-orange-600" />
+                               <span className="text-orange-800">
+                                 {new Date(allQcReviewData[selectedCase.id].rework_deadline).toLocaleString()}
+                               </span>
+                             </div>
+                           </div>
+                         </div>
+                       )}
+                     </div>
+                   </div>
+                 )}
+                 
+                 <DynamicForm
+                   contractTypeId={selectedCase.contract_type}
+                   caseId={selectedCase.id}
+                   gigWorkerId={gigWorkerId}
+                   onSubmit={handleDynamicFormSubmit}
+                   onSaveDraft={handleSaveDraft}
+                   onAutoSave={handleImmediateSave}
+                   onCancel={() => {
+                     setIsSubmissionDialogOpen(false);
+                     setDraftData(null);
+                   }}
+                   loading={isSubmitting}
+                   draftData={draftData}
+                   isAutoSaving={isSaving}
+                   lastAutoSaveTime={lastSaveTime}
+                 />
+               </>
+             )}
+           </div>
         </DialogContent>
       </Dialog>
 
@@ -1427,7 +1541,67 @@ export default function GigWorkerDashboard() {
           </DialogHeader>
           <div className="flex-1 overflow-hidden">
             {selectedSubmissionCase && (
-              <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
+              <>
+                {/* QC Review Details for QC Rework Cases */}
+                {qcReviewData && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <h4 className="font-semibold text-red-900 flex items-center gap-2 mb-3">
+                      <AlertCircle className="h-5 w-5" />
+                      QC Review - Rework Required
+                    </h4>
+                    <div className="space-y-3 text-sm">
+                      <div className="bg-red-100 rounded-lg p-3">
+                        <div className="font-medium text-red-800 mb-1">QC Decision: Rework Required</div>
+                        <div className="text-red-700">
+                          Reviewed by: QC Team (ID: {qcReviewData.reviewer_id})
+                        </div>
+                        <div className="text-red-700">
+                          Reviewed on: {new Date(qcReviewData.reviewed_at).toLocaleString()}
+                        </div>
+                      </div>
+                      
+                      {qcReviewData.issues_found && qcReviewData.issues_found.length > 0 && (
+                        <div>
+                          <div className="font-medium text-gray-900 mb-2">Issues Found:</div>
+                          <div className="space-y-1">
+                            {qcReviewData.issues_found.map((issue: string, index: number) => (
+                              <div key={index} className="bg-yellow-50 rounded p-2 text-sm">
+                                • {issue.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      
+                      {qcReviewData.rework_instructions && (
+                        <div>
+                          <div className="font-medium text-gray-900 mb-2">Rework Instructions:</div>
+                          <div className="bg-blue-50 rounded-lg p-3 text-sm">
+                            {qcReviewData.rework_instructions}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {qcReviewData.rework_deadline && (
+                        <div>
+                          <div className="font-medium text-gray-900 mb-2">Original Rework Deadline:</div>
+                          <div className="bg-orange-50 rounded-lg p-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-4 w-4 text-orange-600" />
+                              <span className="text-orange-800">
+                                {new Date(qcReviewData.rework_deadline).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
+              </>
             )}
           </div>
           <DialogFooter className="flex-shrink-0">

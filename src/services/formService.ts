@@ -160,6 +160,15 @@ export class FormService {
       const filesToUpload: Array<{ fieldId: string; files: File[] }> = [];
 
       // Process form data
+      console.log('Processing form data for submission:', { 
+        caseId, 
+        templateId, 
+        isDraft, 
+        formDataKeys: Object.keys(formData),
+        hasMetadata: !!formData._metadata,
+        isAutoSave: formData._metadata?.auto_save === true
+      });
+      
       Object.entries(formData).forEach(([fieldKey, fieldValue]) => {
         if (fieldKey === '_metadata') {
           // Store metadata separately
@@ -168,34 +177,67 @@ export class FormService {
           // Check if this is an auto-save operation
           const isAutoSave = formData._metadata?.auto_save === true;
           
-          if (isAutoSave) {
-            // For auto-save, store file metadata but don't upload files
-            // This preserves the file information in the draft without re-uploading
-            submissionData[fieldKey] = {
-              value: fieldValue.value,
-              files: fieldValue.files.map(file => ({
-                name: file.name,
-                size: file.size,
-                type: file.type,
-                lastModified: file.lastModified,
-                // Add any other metadata we need to preserve
-                url: (file as any).url || null,
-                uploaded_at: (file as any).uploaded_at || null
-              }))
-            };
-            console.log(`Auto-save: Preserving file metadata for field ${fieldKey} (${fieldValue.files.length} files)`);
+          console.log(`Field ${fieldKey}:`, {
+            hasFiles: !!fieldValue.files,
+            fileCount: fieldValue.files?.length || 0,
+            isAutoSave,
+            files: fieldValue.files?.map(f => ({ 
+              name: f.name, 
+              size: f.size, 
+              type: f.type,
+              hasUrl: !!f.url,
+              isFileObject: f instanceof File
+            }))
+          });
+          
+          // Filter out files that already have URLs (already uploaded)
+          const newFiles = fieldValue.files.filter((file: any) => {
+            if (file instanceof File) {
+              console.log(`File ${file.name} is a new File object, will upload`);
+              return true;
+            } else if (file.url) {
+              console.log(`File ${file.name} already has URL, skipping upload`);
+              return false;
+            } else {
+              console.log(`File ${file.name} is not a File object and has no URL, skipping`);
+              return false;
+            }
+          });
+          
+          console.log(`Field ${fieldKey}: ${newFiles.length} new files to upload out of ${fieldValue.files.length} total`);
+          
+          if (newFiles.length > 0) {
+            if (isAutoSave) {
+              // For auto-save, upload only new files
+              console.log(`Auto-save: Processing ${newFiles.length} new files for field ${fieldKey}`);
+              filesToUpload.push({
+                fieldId: fieldKey,
+                files: newFiles
+              });
+              submissionData[fieldKey] = fieldValue.value;
+              console.log(`Auto-save: Added new files to upload queue for field ${fieldKey}`);
+            } else {
+              // For regular submission, upload files and store only the field value
+              filesToUpload.push({
+                fieldId: fieldKey,
+                files: newFiles
+              });
+              submissionData[fieldKey] = fieldValue.value;
+            }
           } else {
-            // For regular submission, upload files and store only the field value
-            filesToUpload.push({
-              fieldId: fieldKey,
-              files: fieldValue.files
-            });
+            // No new files to upload, just store the field value
             submissionData[fieldKey] = fieldValue.value;
+            console.log(`Field ${fieldKey}: No new files to upload, storing field value only`);
           }
         } else {
           // Store regular field values
           submissionData[fieldKey] = fieldValue.value;
         }
+      });
+      
+      console.log('Files to upload summary:', {
+        totalFieldGroups: filesToUpload.length,
+        fields: filesToUpload.map(f => ({ fieldId: f.fieldId, fileCount: f.files.length }))
       });
 
       // Check if submission already exists
@@ -243,6 +285,12 @@ export class FormService {
 
             // Upload files if any
             if (filesToUpload.length > 0) {
+              console.log(`Auto-save: Starting file upload process for ${filesToUpload.length} field groups`);
+              console.log('Files to upload details:', filesToUpload.map(f => ({
+                fieldId: f.fieldId,
+                fileCount: f.files.length,
+                files: f.files.map(file => ({ name: file.name, size: file.size, type: file.type }))
+              })));
               try {
                 // Fetch template data to get form fields
                 const { data: templateData, error: templateError } = await supabase
@@ -260,12 +308,24 @@ export class FormService {
                 if (templateError) {
                   console.warn('Failed to fetch template data for file upload:', templateError);
                 } else {
-                  await this.uploadFormFiles(submission.id, filesToUpload, templateData.form_fields || []);
+                  console.log('Auto-save: Template data fetched, uploading files...');
+                  await this.uploadFormFiles(
+                    submission.id, 
+                    filesToUpload, 
+                    templateData.form_fields || [],
+                    (file) => {
+                      // Mark file as uploaded after successful database save
+                      console.log(`File ${file.name} successfully uploaded and saved to database`);
+                    }
+                  );
+                  console.log('Auto-save: File upload process completed');
                 }
               } catch (error) {
                 console.warn('File upload failed, but form submission will continue:', error);
                 // Continue with form submission even if file upload fails
               }
+            } else {
+              console.log('Auto-save: No files to upload');
             }
 
       // If saving as draft, update case status to in_progress
@@ -300,7 +360,19 @@ export class FormService {
     try {
       const { data: draft, error } = await supabase
         .from('form_submissions')
-        .select('*')
+        .select(`
+          *,
+          form_submission_files(
+            id,
+            field_id,
+            file_url,
+            file_name,
+            file_size,
+            mime_type,
+            uploaded_at,
+            form_field:form_fields(field_key, field_title, field_type)
+          )
+        `)
         .eq('case_id', caseId)
         .eq('status', 'draft')
         .maybeSingle();
@@ -346,9 +418,16 @@ export class FormService {
   private async uploadFormFiles(
     submissionId: string, 
     filesToUpload: Array<{ fieldId: string; files: File[] }>,
-    formFields: FormField[]
+    formFields: FormField[],
+    onFileUploaded?: (file: File) => void
   ): Promise<void> {
     try {
+      console.log('uploadFormFiles called with:', {
+        submissionId,
+        filesToUploadCount: filesToUpload.length,
+        formFieldsCount: formFields.length
+      });
+      
       // Check if storage bucket exists
       console.log('Checking storage buckets...');
       const { data: buckets, error: bucketError } = await supabase.storage.listBuckets();
@@ -418,21 +497,37 @@ export class FormService {
             .getPublicUrl(fileName);
 
           // Save file record using the actual field UUID
-          const { error: insertError } = await supabase
+          const fileRecord = {
+            submission_id: submissionId,
+            field_id: field.id, // Use the actual field UUID
+            file_url: urlData.publicUrl,
+            file_name: file.name, // This will now include timestamp in filename
+            file_size: file.size,
+            mime_type: file.type,
+            uploaded_at: new Date().toISOString()
+          };
+          
+          console.log('Inserting file record:', fileRecord);
+          
+          const { data: insertData, error: insertError } = await supabase
             .from('form_submission_files')
-            .insert({
-              submission_id: submissionId,
-              field_id: field.id, // Use the actual field UUID
-              file_url: urlData.publicUrl,
-              file_name: file.name, // This will now include timestamp in filename
-              file_size: file.size,
-              mime_type: file.type
-            });
+            .insert(fileRecord)
+            .select();
 
           if (insertError) {
-            console.warn(`Failed to save file record for ${file.name}:`, insertError);
+            console.error(`Failed to save file record for ${file.name}:`, insertError);
+            console.error('Insert error details:', {
+              message: insertError.message,
+              details: insertError.details,
+              hint: insertError.hint,
+              code: insertError.code
+            });
           } else {
-            console.log(`Successfully saved file record for ${file.name}`);
+            console.log(`Successfully saved file record for ${file.name}:`, insertData);
+            // Call the callback to mark file as uploaded
+            if (onFileUploaded) {
+              onFileUploaded(file);
+            }
           }
         }
       }

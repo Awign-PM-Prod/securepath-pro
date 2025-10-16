@@ -10,7 +10,7 @@ export interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
+  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_approved' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
   client: {
     id: string;
     name: string;
@@ -211,6 +211,156 @@ export class CaseService {
       return casesWithAssignees;
     } catch (error) {
       console.error('Failed to fetch cases:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get cases by status
+   */
+  async getCasesByStatus(status: string): Promise<Case[]> {
+    try {
+      const { data, error } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          client_case_id,
+          contract_type,
+          candidate_name,
+          phone_primary,
+          phone_secondary,
+          status,
+          current_assignee_id,
+          current_assignee_type,
+          current_vendor_id,
+          vendor_tat_start_date,
+          due_at,
+          base_rate_inr,
+          bonus_inr,
+          penalty_inr,
+          total_payout_inr,
+          tat_hours,
+          created_at,
+          updated_at,
+          created_by,
+          last_updated_by,
+          status_updated_at,
+          clients!inner (
+            id,
+            name,
+            contact_person,
+            phone,
+            email
+          ),
+          locations!inner (
+            id,
+            address_line,
+            city,
+            state,
+            pincode,
+            lat,
+            lng
+          )
+        `)
+        .eq('status', status)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Get assignee information separately for both gig workers and vendors
+      const casesWithAssignees = await Promise.all(
+        data?.map(async (caseItem) => {
+          let assigneeInfo = null;
+
+          if (caseItem.current_assignee_id && caseItem.current_assignee_type) {
+            if (caseItem.current_assignee_type === 'gig') {
+              const { data: gigWorker } = await supabase
+                .from('gig_partners')
+                .select(`
+                  id,
+                  profiles!inner (
+                    first_name,
+                    last_name,
+                    phone
+                  )
+                `)
+                .eq('id', caseItem.current_assignee_id)
+                .single();
+
+              if (gigWorker) {
+                assigneeInfo = {
+                  id: gigWorker.id,
+                  name: `${gigWorker.profiles.first_name} ${gigWorker.profiles.last_name}`,
+                  type: 'gig',
+                  phone: gigWorker.profiles.phone,
+                };
+              }
+            } else if (caseItem.current_assignee_type === 'vendor') {
+              const { data: vendor } = await supabase
+                .from('vendors')
+                .select('id, name, contact_person, phone')
+                .eq('id', caseItem.current_assignee_id)
+                .single();
+
+              if (vendor) {
+                assigneeInfo = {
+                  id: vendor.id,
+                  name: vendor.name,
+                  type: 'vendor',
+                  contact_person: vendor.contact_person,
+                  phone: vendor.phone,
+                };
+              }
+            }
+          }
+
+          return {
+            id: caseItem.id,
+            case_number: caseItem.case_number,
+            client_case_id: caseItem.client_case_id,
+            contract_type: caseItem.contract_type,
+            candidate_name: caseItem.candidate_name,
+            phone_primary: caseItem.phone_primary,
+            phone_secondary: caseItem.phone_secondary,
+            status: caseItem.status,
+            client: {
+              id: caseItem.clients.id,
+              name: caseItem.clients.name,
+              contact_person: caseItem.clients.contact_person,
+              phone: caseItem.clients.phone,
+              email: caseItem.clients.email,
+            },
+            location: {
+              id: caseItem.locations.id,
+              address_line: caseItem.locations.address_line,
+              city: caseItem.locations.city,
+              state: caseItem.locations.state,
+              pincode: caseItem.locations.pincode,
+              lat: caseItem.locations.lat,
+              lng: caseItem.locations.lng,
+            },
+            current_assignee: assigneeInfo,
+            vendor_tat_start_date: caseItem.vendor_tat_start_date,
+            due_at: caseItem.due_at,
+            base_rate_inr: caseItem.base_rate_inr,
+            bonus_inr: caseItem.bonus_inr,
+            penalty_inr: caseItem.penalty_inr,
+            total_payout_inr: caseItem.total_payout_inr,
+            tat_hours: caseItem.tat_hours,
+            instructions: '', // Will be extracted from metadata
+            created_at: caseItem.created_at,
+            updated_at: caseItem.updated_at,
+            created_by: caseItem.created_by,
+            last_updated_by: caseItem.last_updated_by,
+            status_updated_at: caseItem.status_updated_at,
+          };
+        }) || []
+      );
+
+      return casesWithAssignees;
+    } catch (error) {
+      console.error('Failed to fetch cases by status:', error);
       return [];
     }
   }

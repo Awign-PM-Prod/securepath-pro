@@ -114,3 +114,4 @@ $$ LANGUAGE plpgsql;
 
 -- Grant execute permission to authenticated users
 GRANT EXECUTE ON FUNCTION get_vendor_assigned_cases(UUID) TO authenticated;
+

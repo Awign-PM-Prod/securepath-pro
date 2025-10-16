@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Upload, X, FileText, Camera } from 'lucide-react';
 import { CameraCapture } from '@/components/CameraCapture';
+import { addImageOverlay, isImageFile } from '@/utils/imageOverlayUtils';
 
 interface DynamicFormProps {
   contractTypeId: string;
@@ -163,9 +164,28 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
 
   // Immediate save functionality - save when user adds responses
   const saveFormData = useCallback(async (updatedFormData: FormData) => {
+    console.log('saveFormData called with:', {
+      hasOnAutoSave: !!onAutoSave,
+      hasFormData: !!updatedFormData,
+      formDataKeys: Object.keys(updatedFormData || {}),
+      formData: updatedFormData
+    });
+    
     if (onAutoSave && updatedFormData && Object.keys(updatedFormData).length > 0) {
       // Create a deep copy of form data for save
       const saveFormData = JSON.parse(JSON.stringify(updatedFormData));
+      
+      // Process files for auto-save - always include files for upload if they exist
+      Object.keys(saveFormData).forEach(fieldKey => {
+        if (fieldKey === '_metadata') return;
+        const fieldData = saveFormData[fieldKey];
+        if (fieldData && fieldData.files && fieldData.files.length > 0) {
+          console.log(`Auto-save: Processing field ${fieldKey} with ${fieldData.files.length} files`);
+          // For auto-save, always include files for processing
+          // The formService will handle filtering out already uploaded files
+          console.log(`Field ${fieldKey}: Including ${fieldData.files.length} files for auto-save processing`);
+        }
+      });
       
       // Check if there are any changes worth saving
       const hasFileChanges = Object.keys(saveFormData).some(fieldKey => {
@@ -191,10 +211,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             auto_save: true
           }
         };
+        console.log('Calling onAutoSave with formDataWithLocation:', formDataWithLocation);
         onAutoSave(formDataWithLocation);
       }
     }
-  }, [onAutoSave, fileLocations, individualFileLocations]);
+  }, [onAutoSave, fileLocations, individualFileLocations, isFileAlreadyUploaded]);
 
 
   // Debug: Monitor fileLocations state changes
@@ -238,14 +259,97 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     console.log('Form data has values:', hasValues);
   }, [formData, draftData, template]);
 
-  const loadDraftFiles = async (submissionId: string, initialData: FormData) => {
+  const loadDraftFilesFromDraft = async (draftData: any, initialData: FormData): Promise<FormData> => {
+    try {
+      // Get files from draft data
+      const files = draftData.form_submission_files || [];
+
+      // Group files by field_key
+      const filesByField: Record<string, any[]> = {};
+      files.forEach((file: any) => {
+        const fieldKey = file.form_field?.field_key;
+        if (fieldKey) {
+          if (!filesByField[fieldKey]) {
+            filesByField[fieldKey] = [];
+          }
+          filesByField[fieldKey].push(file);
+        }
+      });
+
+      // Create a deep copy of initialData to avoid mutating the original
+      const updatedData = JSON.parse(JSON.stringify(initialData));
+
+      // Update updatedData with files (transform database format to form format)
+      Object.entries(filesByField).forEach(([fieldKey, fieldFiles]) => {
+        if (updatedData[fieldKey]) {
+          // Transform database file format to form file format
+          const transformedFiles = fieldFiles.map(file => ({
+            ...file,
+            name: file.file_name,
+            size: file.file_size || 0,
+            url: file.file_url,
+            type: file.mime_type,
+            uploaded_at: file.uploaded_at
+          }));
+          
+          // Remove duplicates based on file URL to prevent showing same file multiple times
+          const uniqueFiles = transformedFiles.filter((file, index, self) => 
+            index === self.findIndex(f => f.url === file.url)
+          );
+          
+          // REPLACE files instead of adding to existing ones
+          updatedData[fieldKey].files = uniqueFiles;
+          
+          // Mark loaded files as uploaded to prevent duplicates in auto-save
+          uniqueFiles.forEach(file => {
+            // Create a File object for marking (we'll use the file data we have)
+            const fileObj = new File([], file.name, {
+              type: file.type || 'application/octet-stream',
+              lastModified: new Date(file.uploaded_at || Date.now()).getTime()
+            });
+            // Override the size property since we can't set it in File constructor
+            Object.defineProperty(fileObj, 'size', { value: file.size || 0 });
+            markFileAsUploaded(fileObj);
+          });
+        }
+      });
+
+      return updatedData;
+    } catch (error) {
+      console.error('Error loading draft files:', error);
+      return initialData;
+    }
+  };
+
+  const loadDraftFiles = async (submissionId: string, initialData: FormData): Promise<FormData> => {
     try {
       console.log('Loading draft files for submission:', submissionId);
       
       // Import supabase client
       const { supabase } = await import('@/integrations/supabase/client');
       
+      // Check current user context
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      console.log('Auto-save: Current user:', user?.id, userError);
+      
+      // Check gig_partner relationship
+      const { data: gigPartner, error: gigPartnerError } = await supabase
+        .from('gig_partners')
+        .select('id, user_id')
+        .eq('user_id', user?.id)
+        .single();
+      console.log('Auto-save: Gig partner:', gigPartner, gigPartnerError);
+      
+      // Check form submission relationship
+      const { data: submission, error: submissionError } = await supabase
+        .from('form_submissions')
+        .select('id, gig_partner_id')
+        .eq('id', submissionId)
+        .single();
+      console.log('Auto-save: Form submission:', submission, submissionError);
+      
       // Fetch files for this submission
+      console.log('Auto-save: Fetching files for submission ID:', submissionId);
       const { data: files, error } = await supabase
         .from('form_submission_files')
         .select(`
@@ -261,16 +365,24 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         .eq('submission_id', submissionId);
 
       if (error) {
-        console.error('Error loading draft files:', error);
-        return;
+        console.error('Auto-save: Error fetching files:', error);
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        return initialData;
       }
 
       console.log('Loaded draft files:', files);
+      console.log('Number of files found:', files?.length || 0);
 
       // Group files by field_key
       const filesByField: Record<string, any[]> = {};
       files?.forEach(file => {
         const fieldKey = file.form_field?.field_key;
+        console.log(`File ${file.file_name} belongs to field: ${fieldKey}`);
         if (fieldKey) {
           if (!filesByField[fieldKey]) {
             filesByField[fieldKey] = [];
@@ -280,45 +392,50 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       });
 
       console.log('Files grouped by field:', filesByField);
+      console.log('Number of fields with files:', Object.keys(filesByField).length);
 
-       // Update initialData with files (transform database format to form format)
-       Object.entries(filesByField).forEach(([fieldKey, fieldFiles]) => {
-         if (initialData[fieldKey]) {
-           // Transform database file format to form file format
-           const transformedFiles = fieldFiles.map(file => ({
-             ...file,
-             name: file.file_name,  // Map file_name to name
-             size: file.file_size || 0,  // Map file_size to size
-             url: file.file_url,  // Add url property for display
-             type: file.mime_type,  // Add type property
-             uploaded_at: file.uploaded_at  // Keep uploaded_at
-           }));
-           
-           // Remove duplicates based on file URL to prevent showing same file multiple times
-           const uniqueFiles = transformedFiles.filter((file, index, self) => 
-             index === self.findIndex(f => f.url === file.url)
-           );
-           
-           // REPLACE files instead of adding to existing ones
-           initialData[fieldKey].files = uniqueFiles;
-           console.log(`Set ${uniqueFiles.length} unique files for field ${fieldKey}:`, uniqueFiles);
-           
-           // Mark loaded files as uploaded to prevent duplicates in auto-save
-           uniqueFiles.forEach(file => {
-             // Create a File object for marking (we'll use the file data we have)
-             const fileObj = new File([], file.name, {
-               type: file.type || 'application/octet-stream',
-               lastModified: new Date(file.uploaded_at || Date.now()).getTime()
-             });
-             // Override the size property since we can't set it in File constructor
-             Object.defineProperty(fileObj, 'size', { value: file.size || 0 });
-             markFileAsUploaded(fileObj);
-           });
-         }
-       });
+      // Create a deep copy of initialData to avoid mutating the original
+      const updatedData = JSON.parse(JSON.stringify(initialData));
 
+      // Update updatedData with files (transform database format to form format)
+      Object.entries(filesByField).forEach(([fieldKey, fieldFiles]) => {
+        if (updatedData[fieldKey]) {
+          // Transform database file format to form file format
+          const transformedFiles = fieldFiles.map(file => ({
+            ...file,
+            name: file.file_name,  // Map file_name to name
+            size: file.file_size || 0,  // Map file_size to size
+            url: file.file_url,  // Add url property for display
+            type: file.mime_type,  // Add type property
+            uploaded_at: file.uploaded_at  // Keep uploaded_at
+          }));
+          
+          // Remove duplicates based on file URL to prevent showing same file multiple times
+          const uniqueFiles = transformedFiles.filter((file, index, self) => 
+            index === self.findIndex(f => f.url === file.url)
+          );
+          
+          // REPLACE files instead of adding to existing ones
+          updatedData[fieldKey].files = uniqueFiles;
+          
+          // Mark loaded files as uploaded to prevent duplicates in auto-save
+          uniqueFiles.forEach(file => {
+            // Create a File object for marking (we'll use the file data we have)
+            const fileObj = new File([], file.name, {
+              type: file.type || 'application/octet-stream',
+              lastModified: new Date(file.uploaded_at || Date.now()).getTime()
+            });
+            // Override the size property since we can't set it in File constructor
+            Object.defineProperty(fileObj, 'size', { value: file.size || 0 });
+            markFileAsUploaded(fileObj);
+          });
+        }
+      });
+
+      return updatedData;
     } catch (error) {
       console.error('Error loading draft files:', error);
+      return initialData;
     }
   };
 
@@ -416,12 +533,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           setIndividualFileLocations(draftData.submission_data._metadata.individual_file_locations);
         }
         
-        // Always load files from database since files are stored separately
-        console.log('Loading files from database for draft...');
-        await loadDraftFiles(draftData.id, initialData);
+        // Load files from draft data (now included in the draft)
+        const updatedFormData = await loadDraftFilesFromDraft(draftData, initialData);
         
         // Update form data with loaded files
-        setFormData(initialData);
+        setFormData(updatedFormData);
         setDraftLoaded(true);
         setHasFormData(true);
       } else {
@@ -454,10 +570,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
       };
       
-      // Trigger immediate save after state update
+      // Trigger immediate save after state update with a small delay
+      // to ensure file processing is complete
       setTimeout(() => {
         saveFormData(updatedFormData);
-      }, 0);
+      }, 100);
       
       return updatedFormData;
     });
@@ -553,7 +670,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         return;
       }
 
-      // Process and compress images
+      // Get current location for file uploads
+      const location = await getCurrentLocation();
+      console.log('Location captured for file upload:', location);
+
+      // Process and compress images, then add overlays
       const processedFiles: File[] = [];
       
       for (let i = 0; i < fileArray.length; i++) {
@@ -572,12 +693,21 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         }
         
-        processedFiles.push(processedFile);
+        // Add overlay to images
+        if (isImageFile(processedFile)) {
+          try {
+            console.log(`Adding overlay to image: ${processedFile.name}`);
+            const fileWithOverlay = await addImageOverlay(processedFile, location, new Date());
+            console.log(`Overlay added successfully: ${fileWithOverlay.name} (${(fileWithOverlay.size / 1024 / 1024).toFixed(2)}MB)`);
+            processedFiles.push(fileWithOverlay);
+          } catch (overlayError) {
+            console.warn('Failed to add overlay, using original file:', overlayError);
+            processedFiles.push(processedFile);
+          }
+        } else {
+          processedFiles.push(processedFile);
+        }
       }
-
-      // Get current location for file uploads
-      const location = await getCurrentLocation();
-      console.log('Location captured for file upload:', location);
       
       // Store location for this field (for backward compatibility)
       setFileLocations(prev => ({
@@ -620,8 +750,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         return updatedFormData;
       });
 
-      // Mark files as uploaded to prevent duplicates in auto-save
-      processedFiles.forEach(file => markFileAsUploaded(file));
+      // Don't mark files as uploaded yet - let auto-save handle the upload
+      // Files will be marked as uploaded after successful database save
 
     } catch (locationError) {
       console.warn('Could not get location for file upload:', locationError);
@@ -645,7 +775,20 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         }
         
-        processedFiles.push(processedFile);
+        // Add overlay to images (without location data)
+        if (isImageFile(processedFile)) {
+          try {
+            console.log(`Adding overlay to image (no location): ${processedFile.name}`);
+            const fileWithOverlay = await addImageOverlay(processedFile, undefined, new Date());
+            console.log(`Overlay added successfully: ${fileWithOverlay.name} (${(fileWithOverlay.size / 1024 / 1024).toFixed(2)}MB)`);
+            processedFiles.push(fileWithOverlay);
+          } catch (overlayError) {
+            console.warn('Failed to add overlay, using original file:', overlayError);
+            processedFiles.push(processedFile);
+          }
+        } else {
+          processedFiles.push(processedFile);
+        }
       }
 
       setFormData(prev => {
@@ -665,8 +808,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         return updatedFormData;
       });
 
-      // Mark files as uploaded to prevent duplicates in auto-save
-      processedFiles.forEach(file => markFileAsUploaded(file));
+      // Don't mark files as uploaded yet - let auto-save handle the upload
+      // Files will be marked as uploaded after successful database save
     }
 
     // Complete upload
@@ -701,10 +844,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
       };
       
-      // Trigger immediate save after state update
+      // Trigger immediate save after state update with a small delay
+      // to ensure file processing is complete
       setTimeout(() => {
         saveFormData(updatedFormData);
-      }, 0);
+      }, 100);
       
       return updatedFormData;
     });
@@ -1139,6 +1283,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           const currentFileCount = fieldData.files?.length || 0;
           const canAddMoreFiles = !field.max_files || currentFileCount < field.max_files;
           const isImageField = field.allowed_file_types?.some(type => type.startsWith('image/')) || false;
+          
 
           return (
             <div key={field.id} className="space-y-2">
@@ -1259,9 +1404,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                       <div className="flex items-center space-x-2">
                         <FileText className="h-4 w-4" />
                         <div className="flex flex-col">
-                          <span className="text-sm">{file.name}</span>
+                          <span className="text-sm">{file.name || file.file_name || 'Unknown file'}</span>
                           <span className="text-xs text-gray-500">
-                            ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                            ({((file.size || file.file_size || 0) / 1024 / 1024).toFixed(2)} MB)
                           </span>
                           {(() => {
                             // First try to get location from individual file locations

@@ -32,7 +32,8 @@ import {
   ArrowRightLeft,
   Loader2,
   Building,
-  Calendar
+  Calendar,
+  UserPlus
 } from 'lucide-react';
 
 interface GigWorker {
@@ -143,6 +144,7 @@ const VendorDashboard: React.FC = () => {
   // View case dialog state
   const [viewCaseDialogOpen, setViewCaseDialogOpen] = useState(false);
   const [viewingCase, setViewingCase] = useState<Case | null>(null);
+  const [qcReviewData, setQcReviewData] = useState<any>(null);
 
   // Fetch vendor ID
   const fetchVendorId = async () => {
@@ -229,7 +231,7 @@ const VendorDashboard: React.FC = () => {
       
       // Categorize cases by status
       setPendingCases(cases.filter(c => c.status === 'auto_allocated'));
-      setInProgressCases(cases.filter(c => ['accepted', 'in_progress', 'submitted'].includes(c.status)));
+      setInProgressCases(cases.filter(c => ['accepted', 'in_progress', 'submitted', 'qc_rework'].includes(c.status)));
       
     } catch (error) {
       console.error('Error fetching assigned cases:', error);
@@ -341,10 +343,41 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Fetch QC review data for a case
+  const fetchQcReviewData = async (caseId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('qc_reviews')
+        .select('*')
+        .eq('case_id', caseId)
+        .order('reviewed_at', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.error('Error fetching QC review data:', error);
+        return null;
+      }
+
+      // If data is an array, take the first (most recent) item
+      return data && data.length > 0 ? data[0] : null;
+    } catch (error) {
+      console.error('Error fetching QC review data:', error);
+      return null;
+    }
+  };
+
   // View case details
-  const handleViewCase = (caseItem: Case) => {
+  const handleViewCase = async (caseItem: Case) => {
     setViewingCase(caseItem);
     setViewCaseDialogOpen(true);
+    
+    // Fetch QC review data if it's a QC rework case
+    if (caseItem.status === 'qc_rework') {
+      const qcData = await fetchQcReviewData(caseItem.id);
+      setQcReviewData(qcData);
+    } else {
+      setQcReviewData(null);
+    }
   };
 
   // Assign case to vendor with 30-minute timer
@@ -708,9 +741,10 @@ const VendorDashboard: React.FC = () => {
               {caseItem.status && (
                 <Badge variant={
                   caseItem.status === 'submitted' ? 'default' :
-                  caseItem.status === 'in_progress' ? 'secondary' : 'outline'
+                  caseItem.status === 'in_progress' ? 'secondary' :
+                  caseItem.status === 'qc_rework' ? 'destructive' : 'outline'
                 }>
-                  {caseItem.status.replace('_', ' ')}
+                  {caseItem.status === 'qc_rework' ? 'QC Rework' : caseItem.status.replace('_', ' ')}
                 </Badge>
               )}
             </div>
@@ -981,8 +1015,12 @@ const VendorDashboard: React.FC = () => {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
-                          onAccept={() => handleAcceptCase(caseItem.id)}
-                          onReject={() => handleRejectCase(caseItem.id)}
+                          onAccept={caseItem.status === 'auto_allocated' ? () => handleAcceptCase(caseItem.id) : undefined}
+                          onReject={caseItem.status === 'auto_allocated' ? () => handleRejectCase(caseItem.id) : undefined}
+                          onAssign={caseItem.status === 'qc_rework' ? () => {
+                            setSelectedCase(caseItem.id);
+                            setAssignmentDialogOpen(true);
+                          } : undefined}
                         />
                       ))}
                     </div>
@@ -1050,24 +1088,40 @@ const VendorDashboard: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex space-x-2">
-                              <Button
-                                size="sm"
-                                onClick={() => handleAcceptCase(caseItem.id)}
-                                className="bg-green-600 hover:bg-green-700"
-                                disabled={isExpired}
-                              >
-                                <CheckCircle className="h-4 w-4 mr-1" />
-                                Accept
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleRejectCase(caseItem.id)}
-                                disabled={isExpired}
-                              >
-                                <XCircle className="h-4 w-4 mr-1" />
-                                Reject
-                              </Button>
+                              {caseItem.status === 'qc_rework' ? (
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedCase(caseItem.id);
+                                    setAssignmentDialogOpen(true);
+                                  }}
+                                  className="bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <UserPlus className="h-4 w-4 mr-1" />
+                                  Assign to Gig Worker
+                                </Button>
+                              ) : (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleAcceptCase(caseItem.id)}
+                                    className="bg-green-600 hover:bg-green-700"
+                                    disabled={isExpired}
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-1" />
+                                    Accept
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => handleRejectCase(caseItem.id)}
+                                    disabled={isExpired}
+                                  >
+                                    <XCircle className="h-4 w-4 mr-1" />
+                                    Reject
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1088,7 +1142,7 @@ const VendorDashboard: React.FC = () => {
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <CardTitle className={isMobile ? 'text-lg' : ''}>In Progress Cases</CardTitle>
               <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Cases currently being worked on by your gig workers
+                Cases currently being worked on by your gig workers, including QC rework cases
               </CardDescription>
             </CardHeader>
             <CardContent className={isMobile ? 'px-2' : ''}>
@@ -1101,16 +1155,23 @@ const VendorDashboard: React.FC = () => {
                   {isMobile ? (
                     // Mobile: Card layout
                     <div className="space-y-3 px-1">
-                      {inProgressCases.map((caseItem) => {
-                        const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
-                        return (
-                          <MobileCaseCard
-                            key={caseItem.id}
+                      {Array.from(new Set(inProgressCases.map(c => c.id)))
+                        .map(id => inProgressCases.find(c => c.id === id))
+                        .filter(Boolean)
+                        .map((caseItem) => {
+                          const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
+                          return (
+                            <MobileCaseCard
+                              key={caseItem.id}
                             caseItem={caseItem}
-                            onReassign={() => {
+                            onReassign={assignedWorker ? () => {
                               setReassignCaseId(caseItem.id);
                               setReassignmentDialogOpen(true);
-                            }}
+                            } : undefined}
+                            onAssign={caseItem.status === 'qc_rework' && !assignedWorker ? () => {
+                              setSelectedCase(caseItem.id);
+                              setAssignmentDialogOpen(true);
+                            } : undefined}
                             onView={() => handleViewCase(caseItem)}
                           />
                         );
@@ -1132,10 +1193,13 @@ const VendorDashboard: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {inProgressCases.map((caseItem) => {
-                      const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
-                      return (
-                        <TableRow key={caseItem.id}>
+                    {Array.from(new Set(inProgressCases.map(c => c.id)))
+                      .map(id => inProgressCases.find(c => c.id === id))
+                      .filter(Boolean)
+                      .map((caseItem) => {
+                        const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
+                        return (
+                          <TableRow key={caseItem.id}>
                           <TableCell className="font-mono">{caseItem.case_number}</TableCell>
                           <TableCell>{caseItem.title}</TableCell>
                           <TableCell>{caseItem.client_name}</TableCell>
@@ -1145,9 +1209,10 @@ const VendorDashboard: React.FC = () => {
                           <TableCell>
                             <Badge variant={
                               caseItem.status === 'submitted' ? 'default' :
-                              caseItem.status === 'in_progress' ? 'secondary' : 'outline'
+                              caseItem.status === 'in_progress' ? 'secondary' :
+                              caseItem.status === 'qc_rework' ? 'destructive' : 'outline'
                             }>
-                              {caseItem.status.replace('_', ' ')}
+                              {caseItem.status === 'qc_rework' ? 'QC Rework' : caseItem.status.replace('_', ' ')}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -1165,17 +1230,31 @@ const VendorDashboard: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setReassignCaseId(caseItem.id);
-                                  setReassignmentDialogOpen(true);
-                                }}
-                              >
-                                <ArrowRightLeft className="h-4 w-4 mr-1" />
-                                Reassign
-                              </Button>
+                              {caseItem.status === 'qc_rework' && !assignedWorker ? (
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedCase(caseItem.id);
+                                    setAssignmentDialogOpen(true);
+                                  }}
+                                  className="bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <UserPlus className="h-4 w-4 mr-1" />
+                                  Assign to Gig Worker
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setReassignCaseId(caseItem.id);
+                                    setReassignmentDialogOpen(true);
+                                  }}
+                                >
+                                  <ArrowRightLeft className="h-4 w-4 mr-1" />
+                                  Reassign
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1570,15 +1649,15 @@ const VendorDashboard: React.FC = () => {
 
       {/* View Case Dialog */}
       <Dialog open={viewCaseDialogOpen} onOpenChange={setViewCaseDialogOpen}>
-        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2 p-0' : 'max-w-4xl'}>
-          <DialogHeader className={isMobile ? 'px-4 pt-4 pb-2' : ''}>
+        <DialogContent className={`${isMobile ? 'max-w-[95vw] h-[90vh] mx-2 my-2 p-0' : 'max-w-4xl max-h-[90vh]'} flex flex-col`}>
+          <DialogHeader className={`flex-shrink-0 ${isMobile ? 'px-4 pt-4 pb-2' : ''}`}>
             <DialogTitle className={isMobile ? 'text-base' : ''}>Case Details</DialogTitle>
             <DialogDescription className={isMobile ? 'text-sm' : ''}>
               View detailed information about this case
             </DialogDescription>
           </DialogHeader>
           {viewingCase && (
-            <div className={`space-y-4 ${isMobile ? 'px-4 pb-4 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100' : 'space-y-6'}`}>
+            <div className={`flex-1 overflow-y-auto space-y-4 ${isMobile ? 'px-4 pb-4' : 'space-y-6'}`}>
               {/* Case Header */}
               <div className={`bg-gray-50 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
                 <div className={`flex items-start justify-between ${isMobile ? 'flex-col gap-2' : ''}`}>
@@ -1681,6 +1760,77 @@ const VendorDashboard: React.FC = () => {
                 </div>
               )}
 
+              {/* QC Review Information - Only for QC Rework cases */}
+              {viewingCase.status === 'qc_rework' && qcReviewData && (
+                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
+                  <h4 className={`font-semibold text-gray-900 flex items-center gap-2 ${isMobile ? 'text-sm' : 'text-sm'}`}>
+                    <AlertCircle className="h-4 w-4 flex-shrink-0 text-red-600" />
+                    QC Review Details
+                  </h4>
+                  <div className={`space-y-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    {/* QC Decision */}
+                    <div className={`bg-red-50 rounded-lg p-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                      <div className="font-medium text-red-800 mb-1">QC Decision: Rework Required</div>
+                      <div className="text-red-700">
+                        Reviewed by: QC Team (ID: {qcReviewData.reviewer_id})
+                      </div>
+                      <div className="text-red-700">
+                        Reviewed on: {new Date(qcReviewData.reviewed_at).toLocaleString()}
+                      </div>
+                    </div>
+
+                    {/* Issues Found */}
+                    {qcReviewData.issues_found && qcReviewData.issues_found.length > 0 && (
+                      <div>
+                        <div className="font-medium text-gray-900 mb-2">Issues Found:</div>
+                        <div className="space-y-1">
+                          {qcReviewData.issues_found.map((issue: string, index: number) => (
+                            <div key={index} className={`bg-yellow-50 rounded p-2 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                              • {issue.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* QC Comments */}
+                    {qcReviewData.comments && (
+                      <div>
+                        <div className="font-medium text-gray-900 mb-2">QC Comments:</div>
+                        <div className={`bg-gray-50 rounded-lg p-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                          {qcReviewData.comments}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Rework Instructions */}
+                    {qcReviewData.rework_instructions && (
+                      <div>
+                        <div className="font-medium text-gray-900 mb-2">Rework Instructions:</div>
+                        <div className={`bg-blue-50 rounded-lg p-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                          {qcReviewData.rework_instructions}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Rework Deadline */}
+                    {qcReviewData.rework_deadline && (
+                      <div>
+                        <div className="font-medium text-gray-900 mb-2">Rework Deadline:</div>
+                        <div className={`bg-orange-50 rounded-lg p-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-orange-600" />
+                            <span className="text-orange-800">
+                              {new Date(qcReviewData.rework_deadline).toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Financial Information */}
               <div className={`bg-green-50 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
                 <h4 className={`font-semibold text-gray-900 ${isMobile ? 'text-sm mb-2' : 'text-sm mb-3'}`}>Financial Information</h4>
@@ -1699,7 +1849,10 @@ const VendorDashboard: React.FC = () => {
             </div>
           )}
           <DialogFooter className={`${isMobile ? 'flex-col gap-2 px-4 pb-4' : ''}`}>
-            <Button variant="outline" onClick={() => setViewCaseDialogOpen(false)} className={isMobile ? 'w-full h-10' : ''}>
+            <Button variant="outline" onClick={() => {
+              setViewCaseDialogOpen(false);
+              setQcReviewData(null);
+            }} className={isMobile ? 'w-full h-10' : ''}>
               Close
             </Button>
           </DialogFooter>

@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Camera, X, RotateCcw, Check } from 'lucide-react';
+import { addImageOverlay } from '@/utils/imageOverlayUtils';
 
 interface CameraCaptureProps {
   isOpen: boolean;
@@ -295,7 +296,7 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
       }
     }
 
-    canvasRef.current.toBlob((blob) => {
+    canvasRef.current.toBlob(async (blob) => {
       if (!blob) {
         console.error('Failed to create blob for confirmation');
         setError('Failed to process image. Please try again.');
@@ -308,19 +309,37 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
       const locationSuffix = finalLocation 
         ? `-${finalLocation.lat.toFixed(6)}-${finalLocation.lng.toFixed(6)}`
         : '';
-      const file = new File([blob], `camera-capture-${captureTime}${locationSuffix}.jpg`, {
+      const originalFile = new File([blob], `camera-capture-${captureTime}${locationSuffix}.jpg`, {
         type: blob.type,
         lastModified: Date.now()
       });
 
-      console.log('Final file created:', { name: file.name, size: file.size, type: file.type });
-      console.log('Final location state at capture:', finalLocation);
-      console.log('Passing location to form:', finalLocation);
+      try {
+        // Add overlay to the image
+        console.log('Adding overlay to captured image...');
+        const fileWithOverlay = await addImageOverlay(originalFile, finalLocation || undefined, new Date());
+        console.log('Overlay added successfully:', { 
+          originalSize: originalFile.size, 
+          newSize: fileWithOverlay.size,
+          name: fileWithOverlay.name 
+        });
 
-      console.log('Passing to form:', { file: file.name, location: finalLocation });
-      onCapture(file, finalLocation);
-      setCapturedImage(null);
-      onClose(); // Close the camera dialog
+        console.log('Final file created with overlay:', { name: fileWithOverlay.name, size: fileWithOverlay.size, type: fileWithOverlay.type });
+        console.log('Final location state at capture:', finalLocation);
+        console.log('Passing location to form:', finalLocation);
+
+        console.log('Passing to form:', { file: fileWithOverlay.name, location: finalLocation });
+        onCapture(fileWithOverlay, finalLocation);
+        setCapturedImage(null);
+        onClose(); // Close the camera dialog
+      } catch (overlayError) {
+        console.error('Failed to add overlay:', overlayError);
+        // Fallback to original file if overlay fails
+        console.log('Using original file without overlay due to error');
+        onCapture(originalFile, finalLocation);
+        setCapturedImage(null);
+        onClose();
+      }
     }, 'image/jpeg', 0.8);
   }, [onCapture, onClose, currentLocation, getCurrentLocation]);
 

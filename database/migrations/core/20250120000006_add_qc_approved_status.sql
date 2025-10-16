@@ -18,3 +18,4 @@ ALTER TYPE public.submission_status ADD VALUE 'qc_approved' AFTER 'qc_passed';
 UPDATE public.submissions 
 SET status = 'qc_approved' 
 WHERE status = 'qc_passed';
+
