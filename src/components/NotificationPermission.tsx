@@ -143,9 +143,9 @@ export function NotificationPermission({ gigWorkerId, onPermissionChange }: Noti
             <CheckCircle className="h-4 w-4 text-green-600" />
             Notifications Enabled
           </CardTitle>
-          <CardDescription className="text-xs">
-            You will receive push notifications for new cases and updates.
-          </CardDescription>
+        <CardDescription className="text-xs">
+          Get instant alerts when cases are allocated to you.
+        </CardDescription>
         </CardHeader>
         <CardContent className="pt-0">
           {initializationResult && (

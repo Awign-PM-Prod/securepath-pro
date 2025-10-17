@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell } from 'lucide-react';
 import { format, differenceInMinutes, addHours } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -913,27 +913,17 @@ export default function GigWorkerDashboard() {
                 <h1 className="text-lg font-bold text-gray-900">Gig Worker Dashboard</h1>
                 <p className="text-sm text-gray-600">Background Verification</p>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <div className="text-xs text-gray-500">Total Cases</div>
-                  <div className="text-lg font-bold text-blue-600">{allocatedCases.length}</div>
-                </div>
-                {gigWorkerId && (
-                  <div className="w-8 h-8">
-                    <NotificationPermission 
-                      gigWorkerId={gigWorkerId}
-                      onPermissionChange={setNotificationsEnabled}
-                    />
-                  </div>
-                )}
+              <div className="text-right">
+                <div className="text-xs text-gray-500">Total Cases</div>
+                <div className="text-lg font-bold text-blue-600">{allocatedCases.length}</div>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Notification Permission Card - Show for all devices */}
-      {gigWorkerId && (
+      {/* Notification Permission Card - Only show when bell button is clicked */}
+      {showNotificationTest && gigWorkerId && (
         <div className={isMobile ? 'mx-2 mb-4' : 'mb-4'}>
           <NotificationPermission 
             gigWorkerId={gigWorkerId}
@@ -964,19 +954,7 @@ export default function GigWorkerDashboard() {
           </div>
         </CardHeader>
         <CardContent className={isMobile ? 'px-2' : ''}>
-          {/* Notification Test Component */}
-          {showNotificationTest && gigWorkerId && (
-            <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h3 className="font-semibold text-blue-900 mb-2">🔔 Notification Setup</h3>
-              <p className="text-sm text-blue-700 mb-3">
-                Enable push notifications to receive instant alerts when cases are allocated to you.
-              </p>
-              <NotificationPermission 
-                gigWorkerId={gigWorkerId}
-                onPermissionChange={setNotificationsEnabled}
-              />
-            </div>
-          )}
+          {/* Notification Test Component - Removed duplicate, using main notification card */}
           
           <Tabs defaultValue="pending" className="w-full">
             <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4 gap-1 h-12' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>

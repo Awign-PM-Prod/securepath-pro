@@ -40,15 +40,26 @@ class NotificationService {
 
   private async initializeVapidKey() {
     try {
-      const { data } = await supabase
+      console.log('Fetching VAPID public key from database...');
+      const { data, error } = await supabase
         .from('app_settings')
         .select('value')
         .eq('key', 'vapid_public_key')
         .single();
       
-      this.vapidPublicKey = data?.value || null;
+      if (error) {
+        console.error('Error fetching VAPID key:', error);
+        return;
+      }
+      
+      if (data?.value) {
+        this.vapidPublicKey = data.value;
+        console.log('VAPID public key loaded:', data.value.substring(0, 20) + '...');
+      } else {
+        console.error('No VAPID public key found in database');
+      }
     } catch (error) {
-      console.warn('Could not fetch VAPID public key:', error);
+      console.error('Could not fetch VAPID public key:', error);
     }
   }
 
@@ -95,24 +106,43 @@ class NotificationService {
       return false;
     }
 
+    // Try to get VAPID key if not already loaded
+    if (!this.vapidPublicKey) {
+      await this.initializeVapidKey();
+    }
+
     if (!this.vapidPublicKey) {
       console.error('VAPID public key not available');
       return false;
     }
 
     try {
+      console.log('Attempting push subscription with VAPID key:', this.vapidPublicKey.substring(0, 20) + '...');
+      
       this.subscription = await this.registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: this.urlBase64ToUint8Array(this.vapidPublicKey)
       });
 
+      console.log('Push subscription created:', this.subscription);
+
       // Store the subscription in the database
-      await this.storeDeviceToken(gigWorkerId, this.subscription);
+      const stored = await this.storeDeviceToken(gigWorkerId, this.subscription);
       
-      console.log('Push subscription successful');
-      return true;
+      if (stored) {
+        console.log('Push subscription successful and stored');
+        return true;
+      } else {
+        console.error('Failed to store device token');
+        return false;
+      }
     } catch (error) {
       console.error('Push subscription failed:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
       return false;
     }
   }
