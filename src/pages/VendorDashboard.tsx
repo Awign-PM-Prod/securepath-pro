@@ -279,9 +279,7 @@ const VendorDashboard: React.FC = () => {
           base_rate_inr,
           total_rate_inr,
           created_by,
-          updated_at,
-          locations(address_line, city, state, pincode),
-          clients(name, email)
+          updated_at
         `)
         .eq('current_vendor_id', vendorId);
 
@@ -295,12 +293,12 @@ const VendorDashboard: React.FC = () => {
       
       const cases = (data || []).map(c => ({
         ...c,
-        address_line: c.locations?.address_line || '',
-        city: c.locations?.city || '',
-        state: c.locations?.state || '',
-        pincode: c.locations?.pincode || '',
-        client_name: c.clients?.name || '',
-        client_email: c.clients?.email || ''
+        address_line: '',
+        city: '',
+        state: '',
+        pincode: '',
+        client_name: '',
+        client_email: ''
       }));
       
       console.log('Processed assigned cases:', cases);
@@ -689,8 +687,8 @@ const VendorDashboard: React.FC = () => {
     }
 
     try {
-      // Query 1: Global unassigned cases (status = 'draft', no vendor, no assignee)
-      const { data: globalCases, error: globalError } = await supabase
+      // Query: Cases with same vendor ID (no status filter)
+      const { data, error } = await supabase
         .from('cases')
         .select(`
           id,
@@ -709,119 +707,30 @@ const VendorDashboard: React.FC = () => {
           total_rate_inr,
           created_by,
           updated_at,
-          current_vendor_id,
-          locations(address_line, city, state, pincode),
-          clients(name, email)
+          current_vendor_id
         `)
-        .eq('status', 'draft')
-        .is('current_assignee_id', null)
-        .is('current_vendor_id', null)
-        .order('created_at', { ascending: false });
-
-      if (globalError) throw globalError;
-
-      // Query 2: Vendor's accepted cases (status = 'accepted', vendor assigned, no gig worker)
-      const { data: vendorCases, error: vendorError } = await supabase
-        .from('cases')
-        .select(`
-          id,
-          case_number,
-          title,
-          description,
-          priority,
-          client_id,
-          location_id,
-          tat_hours,
-          due_at,
-          created_at,
-          status,
-          status_updated_at,
-          base_rate_inr,
-          total_rate_inr,
-          created_by,
-          updated_at,
-          current_vendor_id,
-          locations(address_line, city, state, pincode),
-          clients(name, email)
-        `)
-        .eq('status', 'accepted')
-        .is('current_assignee_id', null)
         .eq('current_vendor_id', vendorId)
         .order('created_at', { ascending: false });
 
-      if (vendorError) throw vendorError;
-
-      // Query 3: Any other cases that might be available for assignment
-      // This is a fallback to catch cases that might be in unexpected statuses
-      const { data: otherCases, error: otherError } = await supabase
-        .from('cases')
-        .select(`
-          id,
-          case_number,
-          title,
-          description,
-          priority,
-          client_id,
-          location_id,
-          tat_hours,
-          due_at,
-          created_at,
-          status,
-          status_updated_at,
-          base_rate_inr,
-          total_rate_inr,
-          created_by,
-          updated_at,
-          current_vendor_id,
-          locations(address_line, city, state, pincode),
-          clients(name, email)
-        `)
-        .is('current_assignee_id', null)
-        .or(`current_vendor_id.is.null,current_vendor_id.eq.${vendorId}`)
-        .not('status', 'in', '(allocated,in_progress,submitted,qc_review,completed,cancelled)')
-        .order('created_at', { ascending: false });
-
-      if (otherError) {
-        console.warn('Error fetching other cases:', otherError);
+      if (error) {
+        console.error('Error fetching unassigned cases:', error);
+        throw error;
       }
 
-      console.log('Global unassigned cases:', globalCases);
-      console.log('Vendor accepted cases:', vendorCases);
-      console.log('Other available cases:', otherCases);
-      console.log('Vendor ID:', vendorId);
+      console.log('Unassigned cases (vendorId=' + vendorId + '):', data);
+      console.log('Number of unassigned cases:', data?.length || 0);
       
-      // Combine all results and remove duplicates
-      const allCases = [...(globalCases || []), ...(vendorCases || []), ...(otherCases || [])];
-      const uniqueCases = allCases.filter((caseItem, index, self) => 
-        index === self.findIndex(c => c.id === caseItem.id)
-      );
-      
-      const cases = uniqueCases.map(c => ({
+      const cases = (data || []).map(c => ({
         ...c,
-        address_line: c.locations?.address_line || '',
-        city: c.locations?.city || '',
-        state: c.locations?.state || '',
-        pincode: c.locations?.pincode || '',
-        client_name: c.clients?.name || '',
-        client_email: c.clients?.email || ''
+        address_line: '',
+        city: '',
+        state: '',
+        pincode: '',
+        client_name: '',
+        client_email: ''
       }));
       
-      console.log('Combined unassigned cases:', cases);
-      console.log('Number of unassigned cases:', cases.length);
-      
-      // Debug: Also log all cases for this vendor to understand what's available
-      const { data: allVendorCases, error: debugError } = await supabase
-        .from('cases')
-        .select('id, case_number, status, current_vendor_id, current_assignee_id')
-        .or(`current_vendor_id.eq.${vendorId},current_vendor_id.is.null`)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      
-      if (!debugError) {
-        console.log('All vendor-related cases (debug):', allVendorCases);
-        console.log('Number of all vendor-related cases:', allVendorCases?.length || 0);
-      }
-      
+      console.log('Processed unassigned cases:', cases);
       setUnassignedCases(cases);
     } catch (error) {
       console.error('Error fetching unassigned cases:', error);
@@ -881,9 +790,7 @@ const VendorDashboard: React.FC = () => {
           created_by,
           updated_at,
           current_vendor_id,
-          QC_Response,
-          locations(address_line, city, state, pincode),
-          clients(name, email)
+          QC_Response
         `)
         .eq('current_vendor_id', vendorId)
         .eq('QC_Response', 'Rework')
@@ -977,12 +884,12 @@ const VendorDashboard: React.FC = () => {
         updated_at: c.updated_at || '',
         current_vendor_id: c.current_vendor_id || '',
         QC_Response: c.QC_Response || 'New',
-        address_line: c.locations?.address_line || '',
-        city: c.locations?.city || '',
-        state: c.locations?.state || '',
-        pincode: c.locations?.pincode || '',
-        client_name: c.clients?.name || '',
-        client_email: c.clients?.email || ''
+        address_line: '',
+        city: '',
+        state: '',
+        pincode: '',
+        client_name: '',
+        client_email: ''
       }));
 
       console.log('Processed rework cases:', cases);
