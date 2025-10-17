@@ -367,6 +367,7 @@ export class GigWorkerService {
           id,
           case_number,
           client_case_id,
+          client_id,
           contract_type,
           candidate_name,
           phone_primary,
@@ -378,7 +379,7 @@ export class GigWorkerService {
           base_rate_inr,
           total_payout_inr,
           current_vendor_id,
-          clients (name),
+          clients (id, name),
           locations (address_line, city, state, pincode, location_url),
           form_submissions (id, submitted_at, created_at),
           submissions (id, submitted_at, created_at)
@@ -390,6 +391,8 @@ export class GigWorkerService {
       if (error) throw error;
 
       console.log('Raw cases data from database:', cases);
+      console.log('Client data for first case:', cases?.[0]?.clients);
+      console.log('Client ID for first case:', cases?.[0]?.client_id);
 
       // Get acceptance deadlines from allocation logs
       const caseIds = cases?.map(c => c.id) || [];

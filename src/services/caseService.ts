@@ -46,6 +46,8 @@ export interface Case {
   created_by: string;
   last_updated_by: string;
   status_updated_at: string;
+  // QC Response field
+  QC_Response?: 'Rework' | 'Approved' | 'Rejected' | 'New';
   // New fields for QC dashboard
   assigned_at?: string;
   submitted_at?: string;
@@ -101,6 +103,7 @@ export class CaseService {
           created_by,
           last_updated_by,
           status_updated_at,
+          "QC_Response",
           clients!inner (
             id,
             name,
@@ -126,6 +129,8 @@ export class CaseService {
       const casesWithAssignees = await Promise.all(
         data?.map(async (caseItem) => {
           let assigneeInfo = null;
+          let assignedAt = null;
+          let submittedAt = null;
 
           if (caseItem.current_assignee_id && caseItem.current_assignee_type) {
             if (caseItem.current_assignee_type === 'gig') {
@@ -169,6 +174,45 @@ export class CaseService {
             }
           }
 
+          // Get allocation logs to find when case was assigned
+          if (caseItem.current_assignee_id) {
+            const { data: allocationLogs } = await supabase
+              .from('allocation_logs')
+              .select('allocated_at, accepted_at')
+              .eq('case_id', caseItem.id)
+              .eq('candidate_id', caseItem.current_assignee_id)
+              .eq('decision', 'accepted')
+              .order('accepted_at', { ascending: false })
+              .limit(1);
+
+            if (allocationLogs && allocationLogs.length > 0) {
+              assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
+            }
+          }
+
+          // Get submission date from either submissions or form_submissions
+          const { data: submissions } = await supabase
+            .from('submissions')
+            .select('submitted_at')
+            .eq('case_id', caseItem.id)
+            .order('submitted_at', { ascending: false })
+            .limit(1);
+
+          if (submissions && submissions.length > 0) {
+            submittedAt = submissions[0].submitted_at;
+          } else {
+            const { data: formSubmissions } = await supabase
+              .from('form_submissions')
+              .select('submitted_at')
+              .eq('case_id', caseItem.id)
+              .order('submitted_at', { ascending: false })
+              .limit(1);
+
+            if (formSubmissions && formSubmissions.length > 0) {
+              submittedAt = formSubmissions[0].submitted_at;
+            }
+          }
+
           return {
             id: caseItem.id,
             case_number: caseItem.case_number,
@@ -209,6 +253,10 @@ export class CaseService {
             created_by: caseItem.created_by,
             last_updated_by: caseItem.last_updated_by,
             status_updated_at: caseItem.status_updated_at,
+            QC_Response: caseItem.QC_Response,
+            // New fields for QC dashboard
+            assigned_at: assignedAt,
+            submitted_at: submittedAt,
           };
         }) || []
       );
@@ -251,6 +299,7 @@ export class CaseService {
           created_by,
           last_updated_by,
           status_updated_at,
+          "QC_Response",
           clients!inner (
             id,
             name,
@@ -433,6 +482,7 @@ export class CaseService {
           created_by,
           last_updated_by,
           status_updated_at,
+          "QC_Response",
           clients!inner (
             id,
             name,
@@ -454,6 +504,49 @@ export class CaseService {
         .single();
 
       if (error) throw error;
+
+      // Get assignment and submission dates
+      let assignedAt = null;
+      let submittedAt = null;
+
+      // Get allocation logs to find when case was assigned
+      if (data.current_assignee_id) {
+        const { data: allocationLogs } = await supabase
+          .from('allocation_logs')
+          .select('allocated_at, accepted_at')
+          .eq('case_id', data.id)
+          .eq('candidate_id', data.current_assignee_id)
+          .eq('decision', 'accepted')
+          .order('accepted_at', { ascending: false })
+          .limit(1);
+
+        if (allocationLogs && allocationLogs.length > 0) {
+          assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
+        }
+      }
+
+      // Get submission date from either submissions or form_submissions
+      const { data: submissions } = await supabase
+        .from('submissions')
+        .select('submitted_at')
+        .eq('case_id', data.id)
+        .order('submitted_at', { ascending: false })
+        .limit(1);
+
+      if (submissions && submissions.length > 0) {
+        submittedAt = submissions[0].submitted_at;
+      } else {
+        const { data: formSubmissions } = await supabase
+          .from('form_submissions')
+          .select('submitted_at')
+          .eq('case_id', data.id)
+          .order('submitted_at', { ascending: false })
+          .limit(1);
+
+        if (formSubmissions && formSubmissions.length > 0) {
+          submittedAt = formSubmissions[0].submitted_at;
+        }
+      }
 
       return {
         id: data.id,
@@ -491,6 +584,10 @@ export class CaseService {
         created_by: data.created_by,
         last_updated_by: data.last_updated_by,
         status_updated_at: data.status_updated_at,
+        QC_Response: data.QC_Response,
+        // New fields for QC dashboard
+        assigned_at: assignedAt,
+        submitted_at: submittedAt,
       };
     } catch (error) {
       console.error('Failed to fetch case:', error);

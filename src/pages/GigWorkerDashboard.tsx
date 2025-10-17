@@ -22,6 +22,7 @@ interface AllocatedCase {
   id: string;
   case_number: string;
   client_case_id: string;
+  client_id: string;
   contract_type: string;
   candidate_name: string;
   phone_primary: string;
@@ -41,6 +42,7 @@ interface AllocatedCase {
   vendor_id?: string;
   actual_submitted_at?: string;
   clients: {
+    id: string;
     name: string;
   };
   locations: {
@@ -746,8 +748,8 @@ export default function GigWorkerDashboard() {
               <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
                 {caseItem.case_number}
               </CardTitle>
-              <CardDescription className="text-sm text-gray-600 mt-1">
-                {caseItem.clients?.name}
+              <CardDescription className="text-sm text-blue-700 font-medium mt-1">
+                Client: {caseItem.clients?.name}
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-1.5">
@@ -1514,14 +1516,27 @@ export default function GigWorkerDashboard() {
                 <div>
                   <span className="font-medium">Case Number:</span> {selectedCase.case_number}
                 </div>
-                <div>
-                  <span className="font-medium">Client:</span> {selectedCase.clients?.name}
+                <div className="bg-blue-50 p-3 rounded-lg border-l-4 border-blue-500">
+                  <span className="font-semibold text-blue-900">Client:</span> 
+                  <span className="ml-2 text-blue-800 font-medium text-lg">{selectedCase.clients?.name}</span>
                 </div>
                 <div>
                   <span className="font-medium">Candidate:</span> {selectedCase.candidate_name}
                 </div>
                 <div>
-                  <span className="font-medium">Location:</span> {selectedCase.locations?.city}
+                  <span className="font-medium">Location:</span> 
+                  {selectedCase.locations?.location_url ? (
+                    <a 
+                      href={selectedCase.locations.location_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 underline ml-1"
+                    >
+                      {selectedCase.locations?.city}
+                    </a>
+                  ) : (
+                    <span className="ml-1">{selectedCase.locations?.city}</span>
+                  )}
                 </div>
                 {!shouldHidePayoutSection(selectedCase) && (
                   <div>

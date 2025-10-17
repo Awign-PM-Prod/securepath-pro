@@ -96,44 +96,63 @@ export class QCService {
         return { success: false, error: 'Failed to create QC review' };
       }
 
-      // Update the case status based on QC result
-      const newStatus = request.result === 'pass' ? 'qc_approved' : 
-                       request.result === 'reject' ? 'qc_rejected' : 'qc_rework';
+      // Map QC result to QC_Response enum value
+      const qcResponse = request.result === 'pass' ? 'Approved' : 
+                        request.result === 'reject' ? 'Rejected' : 'Rework';
 
-      // For rework cases, set a 24-hour deadline
-      const reworkDeadline = request.result === 'rework' ? 
-        new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null;
+      console.log('QC Service Debug:', {
+        caseId: request.caseId,
+        result: request.result,
+        qcResponse
+      });
+
+      // Only update case status for rework cases, otherwise just update QC_Response
+      let updateData: any = { 
+        "QC_Response": qcResponse // Always update QC_Response column
+      };
+
+      // Only change status for rework cases
+      if (request.result === 'rework') {
+        updateData.status = 'qc_rework';
+        updateData.status_updated_at = new Date().toISOString();
+        
+        // For rework cases, set a 24-hour deadline
+        const reworkDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        updateData.due_at = reworkDeadline;
+      }
+
+      console.log('Updating case with data:', updateData);
 
       const { error: caseUpdateError } = await supabase
         .from('cases')
-        .update({ 
-          status: newStatus,
-          status_updated_at: new Date().toISOString(),
-          due_at: reworkDeadline || undefined // Update due_at for rework cases
-        })
+        .update(updateData)
         .eq('id', request.caseId);
 
       if (caseUpdateError) {
         console.error('Error updating case status:', caseUpdateError);
         // Don't fail the entire operation if case update fails
         console.warn('QC review created but case status update failed');
+      } else {
+        console.log('Case update successful - QC_Response should be set to:', qcResponse);
       }
 
-      // Update QC workflow if it exists
-      const { error: workflowError } = await supabase
-        .from('qc_workflow')
-        .update({
-          current_stage: newStatus,
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          sla_deadline: reworkDeadline || undefined // Set 24-hour deadline for rework
-        })
-        .eq('case_id', request.caseId)
-        .eq('is_active', true);
+      // Update QC workflow if it exists (only for rework cases)
+      if (request.result === 'rework') {
+        const { error: workflowError } = await supabase
+          .from('qc_workflow')
+          .update({
+            current_stage: 'qc_rework',
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            sla_deadline: updateData.due_at // Set 24-hour deadline for rework
+          })
+          .eq('case_id', request.caseId)
+          .eq('is_active', true);
 
-      if (workflowError) {
-        console.warn('QC workflow update failed:', workflowError);
-        // Don't fail the entire operation
+        if (workflowError) {
+          console.warn('QC workflow update failed:', workflowError);
+          // Don't fail the entire operation
+        }
       }
 
       return { 
