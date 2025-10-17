@@ -717,10 +717,15 @@ const VendorDashboard: React.FC = () => {
         throw error;
       }
 
-      console.log('Unassigned cases (vendorId=' + vendorId + '):', data);
-      console.log('Number of unassigned cases:', data?.length || 0);
+      console.log('All cases for vendor (vendorId=' + vendorId + '):', data);
+      console.log('Number of all cases for vendor:', data?.length || 0);
       
-      const cases = (data || []).map(c => ({
+      // Filter to show only cases with status = "created"
+      const createdCases = (data || []).filter(c => (c.status as any) === 'created');
+      console.log('Cases with status=created:', createdCases);
+      console.log('Number of created cases:', createdCases.length);
+      
+      const cases = createdCases.map(c => ({
         ...c,
         address_line: '',
         city: '',
@@ -730,7 +735,7 @@ const VendorDashboard: React.FC = () => {
         client_email: ''
       }));
       
-      console.log('Processed unassigned cases:', cases);
+      console.log('Processed unassigned cases (created only):', cases);
       setUnassignedCases(cases);
     } catch (error) {
       console.error('Error fetching unassigned cases:', error);
