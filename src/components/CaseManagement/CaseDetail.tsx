@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { BonusService } from '@/services/bonusService';
 import { toast } from 'sonner';
 import DynamicFormSubmission from './DynamicFormSubmission';
+import { CSVService, FormSubmissionData } from '@/services/csvService';
 import { 
   MapPin, 
   Clock, 
@@ -154,6 +155,8 @@ const STATUS_LABELS = {
 };
 
 export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProps) {
+  const [formSubmissions, setFormSubmissions] = useState<FormSubmissionData[]>([]);
+
   const isOverdue = (dueAt: string) => {
     return new Date(dueAt) < new Date();
   };
@@ -180,6 +183,23 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
         return <AlertCircle className="h-4 w-4 text-yellow-600" />;
       default:
         return <Clock className="h-4 w-4 text-blue-600" />;
+    }
+  };
+
+  const handleCSVDownload = () => {
+    if (formSubmissions.length === 0) {
+      toast.error('No form submissions available to download');
+      return;
+    }
+
+    try {
+      const csvContent = CSVService.convertFormSubmissionsToCSV(formSubmissions);
+      const filename = `case-${caseData.case_number}-responses-${new Date().toISOString().split('T')[0]}.csv`;
+      CSVService.downloadCSV(csvContent, filename);
+      toast.success('CSV file downloaded successfully');
+    } catch (error) {
+      console.error('Error generating CSV:', error);
+      toast.error('Failed to generate CSV file');
     }
   };
 
@@ -596,7 +616,22 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
 
         {/* Dynamic Forms Tab */}
         <TabsContent value="dynamic-forms" className="space-y-6">
-          <DynamicFormSubmission caseId={caseData.id} />
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Form Submissions</h3>
+            <Button 
+              onClick={handleCSVDownload}
+              disabled={formSubmissions.length === 0}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Download CSV
+            </Button>
+          </div>
+          <DynamicFormSubmission 
+            caseId={caseData.id} 
+            onSubmissionsLoaded={setFormSubmissions}
+          />
         </TabsContent>
 
         {/* Attachments Tab */}

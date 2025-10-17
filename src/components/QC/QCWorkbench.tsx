@@ -425,8 +425,21 @@ export default function QCWorkbench() {
                             <Badge variant={value ? 'default' : 'destructive'}>
                               {value ? 'Yes' : 'No'}
                             </Badge>
+                          ) : Array.isArray(value) ? (
+                            <div className="flex flex-wrap gap-1">
+                              {value.map((item, index) => {
+                                // Handle both string values and objects with label/value structure
+                                const displayValue = typeof item === 'object' && item !== null && 'label' in item ? item.label : item;
+                                return <Badge key={index} variant="secondary">{String(displayValue)}</Badge>;
+                              })}
+                            </div>
+                          ) : typeof value === 'object' && value !== null ? (
+                            // Handle objects that might have label/value structure
+                            'label' in value ? String(value.label) : 
+                            'value' in value ? String(value.value) :
+                            JSON.stringify(value)
                           ) : (
-                            value
+                            String(value)
                           )}
                         </span>
                       </div>

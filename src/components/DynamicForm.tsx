@@ -1259,25 +1259,32 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
               </Label>
               <div className="space-y-2">
-                {field.field_config.options?.map((option) => (
-                  <div key={option} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`${field.field_key}-${option}`}
-                      checked={(fieldData.value as string[])?.includes(option) || false}
-                      onCheckedChange={(checked) => {
-                        const currentValues = (fieldData.value as string[]) || [];
-                        if (checked) {
-                          handleFieldChange(field.field_key, [...currentValues, option]);
-                        } else {
-                          handleFieldChange(field.field_key, currentValues.filter(v => v !== option));
-                        }
-                      }}
-                    />
-                    <Label htmlFor={`${field.field_key}-${option}`} className="text-sm">
-                      {option}
-                    </Label>
-                  </div>
-                ))}
+                {field.field_config.options?.map((option, index) => {
+                  // Handle both string and object options
+                  const optionValue = typeof option === 'string' ? option : option.value || option.label || String(option);
+                  const optionLabel = typeof option === 'string' ? option : option.label || option.value || String(option);
+                  const optionKey = typeof option === 'string' ? option : `${option.value || option.label || index}`;
+                  
+                  return (
+                    <div key={optionKey} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`${field.field_key}-${optionKey}`}
+                        checked={(fieldData.value as string[])?.includes(optionValue) || false}
+                        onCheckedChange={(checked) => {
+                          const currentValues = (fieldData.value as string[]) || [];
+                          if (checked) {
+                            handleFieldChange(field.field_key, [...currentValues, optionValue]);
+                          } else {
+                            handleFieldChange(field.field_key, currentValues.filter(v => v !== optionValue));
+                          }
+                        }}
+                      />
+                      <Label htmlFor={`${field.field_key}-${optionKey}`} className="text-sm">
+                        {optionLabel}
+                      </Label>
+                    </div>
+                  );
+                })}
               </div>
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>

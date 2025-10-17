@@ -304,6 +304,107 @@ class NotificationService {
       };
     }
   }
+
+  // Send case acceptance notification
+  async sendCaseAcceptanceNotification(
+    caseId: string, 
+    gigWorkerId: string, 
+    caseNumber: string
+  ): Promise<boolean> {
+    try {
+      const notificationData: PushNotificationData = {
+        title: 'Case Accepted',
+        body: `You have successfully accepted case ${caseNumber}`,
+        data: {
+          caseId,
+          caseNumber,
+          type: 'case_allocated'
+        }
+      };
+
+      return await this.sendPushNotification(gigWorkerId, notificationData);
+    } catch (error) {
+      console.error('Error sending case acceptance notification:', error);
+      return false;
+    }
+  }
+
+  // Send case rejection notification
+  async sendCaseRejectionNotification(
+    caseId: string, 
+    gigWorkerId: string, 
+    caseNumber: string,
+    reason: string
+  ): Promise<boolean> {
+    try {
+      const notificationData: PushNotificationData = {
+        title: 'Case Rejected',
+        body: `Case ${caseNumber} has been rejected: ${reason}`,
+        data: {
+          caseId,
+          caseNumber,
+          type: 'case_allocated'
+        }
+      };
+
+      return await this.sendPushNotification(gigWorkerId, notificationData);
+    } catch (error) {
+      console.error('Error sending case rejection notification:', error);
+      return false;
+    }
+  }
+
+  // Send case submission notification
+  async sendCaseSubmissionNotification(
+    caseId: string, 
+    gigWorkerId: string, 
+    caseNumber: string
+  ): Promise<boolean> {
+    try {
+      const notificationData: PushNotificationData = {
+        title: 'Case Submitted',
+        body: `Case ${caseNumber} has been submitted successfully`,
+        data: {
+          caseId,
+          caseNumber,
+          type: 'case_allocated'
+        }
+      };
+
+      return await this.sendPushNotification(gigWorkerId, notificationData);
+    } catch (error) {
+      console.error('Error sending case submission notification:', error);
+      return false;
+    }
+  }
+
+  // Send case allocation notification
+  async sendCaseAllocationNotification(
+    caseId: string, 
+    gigWorkerId: string, 
+    caseNumber: string,
+    clientName?: string,
+    candidateName?: string
+  ): Promise<boolean> {
+    try {
+      const notificationData: PushNotificationData = {
+        title: 'New Case Allocated',
+        body: `You have been assigned case ${caseNumber}${candidateName ? ` for ${candidateName}` : ''}`,
+        data: {
+          caseId,
+          caseNumber,
+          clientName,
+          candidateName,
+          type: 'case_allocated'
+        }
+      };
+
+      return await this.sendPushNotification(gigWorkerId, notificationData);
+    } catch (error) {
+      console.error('Error sending case allocation notification:', error);
+      return false;
+    }
+  }
 }
 
 export const notificationService = new NotificationService();

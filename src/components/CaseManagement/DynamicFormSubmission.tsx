@@ -54,9 +54,10 @@ interface FormSubmission {
 
 interface DynamicFormSubmissionProps {
   caseId: string;
+  onSubmissionsLoaded?: (submissions: FormSubmission[]) => void;
 }
 
-export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionProps) {
+export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: DynamicFormSubmissionProps) {
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +213,7 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
       }
       
       setSubmissions(transformedData);
+      onSubmissionsLoaded?.(transformedData);
     } catch (err) {
       console.error('Error fetching form submissions:', err);
       setError('Failed to load form submissions');
@@ -403,9 +405,16 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
         if (value === '') return <span className="text-muted-foreground">Not provided</span>;
         return (
           <div className="flex flex-wrap gap-1">
-            {Array.isArray(value) ? value.map((item, index) => (
-              <Badge key={index} variant="secondary">{item}</Badge>
-            )) : <Badge variant="secondary">{value}</Badge>}
+            {Array.isArray(value) ? value.map((item, index) => {
+              // Handle both string values and objects with label/value structure
+              const displayValue = typeof item === 'object' && item !== null && 'label' in item ? item.label : item;
+              return <Badge key={index} variant="secondary">{String(displayValue)}</Badge>;
+            }) : (
+              // Handle single value that might be an object with label/value structure
+              typeof value === 'object' && value !== null && 'label' in value ? 
+                <Badge variant="secondary">{String(value.label)}</Badge> :
+                <Badge variant="secondary">{String(value)}</Badge>
+            )}
           </div>
         );
       case 'date':
@@ -418,6 +427,21 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
         }
       default:
         if (value === null || value === undefined) return <span className="text-muted-foreground">Not provided</span>;
+        // Handle objects that might have label/value structure
+        if (typeof value === 'object' && value !== null) {
+          if ('label' in value) {
+            return <span>{String(value.label)}</span>;
+          }
+          if ('value' in value) {
+            return <span>{String(value.value)}</span>;
+          }
+          // For other objects, try to stringify safely
+          try {
+            return <span>{JSON.stringify(value)}</span>;
+          } catch (e) {
+            return <span className="text-muted-foreground">[Object]</span>;
+          }
+        }
         return <span>{String(value)}</span>;
     }
   };
