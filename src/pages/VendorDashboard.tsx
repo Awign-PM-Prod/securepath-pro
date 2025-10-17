@@ -26,6 +26,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  AlertTriangle,
   Plus,
   Eye,
   UserCheck,
@@ -119,6 +120,7 @@ interface Case {
   // New fields for QC dashboard
   assigned_at?: string;
   submitted_at?: string;
+  QC_Response?: 'Rework' | 'Approved' | 'Rejected' | 'New';
 }
 
 const VendorDashboard: React.FC = () => {
@@ -163,6 +165,7 @@ const VendorDashboard: React.FC = () => {
   const [pendingCases, setPendingCases] = useState<Case[]>([]);
   const [inProgressCases, setInProgressCases] = useState<Case[]>([]);
   const [unassignedCases, setUnassignedCases] = useState<Case[]>([]);
+  const [reworkCases, setReworkCases] = useState<Case[]>([]);
   const [isMobile, setIsMobile] = useState(false);
   
   // Assignment dialog state
@@ -264,7 +267,7 @@ const VendorDashboard: React.FC = () => {
       
       // Categorize cases by status
       setPendingCases(cases.filter(c => c.status === 'auto_allocated'));
-      setInProgressCases(cases.filter(c => ['accepted', 'in_progress', 'submitted', 'qc_rework'].includes(c.status)));
+      setInProgressCases(cases.filter(c => ['in_progress', 'submitted', 'qc_rework'].includes(c.status)));
       
     } catch (error) {
       console.error('Error fetching assigned cases:', error);
@@ -282,7 +285,8 @@ const VendorDashboard: React.FC = () => {
       const { error } = await supabase
         .from('cases')
         .update({ 
-          status: 'in_progress',
+          status: 'accepted',
+          current_assignee_id: null, // Clear assignee so it appears in unassigned cases
           status_updated_at: new Date().toISOString()
         })
         .eq('id', caseId);
@@ -291,10 +295,12 @@ const VendorDashboard: React.FC = () => {
 
       toast({
         title: 'Success',
-        description: 'Case accepted successfully',
+        description: 'Case accepted successfully and moved to unassigned cases',
       });
 
+      // Refresh both assigned cases and unassigned cases
       fetchAssignedCases();
+      fetchUnassignedCases();
     } catch (error) {
       console.error('Error accepting case:', error);
       toast({
@@ -365,6 +371,8 @@ const VendorDashboard: React.FC = () => {
       setSelectedCase('');
       setSelectedGigWorker('');
       fetchAssignedCases();
+      fetchUnassignedCases(); // Refresh unassigned cases
+      fetchReworkCases(); // Refresh rework cases
       fetchGigWorkers(); // Refresh capacity
     } catch (error) {
       console.error('Error assigning case:', error);
@@ -454,6 +462,8 @@ const VendorDashboard: React.FC = () => {
           description: 'Case assigned to vendor with 30-minute acceptance window',
         });
         fetchAssignedCases();
+        fetchUnassignedCases(); // Refresh unassigned cases
+        fetchReworkCases(); // Refresh rework cases
       } else {
         toast({
           title: 'Error',
@@ -501,6 +511,8 @@ const VendorDashboard: React.FC = () => {
       setReassignCaseId('');
       setSelectedGigWorker('');
       fetchAssignedCases();
+      fetchUnassignedCases(); // Refresh unassigned cases
+      fetchReworkCases(); // Refresh rework cases
       fetchGigWorkers(); // Refresh capacity
     } catch (error) {
       console.error('Error reassigning case:', error);
@@ -514,8 +526,14 @@ const VendorDashboard: React.FC = () => {
 
   // Fetch unassigned cases
   const fetchUnassignedCases = async () => {
+    if (!vendorId) {
+      setUnassignedCases([]);
+      return;
+    }
+
     try {
-      const { data, error } = await supabase
+      // Query 1: Global unassigned cases (status = 'created', no vendor, no assignee)
+      const { data: globalCases, error: globalError } = await supabase
         .from('cases')
         .select(`
           id,
@@ -550,6 +568,7 @@ const VendorDashboard: React.FC = () => {
           vendor_tat_start_date,
           penalty_inr,
           total_payout_inr,
+          current_vendor_id,
           locations!inner(address_line, city, state, pincode),
           clients!inner(name, email)
         `)
@@ -558,9 +577,117 @@ const VendorDashboard: React.FC = () => {
         .is('current_vendor_id', null)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (globalError) throw globalError;
+
+      // Query 2: Vendor's accepted cases (status = 'accepted', vendor assigned, no gig worker)
+      const { data: vendorCases, error: vendorError } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          title,
+          description,
+          priority,
+          source,
+          client_id,
+          location_id,
+          tat_hours,
+          due_at,
+          created_at,
+          status,
+          status_updated_at,
+          base_rate_inr,
+          rate_adjustments,
+          total_rate_inr,
+          visible_to_gig,
+          created_by,
+          last_updated_by,
+          updated_at,
+          metadata,
+          client_case_id,
+          travel_allowance_inr,
+          bonus_inr,
+          instructions,
+          contract_type,
+          candidate_name,
+          phone_primary,
+          phone_secondary,
+          vendor_tat_start_date,
+          penalty_inr,
+          total_payout_inr,
+          current_vendor_id,
+          locations!inner(address_line, city, state, pincode),
+          clients!inner(name, email)
+        `)
+        .eq('status', 'accepted')
+        .is('current_assignee_id', null)
+        .eq('current_vendor_id', vendorId)
+        .order('created_at', { ascending: false });
+
+      if (vendorError) throw vendorError;
+
+      // Query 3: Any other cases that might be available for assignment
+      // This is a fallback to catch cases that might be in unexpected statuses
+      const { data: otherCases, error: otherError } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          title,
+          description,
+          priority,
+          source,
+          client_id,
+          location_id,
+          tat_hours,
+          due_at,
+          created_at,
+          status,
+          status_updated_at,
+          base_rate_inr,
+          rate_adjustments,
+          total_rate_inr,
+          visible_to_gig,
+          created_by,
+          last_updated_by,
+          updated_at,
+          metadata,
+          client_case_id,
+          travel_allowance_inr,
+          bonus_inr,
+          instructions,
+          contract_type,
+          candidate_name,
+          phone_primary,
+          phone_secondary,
+          vendor_tat_start_date,
+          penalty_inr,
+          total_payout_inr,
+          current_vendor_id,
+          locations!inner(address_line, city, state, pincode),
+          clients!inner(name, email)
+        `)
+        .is('current_assignee_id', null)
+        .or(`current_vendor_id.is.null,current_vendor_id.eq.${vendorId}`)
+        .not('status', 'in', '(auto_allocated,in_progress,submitted,qc_pending,qc_passed,qc_approved,qc_rejected,qc_rework,completed,reported,in_payment_cycle,cancelled)')
+        .order('created_at', { ascending: false });
+
+      if (otherError) {
+        console.warn('Error fetching other cases:', otherError);
+      }
+
+      console.log('Global unassigned cases:', globalCases);
+      console.log('Vendor accepted cases:', vendorCases);
+      console.log('Other available cases:', otherCases);
+      console.log('Vendor ID:', vendorId);
       
-      const cases = data?.map(c => ({
+      // Combine all results and remove duplicates
+      const allCases = [...(globalCases || []), ...(vendorCases || []), ...(otherCases || [])];
+      const uniqueCases = allCases.filter((caseItem, index, self) => 
+        index === self.findIndex(c => c.id === caseItem.id)
+      );
+      
+      const cases = uniqueCases.map(c => ({
         ...c,
         address_line: c.locations.address_line,
         city: c.locations.city,
@@ -568,7 +695,21 @@ const VendorDashboard: React.FC = () => {
         pincode: c.locations.pincode,
         client_name: c.clients.name,
         client_email: c.clients.email
-      })) || [];
+      }));
+      
+      console.log('Combined unassigned cases:', cases);
+      
+      // Debug: Also log all cases for this vendor to understand what's available
+      const { data: allVendorCases, error: debugError } = await supabase
+        .from('cases')
+        .select('id, case_number, status, current_vendor_id, current_assignee_id')
+        .or(`current_vendor_id.eq.${vendorId},current_vendor_id.is.null`)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      
+      if (!debugError) {
+        console.log('All vendor-related cases (debug):', allVendorCases);
+      }
       
       setUnassignedCases(cases);
     } catch (error) {
@@ -576,6 +717,288 @@ const VendorDashboard: React.FC = () => {
       toast({
         title: 'Error',
         description: 'Failed to fetch unassigned cases',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Fetch rework cases
+  const fetchReworkCases = async () => {
+    if (!vendorId) {
+      console.log('No vendorId, setting empty rework cases');
+      setReworkCases([]);
+      return;
+    }
+
+    console.log('Fetching rework cases for vendor:', vendorId);
+
+    try {
+      // First, let's check all cases with QC_Response = 'Rework' regardless of vendor
+      const { data: allReworkCases, error: allReworkError } = await supabase
+        .from('cases')
+        .select('id, case_number, "QC_Response", current_vendor_id, status')
+        .eq('"QC_Response"', 'Rework');
+
+      // Also try without quotes
+      const { data: allReworkCases2, error: allReworkError2 } = await supabase
+        .from('cases')
+        .select('id, case_number, QC_Response, current_vendor_id, status')
+        .eq('QC_Response', 'Rework');
+
+      console.log('All rework cases in database (with quotes):', allReworkCases);
+      console.log('All rework cases error (with quotes):', allReworkError);
+      console.log('All rework cases in database (without quotes):', allReworkCases2);
+      console.log('All rework cases error (without quotes):', allReworkError2);
+
+      // Now check cases for this specific vendor
+      const { data: vendorReworkCases, error: vendorReworkError } = await supabase
+        .from('cases')
+        .select('id, case_number, "QC_Response", current_vendor_id, status')
+        .eq('current_vendor_id', vendorId)
+        .eq('"QC_Response"', 'Rework');
+
+      console.log('Vendor-specific rework cases:', vendorReworkCases);
+      console.log('Vendor-specific rework cases error:', vendorReworkError);
+
+      // Also try without quotes to see if that makes a difference
+      const { data: vendorReworkCases2, error: vendorReworkError2 } = await supabase
+        .from('cases')
+        .select('id, case_number, QC_Response, current_vendor_id, status')
+        .eq('current_vendor_id', vendorId)
+        .eq('QC_Response', 'Rework');
+
+      console.log('Vendor-specific rework cases (no quotes):', vendorReworkCases2);
+      console.log('Vendor-specific rework cases error (no quotes):', vendorReworkError2);
+
+      // Let's also check what QC_Response values actually exist for this vendor
+      const { data: qcResponseValues, error: qcResponseError } = await supabase
+        .from('cases')
+        .select('"QC_Response"')
+        .eq('current_vendor_id', vendorId)
+        .not('"QC_Response"', 'is', null);
+
+      console.log('QC_Response values for this vendor:', qcResponseValues);
+      console.log('QC_Response values error:', qcResponseError);
+
+      // Check all cases for this vendor to see what QC_Response values exist
+      const { data: allVendorCases, error: allVendorError } = await supabase
+        .from('cases')
+        .select('id, case_number, "QC_Response", current_vendor_id, status')
+        .eq('current_vendor_id', vendorId);
+
+      console.log('All cases for this vendor:', allVendorCases);
+      console.log('All cases for this vendor error:', allVendorError);
+
+      // Use the vendor-specific rework cases we already found and get full details
+      // Try both queries and use whichever one works
+      const workingReworkCases = vendorReworkCases && vendorReworkCases.length > 0 ? vendorReworkCases : 
+                                 vendorReworkCases2 && vendorReworkCases2.length > 0 ? vendorReworkCases2 : [];
+      
+      console.log('Working rework cases to process:', workingReworkCases);
+      
+      if (workingReworkCases.length > 0) {
+        const reworkCaseIds = workingReworkCases.map(c => c.id);
+        console.log('Rework case IDs to fetch:', reworkCaseIds);
+        
+        // Try a simpler query without the problematic joins first
+        const { data: simpleData, error: simpleError } = await supabase
+          .from('cases')
+          .select(`
+            id,
+            case_number,
+            title,
+            description,
+            priority,
+            source,
+            client_id,
+            location_id,
+            tat_hours,
+            due_at,
+            created_at,
+            status,
+            status_updated_at,
+            base_rate_inr,
+            rate_adjustments,
+            total_rate_inr,
+            visible_to_gig,
+            created_by,
+            last_updated_by,
+            updated_at,
+            metadata,
+            client_case_id,
+            travel_allowance_inr,
+            bonus_inr,
+            instructions,
+            contract_type,
+            candidate_name,
+            phone_primary,
+            phone_secondary,
+            vendor_tat_start_date,
+            penalty_inr,
+            total_payout_inr,
+            current_vendor_id,
+            current_assignee_id,
+            "QC_Response"
+          `)
+          .in('id', reworkCaseIds)
+          .order('created_at', { ascending: false });
+
+        console.log('Simple rework cases query result:', simpleData);
+        console.log('Simple rework cases query error:', simpleError);
+
+        if (simpleError) {
+          console.error('Simple query failed:', simpleError);
+          throw simpleError;
+        }
+        
+        if (simpleData && simpleData.length > 0) {
+          // Now fetch location and client data separately
+          const locationIds = [...new Set(simpleData.map(c => c.location_id))];
+          const clientIds = [...new Set(simpleData.map(c => c.client_id))];
+          
+          console.log('Location IDs:', locationIds);
+          console.log('Client IDs:', clientIds);
+          
+          // Fetch locations
+          const { data: locations, error: locationError } = await supabase
+            .from('locations')
+            .select('id, address_line, city, state, pincode')
+            .in('id', locationIds);
+          
+          console.log('Locations data:', locations);
+          console.log('Location error:', locationError);
+          
+          // Fetch clients
+          const { data: clients, error: clientError } = await supabase
+            .from('clients')
+            .select('id, name, email')
+            .in('id', clientIds);
+          
+          console.log('Clients data:', clients);
+          console.log('Client error:', clientError);
+          
+          // Create lookup maps
+          const locationMap = (locations || []).reduce((acc, loc) => {
+            acc[loc.id] = loc;
+            return acc;
+          }, {});
+          
+          const clientMap = (clients || []).reduce((acc, client) => {
+            acc[client.id] = client;
+            return acc;
+          }, {});
+          
+          // Combine the data
+          const cases = simpleData.map(c => {
+            const location = locationMap[c.location_id];
+            const client = clientMap[c.client_id];
+            
+            return {
+              ...c,
+              address_line: location?.address_line || '',
+              city: location?.city || '',
+              state: location?.state || '',
+              pincode: location?.pincode || '',
+              client_name: client?.name || '',
+              client_email: client?.email || ''
+            };
+          });
+          
+          console.log('Processed rework cases:', cases);
+          setReworkCases(cases);
+        } else {
+          console.log('No data returned from simple query');
+          setReworkCases([]);
+        }
+      } else {
+        console.log('No vendor-specific rework cases found via direct query');
+        
+        // Fallback: manually filter from allVendorCases
+        if (allVendorCases && allVendorCases.length > 0) {
+          const manualReworkCases = allVendorCases.filter(c => c.QC_Response === 'Rework');
+          console.log('Manual filter rework cases:', manualReworkCases);
+          
+          if (manualReworkCases.length > 0) {
+            const manualReworkCaseIds = manualReworkCases.map(c => c.id);
+            
+            const { data, error } = await supabase
+              .from('cases')
+              .select(`
+                id,
+                case_number,
+                title,
+                description,
+                priority,
+                source,
+                client_id,
+                location_id,
+                tat_hours,
+                due_at,
+                created_at,
+                status,
+                status_updated_at,
+                base_rate_inr,
+                rate_adjustments,
+                total_rate_inr,
+                visible_to_gig,
+                created_by,
+                last_updated_by,
+                updated_at,
+                metadata,
+                client_case_id,
+                travel_allowance_inr,
+                bonus_inr,
+                instructions,
+                contract_type,
+                candidate_name,
+                phone_primary,
+                phone_secondary,
+                vendor_tat_start_date,
+                penalty_inr,
+                total_payout_inr,
+                current_vendor_id,
+                current_assignee_id,
+                "QC_Response",
+                locations!inner(address_line, city, state, pincode),
+                clients!inner(name, email)
+              `)
+              .in('id', manualReworkCaseIds)
+              .order('created_at', { ascending: false });
+
+            console.log('Manual fallback query result:', data);
+            console.log('Manual fallback query error:', error);
+
+            if (!error && data) {
+              const cases = data.map(c => ({
+                ...c,
+                address_line: c.locations.address_line,
+                city: c.locations.city,
+                state: c.locations.state,
+                pincode: c.locations.pincode,
+                client_name: c.clients.name,
+                client_email: c.clients.email
+              }));
+              
+              console.log('Manual fallback processed rework cases:', cases);
+              setReworkCases(cases);
+            } else {
+              console.log('Manual fallback also failed, setting empty array');
+              setReworkCases([]);
+            }
+          } else {
+            console.log('No rework cases found in manual filter either');
+            setReworkCases([]);
+          }
+        } else {
+          console.log('No vendor cases found for manual filtering');
+          setReworkCases([]);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching rework cases:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch rework cases',
         variant: 'destructive',
       });
     }
@@ -700,6 +1123,7 @@ const VendorDashboard: React.FC = () => {
       fetchGigWorkers();
       fetchAssignedCases();
       fetchUnassignedCases();
+      fetchReworkCases();
     }
   }, [vendorId]);
 
@@ -1002,18 +1426,18 @@ const VendorDashboard: React.FC = () => {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Cases</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Rework Cases</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{assignedCases.length}</div>
-            <p className="text-xs text-muted-foreground">All assigned cases</p>
+            <div className="text-2xl font-bold">{reworkCases.length}</div>
+            <p className="text-xs text-muted-foreground">Require rework</p>
           </CardContent>
         </Card>
       </div>
 
       <Tabs defaultValue="pending" className={`space-y-4 ${isMobile ? 'mx-2' : ''}`}>
-        <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4 gap-1 h-12' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>
+        <TabsList className={`grid w-full ${isMobile ? 'grid-cols-5 gap-1 h-12' : 'grid-cols-5'} ${isMobile ? 'overflow-x-auto' : ''}`}>
           <TabsTrigger 
             value="pending" 
             className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
@@ -1056,6 +1480,17 @@ const VendorDashboard: React.FC = () => {
             </span>
             <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
               ({gigWorkers.length})
+            </span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="rework" 
+            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+          >
+            <span className={isMobile ? 'text-xs font-medium' : ''}>
+              {isMobile ? 'Rework' : 'Rework Cases'}
+            </span>
+            <span className={isMobile ? 'text-xs font-bold text-red-600' : ''}>
+              ({reworkCases.length})
             </span>
           </TabsTrigger>
         </TabsList>
@@ -1614,6 +2049,137 @@ const VendorDashboard: React.FC = () => {
                     ))}
                   </TableBody>
                 </Table>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Rework Cases Tab */}
+        <TabsContent value="rework" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          <Card className={isMobile ? 'shadow-sm border-0' : ''}>
+            <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
+              <CardTitle className={isMobile ? 'text-lg' : ''}>Rework Cases</CardTitle>
+              <CardDescription className={isMobile ? 'text-sm' : ''}>
+                Cases that require rework based on QC feedback
+              </CardDescription>
+            </CardHeader>
+            <CardContent className={isMobile ? 'px-2' : ''}>
+              {reworkCases.length === 0 ? (
+                <div className={`text-center py-8 text-muted-foreground ${isMobile ? 'mx-2' : ''}`}>
+                  No rework cases found
+                </div>
+              ) : (
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-3 px-1">
+                      {reworkCases.map((caseItem) => {
+                        const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
+                        return (
+                          <MobileCaseCard
+                            key={caseItem.id}
+                            caseItem={caseItem}
+                            onReassign={assignedWorker ? () => {
+                              setReassignCaseId(caseItem.id);
+                              setReassignmentDialogOpen(true);
+                            } : undefined}
+                            onAssign={!assignedWorker ? () => {
+                              setSelectedCase(caseItem.id);
+                              setAssignmentDialogOpen(true);
+                            } : undefined}
+                            onView={() => handleViewCase(caseItem)}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Case Number</TableHead>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Assigned To</TableHead>
+                          <TableHead>Due Date</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {reworkCases.map((caseItem) => {
+                          const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
+                          return (
+                            <TableRow key={caseItem.id}>
+                              <TableCell className="font-mono">{caseItem.case_number}</TableCell>
+                              <TableCell>{caseItem.title}</TableCell>
+                              <TableCell>{caseItem.client_name}</TableCell>
+                              <TableCell>
+                                {caseItem.city}, {caseItem.state}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="destructive">
+                                  QC Rework
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {assignedWorker ? (
+                                  <div className="flex items-center space-x-2">
+                                    <UserCheck className="h-4 w-4" />
+                                    <span>{assignedWorker.first_name} {assignedWorker.last_name}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground">Unassigned</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {new Date(caseItem.due_at).toLocaleDateString()}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex space-x-2">
+                                  {!assignedWorker ? (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        setSelectedCase(caseItem.id);
+                                        setAssignmentDialogOpen(true);
+                                      }}
+                                      className="bg-blue-600 hover:bg-blue-700"
+                                    >
+                                      <UserPlus className="h-4 w-4 mr-1" />
+                                      Assign to Gig Worker
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setReassignCaseId(caseItem.id);
+                                        setReassignmentDialogOpen(true);
+                                      }}
+                                    >
+                                      <ArrowRightLeft className="h-4 w-4 mr-1" />
+                                      Reassign
+                                    </Button>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleViewCase(caseItem)}
+                                  >
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    View
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   )}
                 </>
               )}
