@@ -32,20 +32,133 @@ export interface CaseDraftRequest {
 
 export class GigWorkerService {
   /**
+   * Debug gig worker vendor association
+   */
+  async debugGigWorkerVendorAssociation(gigWorkerId: string): Promise<void> {
+    try {
+      console.log('=== DEBUG GIG WORKER VENDOR ASSOCIATION ===');
+      console.log('Gig Worker ID:', gigWorkerId);
+
+      // Get full gig worker data
+      const { data: gigWorkerData, error: gigWorkerError } = await supabase
+        .from('gig_partners')
+        .select(`
+          id,
+          user_id,
+          vendor_id,
+          is_direct_gig,
+          profiles!inner(
+            first_name,
+            last_name,
+            email
+          )
+        `)
+        .eq('id', gigWorkerId)
+        .single();
+
+      console.log('Full gig worker data:', gigWorkerData);
+      console.log('Gig worker query error:', gigWorkerError);
+
+      if (gigWorkerData && gigWorkerData.vendor_id) {
+        // Get vendor data
+        const { data: vendorData, error: vendorError } = await supabase
+          .from('vendors')
+          .select('id, name, email')
+          .eq('id', gigWorkerData.vendor_id)
+          .single();
+
+        console.log('Associated vendor data:', vendorData);
+        console.log('Vendor query error:', vendorError);
+      }
+
+      console.log('=== END DEBUG ===');
+    } catch (error) {
+      console.error('Error debugging gig worker vendor association:', error);
+    }
+  }
+
+  /**
    * Accept a case
    */
   async acceptCase(request: CaseAcceptanceRequest): Promise<{ success: boolean; error?: string }> {
     try {
-      // Update case status
+      console.log('=== GIG WORKER ACCEPT CASE DEBUG ===');
+      console.log('Request:', request);
+
+      // Debug gig worker vendor association
+      await this.debugGigWorkerVendorAssociation(request.gigWorkerId);
+
+      // First, get the gig worker's vendor_id
+      const { data: gigWorkerData, error: gigWorkerError } = await supabase
+        .from('gig_partners')
+        .select('vendor_id, is_direct_gig, id, user_id')
+        .eq('id', request.gigWorkerId)
+        .single();
+
+      console.log('Gig worker data query result:', gigWorkerData);
+      console.log('Gig worker data query error:', gigWorkerError);
+
+      if (gigWorkerError) {
+        console.error('Error fetching gig worker vendor info:', gigWorkerError);
+        throw gigWorkerError;
+      }
+
+      if (!gigWorkerData) {
+        console.error('No gig worker data found for ID:', request.gigWorkerId);
+        throw new Error('Gig worker not found');
+      }
+
+      // Prepare case update data
+      const caseUpdateData: any = {
+        status: 'accepted',
+        status_updated_at: new Date().toISOString()
+      };
+
+      console.log('Gig worker vendor info:', {
+        id: gigWorkerData.id,
+        vendor_id: gigWorkerData.vendor_id,
+        is_direct_gig: gigWorkerData.is_direct_gig
+      });
+
+      // If gig worker is associated with a vendor (has vendor_id), set current_vendor_id
+      // Note: We check for vendor_id regardless of is_direct_gig flag
+      if (gigWorkerData && gigWorkerData.vendor_id) {
+        caseUpdateData.current_vendor_id = gigWorkerData.vendor_id;
+        console.log(`✅ Setting current_vendor_id to ${gigWorkerData.vendor_id} for gig worker ${request.gigWorkerId} (is_direct_gig: ${gigWorkerData.is_direct_gig})`);
+      } else {
+        console.log(`❌ Gig worker ${request.gigWorkerId} has no vendor association:`, {
+          has_vendor_id: !!gigWorkerData.vendor_id,
+          is_direct_gig: gigWorkerData.is_direct_gig,
+          vendor_id_value: gigWorkerData.vendor_id
+        });
+      }
+
+      console.log('Case update data:', caseUpdateData);
+
+      // Update case status and vendor assignment
       const { error: acceptCaseError } = await supabase
         .from('cases')
-        .update({
-          status: 'accepted',
-          status_updated_at: new Date().toISOString()
-        })
+        .update(caseUpdateData)
         .eq('id', request.caseId);
 
-      if (acceptCaseError) throw acceptCaseError;
+      console.log('Case update error:', acceptCaseError);
+
+      if (acceptCaseError) {
+        console.error('Error updating case:', acceptCaseError);
+        throw acceptCaseError;
+      }
+
+      console.log('✅ Case updated successfully with data:', caseUpdateData);
+
+      // Verify the case was updated correctly
+      const { data: updatedCase, error: verifyError } = await supabase
+        .from('cases')
+        .select('id, case_number, status, current_vendor_id, current_assignee_id, current_assignee_type')
+        .eq('id', request.caseId)
+        .single();
+
+      console.log('Case verification after update:', updatedCase);
+      console.log('Case verification error:', verifyError);
 
       // Update allocation log
       const { error: logError } = await supabase

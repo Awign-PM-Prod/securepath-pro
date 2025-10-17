@@ -34,8 +34,10 @@ import {
   Loader2,
   Building,
   Calendar,
-  UserPlus
+  UserPlus,
+  FileText
 } from 'lucide-react';
+import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
 
 interface GigWorker {
   id: string;
@@ -181,6 +183,7 @@ const VendorDashboard: React.FC = () => {
   const [viewCaseDialogOpen, setViewCaseDialogOpen] = useState(false);
   const [viewingCase, setViewingCase] = useState<Case | null>(null);
   const [qcReviewData, setQcReviewData] = useState<any>(null);
+  const [viewSubmissionDialogOpen, setViewSubmissionDialogOpen] = useState(false);
 
   // Fetch vendor ID
   const fetchVendorId = async () => {
@@ -419,6 +422,141 @@ const VendorDashboard: React.FC = () => {
     } else {
       setQcReviewData(null);
     }
+  };
+
+  // Handle view submission - simplified to use DynamicFormSubmission component
+  const handleViewSubmission = async () => {
+    if (!viewingCase) return;
+    
+              // Debug: Let's check what data is available for this case
+              console.log('=== VENDOR DEBUG: Checking submission data for case ===');
+              console.log('Case ID:', viewingCase.id);
+              console.log('Case status:', viewingCase.status);
+              
+              // Test RLS policies by checking if vendor can see the case
+              const { data: caseCheck, error: caseCheckError } = await supabase
+                .from('cases')
+                .select(`
+                  id, case_number, current_vendor_id,
+                  vendors!inner(id, name, profile_id),
+                  profiles!inner(user_id, role)
+                `)
+                .eq('id', viewingCase.id);
+              
+              console.log('Case with vendor check (RLS test):', caseCheck);
+              console.log('Case with vendor check error:', caseCheckError);
+              
+              // Check form_submissions table
+              const { data: formSubmissions, error: formError } = await supabase
+                .from('form_submissions')
+                .select('*')
+                .eq('case_id', viewingCase.id);
+              
+              console.log('Form submissions (vendor query):', formSubmissions);
+              console.log('Form submissions error:', formError);
+              
+              // Check submissions table
+              const { data: submissions, error: subError } = await supabase
+                .from('submissions')
+                .select('*')
+                .eq('case_id', viewingCase.id);
+              
+              console.log('Legacy submissions (vendor query):', submissions);
+              console.log('Legacy submissions error:', subError);
+              
+              // Test direct query without RLS to see if data exists
+              const { data: directFormSubmissions, error: directFormError } = await supabase
+                .rpc('get_form_submissions_for_case', { case_id: viewingCase.id });
+              
+              console.log('Direct form submissions (RPC):', directFormSubmissions);
+              console.log('Direct form submissions error:', directFormError);
+              
+              // Test direct query for legacy submissions
+              const { data: directLegacySubmissions, error: directLegacyError } = await supabase
+                .rpc('get_legacy_submissions_for_case', { case_id: viewingCase.id });
+              
+              console.log('Direct legacy submissions (RPC):', directLegacySubmissions);
+              console.log('Direct legacy submissions error:', directLegacyError);
+    
+    // Check if case has current_assignee_id
+    const { data: caseData, error: caseError } = await supabase
+      .from('cases')
+      .select('id, case_number, status, current_assignee_id, current_assignee_type, current_vendor_id')
+      .eq('id', viewingCase.id)
+      .single();
+    
+    console.log('Case data (vendor query):', caseData);
+    console.log('Case error:', caseError);
+    
+    // Check vendor's role and profile
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, role, user_id')
+      .eq('user_id', user?.id)
+      .single();
+    
+    console.log('Vendor profile data:', profileData);
+    console.log('Vendor profile error:', profileError);
+    
+    // Check if vendor has access to this case
+    const { data: vendorData, error: vendorError } = await supabase
+      .from('vendors')
+      .select('id, profile_id')
+      .eq('profile_id', profileData?.id)
+      .single();
+    
+    console.log('Vendor data:', vendorData);
+    console.log('Vendor error:', vendorError);
+    
+    // Check if case is assigned to this vendor
+    console.log('Vendor access check:', {
+      case_vendor_id: caseData?.current_vendor_id,
+      vendor_id: vendorData?.id,
+      is_assigned_to_vendor: caseData?.current_vendor_id === vendorData?.id
+    });
+    
+    // Check the gig worker who is assigned to this case
+    if (caseData?.current_assignee_id) {
+      const { data: gigWorkerData, error: gigWorkerError } = await supabase
+        .from('gig_partners')
+        .select('id, vendor_id, is_direct_gig, user_id')
+        .eq('id', caseData.current_assignee_id)
+        .single();
+      
+      console.log('Gig worker assigned to case:', gigWorkerData);
+      console.log('Gig worker error:', gigWorkerError);
+      
+      if (gigWorkerData) {
+        console.log('Gig worker vendor assignment:', {
+          gig_worker_id: gigWorkerData.id,
+          gig_worker_vendor_id: gigWorkerData.vendor_id,
+          is_direct_gig: gigWorkerData.is_direct_gig,
+          should_have_vendor_assigned: gigWorkerData.vendor_id && !gigWorkerData.is_direct_gig
+        });
+      }
+    }
+    
+    // TEMPORARY FIX: If case is not assigned to vendor but gig worker is from this vendor, fix it
+    if (caseData?.current_assignee_id && !caseData?.current_vendor_id && gigWorkerData?.vendor_id === vendorData?.id) {
+      console.log('Fixing case vendor assignment...');
+      
+      const { error: fixError } = await supabase
+        .from('cases')
+        .update({ current_vendor_id: vendorData.id })
+        .eq('id', viewingCase.id);
+      
+      if (fixError) {
+        console.error('Error fixing vendor assignment:', fixError);
+      } else {
+        console.log('Successfully fixed vendor assignment!');
+        toast({
+          title: 'Fixed',
+          description: 'Case vendor assignment has been corrected',
+        });
+      }
+    }
+    
+    setViewSubmissionDialogOpen(true);
   };
 
   // Assign case to vendor with 30-minute timer
@@ -2507,11 +2645,56 @@ const VendorDashboard: React.FC = () => {
               </div>
             </div>
           )}
-          <DialogFooter className={`${isMobile ? 'flex-col gap-2 px-4 pb-4' : ''}`}>
+          <DialogFooter className={`${isMobile ? 'flex-col gap-2 px-4 pb-4' : 'flex-row justify-between'}`}>
+            <div className={`flex gap-2 ${isMobile ? 'w-full' : ''}`}>
+              {viewingCase?.status === 'submitted' && (
+                <Button 
+                  onClick={handleViewSubmission}
+                  className={`${isMobile ? 'w-full h-10' : ''} bg-blue-600 hover:bg-blue-700`}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  View Response
+                </Button>
+              )}
+              
+              {/* Debug info for submitted cases */}
+              {viewingCase?.status === 'submitted' && (
+                <div className={`text-xs text-gray-500 ${isMobile ? 'mt-1' : 'ml-2'}`}>
+                  Debug: Case ID: {viewingCase.id}
+                </div>
+              )}
+            </div>
             <Button variant="outline" onClick={() => {
               setViewCaseDialogOpen(false);
               setQcReviewData(null);
             }} className={isMobile ? 'w-full h-10' : ''}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Form Submission Dialog */}
+      <Dialog open={viewSubmissionDialogOpen} onOpenChange={setViewSubmissionDialogOpen}>
+        <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[95vh] mx-2' : 'max-w-6xl max-h-[90vh]'} flex flex-col`}>
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className={isMobile ? 'text-base' : ''}>
+              Form Submission Details
+            </DialogTitle>
+            <DialogDescription className={isMobile ? 'text-sm' : ''}>
+              View the submitted form data and files for case {viewingCase?.case_number}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden">
+            {viewingCase && (
+              <DynamicFormSubmission 
+                caseId={viewingCase.id} 
+                onSubmissionsLoaded={() => {}} 
+              />
+            )}
+          </div>
+          <DialogFooter className={`${isMobile ? 'flex-col gap-2 px-4 pb-4' : ''}`}>
+            <Button variant="outline" onClick={() => setViewSubmissionDialogOpen(false)} className={isMobile ? 'w-full h-10' : ''}>
               Close
             </Button>
           </DialogFooter>

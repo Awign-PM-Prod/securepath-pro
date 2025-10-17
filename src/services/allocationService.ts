@@ -496,6 +496,41 @@ export class AllocationService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Get allocation details to find the gig worker
+      const { data: allocationData, error: allocationDataError } = await supabase
+        .from('allocation_logs')
+        .select('candidate_id, candidate_type')
+        .eq('id', allocationId)
+        .single();
+
+      if (allocationDataError || !allocationData) {
+        console.error('Error fetching allocation details:', allocationDataError);
+        throw allocationDataError;
+      }
+
+      // Prepare case update data
+      const caseUpdateData: any = {
+        status: 'accepted',
+        status_updated_at: new Date().toISOString(),
+        last_updated_by: user.id
+      };
+
+      // If this is a gig worker allocation, get their vendor_id
+      if (allocationData.candidate_type === 'gig' && allocationData.candidate_id) {
+        const { data: gigWorkerData, error: gigWorkerError } = await supabase
+          .from('gig_partners')
+          .select('vendor_id, is_direct_gig')
+          .eq('id', allocationData.candidate_id)
+          .single();
+
+        if (!gigWorkerError && gigWorkerData && gigWorkerData.vendor_id) {
+          caseUpdateData.current_vendor_id = gigWorkerData.vendor_id;
+          console.log(`Setting current_vendor_id to ${gigWorkerData.vendor_id} for gig worker ${allocationData.candidate_id}`);
+        } else {
+          console.log(`Gig worker ${allocationData.candidate_id} has no vendor association`);
+        }
+      }
+
       // Update allocation log
       const { error: allocationError } = await supabase
         .from('allocation_logs')
@@ -508,14 +543,10 @@ export class AllocationService {
 
       if (allocationError) throw allocationError;
 
-      // Update case status
+      // Update case status and vendor assignment
       const { error: caseError } = await supabase
         .from('cases')
-        .update({
-          status: 'accepted',
-          status_updated_at: new Date().toISOString(),
-          last_updated_by: user.id
-        })
+        .update(caseUpdateData)
         .eq('id', caseId);
 
       if (caseError) throw caseError;

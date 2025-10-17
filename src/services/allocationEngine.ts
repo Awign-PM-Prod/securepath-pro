@@ -394,6 +394,18 @@ export class AllocationEngine {
    */
   async acceptCase(caseId: string, gigPartnerId: string): Promise<boolean> {
     try {
+      // First, get the gig worker's vendor_id
+      const { data: gigWorkerData, error: gigWorkerError } = await supabase
+        .from('gig_partners')
+        .select('vendor_id, is_direct_gig')
+        .eq('id', gigPartnerId)
+        .single();
+
+      if (gigWorkerError) {
+        console.error('Error fetching gig worker vendor info:', gigWorkerError);
+        throw gigWorkerError;
+      }
+
       // Update allocation log
       const { error: logError } = await supabase
         .from('allocation_logs')
@@ -408,13 +420,24 @@ export class AllocationEngine {
 
       if (logError) throw logError;
 
-      // Update case status
+      // Prepare case update data
+      const caseUpdateData: any = {
+        status: 'accepted',
+        status_updated_at: new Date().toISOString()
+      };
+
+      // If gig worker is associated with a vendor (has vendor_id), set current_vendor_id
+      if (gigWorkerData && gigWorkerData.vendor_id) {
+        caseUpdateData.current_vendor_id = gigWorkerData.vendor_id;
+        console.log(`Setting current_vendor_id to ${gigWorkerData.vendor_id} for gig worker ${gigPartnerId}`);
+      } else {
+        console.log(`Gig worker ${gigPartnerId} has no vendor association`);
+      }
+
+      // Update case status and vendor assignment
       const { error: caseError } = await supabase
         .from('cases')
-        .update({
-          status: 'accepted',
-          status_updated_at: new Date().toISOString()
-        })
+        .update(caseUpdateData)
         .eq('id', caseId);
 
       if (caseError) throw caseError;

@@ -121,6 +121,7 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
   const fetchFormSubmissions = async () => {
     try {
       setLoading(true);
+      console.log('DynamicFormSubmission: Fetching submissions for case:', caseId);
       
       // First try to get final submissions
       let { data, error } = await supabase
@@ -149,6 +150,12 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
 
       if (error) throw error;
       
+      console.log('DynamicFormSubmission: Form submissions query result:', {
+        data,
+        error,
+        count: data?.length || 0
+      });
+      
       // If no final submissions found, try to get draft submissions
       if (!data || data.length === 0) {
         const { data: draftData, error: draftError } = await supabase
@@ -176,14 +183,62 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
           .order('created_at', { ascending: false });
 
         if (draftError) throw draftError;
+        
+        console.log('DynamicFormSubmission: Draft submissions query result:', {
+          data: draftData,
+          error: draftError,
+          count: draftData?.length || 0
+        });
+        
         data = draftData;
       }
       
       // Transform the data to include form_fields at the submission level
-      const transformedData = data?.map((submission: any) => ({
+      let transformedData = data?.map((submission: any) => ({
         ...submission,
         form_fields: submission.form_template?.form_fields || []
       })) || [];
+      
+      // If no form submissions found, try legacy submissions table
+      if (transformedData.length === 0) {
+        console.log('No form submissions found, checking legacy submissions table...');
+        
+        const { data: legacyData, error: legacyError } = await supabase
+          .from('submissions' as any)
+          .select('*')
+          .eq('case_id', caseId)
+          .order('submitted_at', { ascending: false });
+
+        if (legacyError) {
+          console.error('Error fetching legacy submissions:', legacyError);
+        } else if (legacyData && legacyData.length > 0) {
+          console.log('Found legacy submissions:', legacyData);
+          
+          // Transform legacy submissions to match the expected format
+          transformedData = legacyData.map((submission: any) => ({
+            id: submission.id,
+            case_id: submission.case_id,
+            template_id: null,
+            gig_partner_id: submission.gig_partner_id,
+            submission_data: submission.answers || {},
+            status: 'final',
+            created_at: submission.created_at,
+            updated_at: submission.updated_at,
+            submitted_at: submission.submitted_at,
+            form_template: {
+              template_name: 'Legacy Submission',
+              template_version: 1
+            },
+            form_submission_files: [],
+            form_fields: Object.keys(submission.answers || {}).map((key, index) => ({
+              field_key: key,
+              field_title: key.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+              field_type: 'text',
+              field_order: index
+            }))
+          }));
+        }
+      }
       
       // Debug logging for file uploads
       if (transformedData.length > 0) {
@@ -210,6 +265,8 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
           directFilesError,
           directFileCount: directFiles?.length || 0
         });
+      } else {
+        console.log('No submissions found in either form_submissions or submissions table for case:', caseId);
       }
       
       setSubmissions(transformedData);
