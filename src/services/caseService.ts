@@ -46,6 +46,9 @@ export interface Case {
   created_by: string;
   last_updated_by: string;
   status_updated_at: string;
+  // New fields for QC dashboard
+  assigned_at?: string;
+  submitted_at?: string;
 }
 
 export interface CreateCaseData {
@@ -263,6 +266,16 @@ export class CaseService {
             pincode,
             lat,
             lng
+          ),
+          submissions (
+            id,
+            submitted_at,
+            created_at
+          ),
+          form_submissions (
+            id,
+            submitted_at,
+            created_at
           )
         `)
         .eq('status', status)
@@ -274,6 +287,8 @@ export class CaseService {
       const casesWithAssignees = await Promise.all(
         data?.map(async (caseItem) => {
           let assigneeInfo = null;
+          let assignedAt = null;
+          let submittedAt = null;
 
           if (caseItem.current_assignee_id && caseItem.current_assignee_type) {
             if (caseItem.current_assignee_type === 'gig') {
@@ -317,6 +332,29 @@ export class CaseService {
             }
           }
 
+          // Get allocation logs to find when case was assigned
+          if (caseItem.current_assignee_id) {
+            const { data: allocationLogs } = await supabase
+              .from('allocation_logs')
+              .select('allocated_at, accepted_at')
+              .eq('case_id', caseItem.id)
+              .eq('candidate_id', caseItem.current_assignee_id)
+              .eq('decision', 'accepted')
+              .order('accepted_at', { ascending: false })
+              .limit(1);
+
+            if (allocationLogs && allocationLogs.length > 0) {
+              assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
+            }
+          }
+
+          // Get submission date from either submissions or form_submissions
+          if (caseItem.submissions && caseItem.submissions.length > 0) {
+            submittedAt = caseItem.submissions[0].submitted_at;
+          } else if (caseItem.form_submissions && caseItem.form_submissions.length > 0) {
+            submittedAt = caseItem.form_submissions[0].submitted_at;
+          }
+
           return {
             id: caseItem.id,
             case_number: caseItem.case_number,
@@ -357,6 +395,9 @@ export class CaseService {
             created_by: caseItem.created_by,
             last_updated_by: caseItem.last_updated_by,
             status_updated_at: caseItem.status_updated_at,
+            // New fields for QC dashboard
+            assigned_at: assignedAt,
+            submitted_at: submittedAt,
           };
         }) || []
       );

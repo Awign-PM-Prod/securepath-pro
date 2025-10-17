@@ -16,6 +16,7 @@ import { DynamicForm } from '@/components/DynamicForm';
 import { FormData } from '@/types/form';
 import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
 import { getGigWorkerVendorInfo } from '@/utils/vendorGigWorkerUtils';
+import { NotificationPermission } from '@/components/NotificationPermission';
 
 interface AllocatedCase {
   id: string;
@@ -88,6 +89,8 @@ export default function GigWorkerDashboard() {
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [gigWorkerVendorInfo, setGigWorkerVendorInfo] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [showNotificationTest, setShowNotificationTest] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -891,23 +894,68 @@ export default function GigWorkerDashboard() {
                 <h1 className="text-lg font-bold text-gray-900">Gig Worker Dashboard</h1>
                 <p className="text-sm text-gray-600">Background Verification</p>
               </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-500">Total Cases</div>
-                <div className="text-lg font-bold text-blue-600">{allocatedCases.length}</div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <div className="text-xs text-gray-500">Total Cases</div>
+                  <div className="text-lg font-bold text-blue-600">{allocatedCases.length}</div>
+                </div>
+                {gigWorkerId && (
+                  <div className="w-8 h-8">
+                    <NotificationPermission 
+                      gigWorkerId={gigWorkerId}
+                      onPermissionChange={setNotificationsEnabled}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* Notification Permission Card - Show on mobile or when testing */}
+      {(isMobile || window.innerWidth < 768) && gigWorkerId && (
+        <div className="mx-2 mb-4">
+          <NotificationPermission 
+            gigWorkerId={gigWorkerId}
+            onPermissionChange={setNotificationsEnabled}
+          />
+        </div>
+      )}
+
       <Card className={isMobile ? 'mx-2 shadow-sm border-0' : ''}>
         <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
-          <CardTitle className={isMobile ? 'text-lg' : ''}>My Allocated Cases</CardTitle>
-          <CardDescription className={isMobile ? 'text-sm' : ''}>
-            Manage your assigned background verification cases
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className={isMobile ? 'text-lg' : ''}>My Allocated Cases</CardTitle>
+              <CardDescription className={isMobile ? 'text-sm' : ''}>
+                Manage your assigned background verification cases
+              </CardDescription>
+            </div>
+            {gigWorkerId && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowNotificationTest(!showNotificationTest)}
+                className="text-xs"
+              >
+                🔔 Notifications
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className={isMobile ? 'px-2' : ''}>
+          {/* Notification Test Component */}
+          {showNotificationTest && gigWorkerId && (
+            <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-semibold text-blue-900 mb-2">🔔 Notification Setup</h3>
+              <NotificationPermission 
+                gigWorkerId={gigWorkerId}
+                onPermissionChange={setNotificationsEnabled}
+              />
+            </div>
+          )}
+          
           <Tabs defaultValue="pending" className="w-full">
             <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4 gap-1 h-12' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>
               <TabsTrigger 

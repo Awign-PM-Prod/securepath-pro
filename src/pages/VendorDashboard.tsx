@@ -116,11 +116,44 @@ interface Case {
   acceptance_deadline?: string;
   client_name: string;
   client_email: string;
+  // New fields for QC dashboard
+  assigned_at?: string;
+  submitted_at?: string;
 }
 
 const VendorDashboard: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+
+  // Helper functions for time calculations
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getTimeTaken = (assignedAt?: string, submittedAt?: string) => {
+    if (!assignedAt || !submittedAt) return 'N/A';
+    
+    const assigned = new Date(assignedAt);
+    const submitted = new Date(submittedAt);
+    const diffMs = submitted.getTime() - assigned.getTime();
+    
+    if (diffMs < 0) return 'Invalid';
+    
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (diffHours > 0) {
+      return `${diffHours}h ${diffMinutes}m`;
+    } else {
+      return `${diffMinutes}m`;
+    }
+  };
   
   // State
   const [loading, setLoading] = useState(true);
@@ -800,6 +833,41 @@ const VendorDashboard: React.FC = () => {
             )}
           </div>
 
+          {/* Additional QC Information */}
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <Clock className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+              <div>
+                <p className="text-muted-foreground">TAT</p>
+                <p className="font-medium">{caseItem.tat_hours}h</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <User className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+              <div>
+                <p className="text-muted-foreground">Assigned</p>
+                <p className="font-medium">{caseItem.assigned_at ? formatDate(caseItem.assigned_at) : 'N/A'}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Briefcase className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+              <div>
+                <p className="text-muted-foreground">Submitted</p>
+                <p className="font-medium">{caseItem.submitted_at ? formatDate(caseItem.submitted_at) : 'N/A'}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Clock className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+              <div>
+                <p className="text-muted-foreground">Time Taken</p>
+                <p className="font-medium">{getTimeTaken(caseItem.assigned_at, caseItem.submitted_at)}</p>
+              </div>
+            </div>
+          </div>
+
           {/* Actions */}
           {showActions && (
             <div className="flex gap-2 pt-1">
@@ -1036,6 +1104,10 @@ const VendorDashboard: React.FC = () => {
                       <TableHead>Priority</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Time Remaining</TableHead>
+                      <TableHead>TAT Hours</TableHead>
+                      <TableHead>Assigned On</TableHead>
+                      <TableHead>Submitted On</TableHead>
+                      <TableHead>Time Taken</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1084,6 +1156,27 @@ const VendorDashboard: React.FC = () => {
                               <span className={isExpired ? 'text-red-600 font-medium' : 'text-muted-foreground'}>
                                 {timeRemaining}
                               </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              <Clock className="h-4 w-4 text-muted-foreground" />
+                              <span>{caseItem.tat_hours}h</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {caseItem.assigned_at ? formatDate(caseItem.assigned_at) : 'N/A'}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {caseItem.submitted_at ? formatDate(caseItem.submitted_at) : 'N/A'}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {getTimeTaken(caseItem.assigned_at, caseItem.submitted_at)}
                             </div>
                           </TableCell>
                           <TableCell>

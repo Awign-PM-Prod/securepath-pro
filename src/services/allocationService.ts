@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { notificationService } from './notificationService';
+import { caseNotificationService } from './caseNotificationService';
 import { allocationEngine, AllocationResult } from './allocationEngine';
 
 export interface AllocationRequest {
@@ -896,24 +897,22 @@ export class AllocationService {
     try {
       console.log('Sending allocation notification to:', gigPartnerId, 'for case:', caseId);
       
-      // Get case details for notification
-      const { data: caseData, error: caseError } = await supabase
-        .from('cases')
-        .select('case_number')
-        .eq('id', caseId)
-        .single();
-
-      if (caseError) {
-        console.error('Error getting case details for notification:', caseError);
+      // Get case allocation data for notification
+      const caseData = await caseNotificationService.getCaseAllocationData(caseId);
+      
+      if (!caseData) {
+        console.error('Could not get case data for notification');
         return;
       }
 
-      // Send notification
-      await notificationService.sendCaseAllocationNotification(
-        caseId,
-        gigPartnerId,
-        caseData.case_number
-      );
+      // Send push notification
+      const success = await caseNotificationService.sendCaseAllocatedNotification(caseData);
+      
+      if (success) {
+        console.log('Push notification sent successfully');
+      } else {
+        console.warn('Failed to send push notification');
+      }
     } catch (error) {
       console.error('Failed to send allocation notification:', error);
     }

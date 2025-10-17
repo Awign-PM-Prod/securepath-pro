@@ -307,6 +307,10 @@ export default function QCWorkbench() {
                       <Image className="h-3 w-3" />
                       <span>{submission.photos.length} photos</span>
                     </div>
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      <span>TAT: {submission.tat_hours || 'N/A'}h</span>
+                    </div>
                   </div>
                 </div>
               ))}
