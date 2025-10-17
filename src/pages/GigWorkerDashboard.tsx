@@ -670,6 +670,14 @@ export default function GigWorkerDashboard() {
     return `${hours}h ${minutes}m remaining`;
   };
 
+  const formatTimeRemaining = (minutes: number) => {
+    if (minutes <= 0) return 'Expired';
+    if (minutes < 60) return `${minutes}m left`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `${hours}h ${remainingMinutes}m left`;
+  };
+
   const isExpired = (deadline: string) => {
     return new Date() > new Date(deadline);
   };
@@ -1275,7 +1283,7 @@ export default function GigWorkerDashboard() {
                                   {isExpired(caseItem.due_at) ? (
                                     <span className="text-red-600">Overdue</span>
                                   ) : (
-                                    `${differenceInMinutes(new Date(caseItem.due_at), new Date())} min left`
+                                    formatTimeRemaining(differenceInMinutes(new Date(caseItem.due_at), new Date()))
                                   )}
                                 </div>
                               </div>
@@ -1605,9 +1613,14 @@ export default function GigWorkerDashboard() {
       <Dialog open={isViewSubmissionDialogOpen} onOpenChange={setIsViewSubmissionDialogOpen}>
         <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[95vh] mx-2' : 'max-w-6xl max-h-[90vh]'} flex flex-col`}>
           <DialogHeader className="flex-shrink-0">
-            <DialogTitle>Form Submission Details</DialogTitle>
+            <DialogTitle>
+              {selectedSubmissionCase?.status === 'in_progress' ? 'Current Draft Details' : 'Form Submission Details'}
+            </DialogTitle>
             <DialogDescription>
-              View the submitted form data and files for this case.
+              {selectedSubmissionCase?.status === 'in_progress' 
+                ? 'View the current saved answers and files for this case.' 
+                : 'View the submitted form data and files for this case.'
+              }
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-hidden">

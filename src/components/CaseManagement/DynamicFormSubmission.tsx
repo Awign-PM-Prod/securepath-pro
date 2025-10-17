@@ -22,8 +22,10 @@ interface FormSubmission {
   template_id: string;
   gig_partner_id: string;
   submission_data: Record<string, any>;
+  status: 'draft' | 'final';
   created_at: string;
   updated_at: string;
+  submitted_at?: string;
   form_template?: {
     template_name: string;
     template_version: number;
@@ -46,6 +48,7 @@ interface FormSubmission {
     field_key: string;
     field_title: string;
     field_type: string;
+    field_order?: number;
   }>;
 }
 
@@ -117,14 +120,16 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
   const fetchFormSubmissions = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('form_submissions')
+      
+      // First try to get final submissions
+      let { data, error } = await supabase
+        .from('form_submissions' as any)
         .select(`
           *,
           form_template:form_templates(
             template_name, 
             template_version,
-            form_fields(field_key, field_title, field_type)
+            form_fields(field_key, field_title, field_type, field_order)
           ),
           form_submission_files(
             id,
@@ -138,16 +143,47 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
           )
         `)
         .eq('case_id', caseId)
+        .eq('status', 'final')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
       
+      // If no final submissions found, try to get draft submissions
+      if (!data || data.length === 0) {
+        const { data: draftData, error: draftError } = await supabase
+          .from('form_submissions' as any)
+          .select(`
+            *,
+            form_template:form_templates(
+              template_name, 
+              template_version,
+              form_fields(field_key, field_title, field_type, field_order)
+            ),
+            form_submission_files(
+              id,
+              field_id,
+              file_url,
+              file_name,
+              file_size,
+              mime_type,
+              uploaded_at,
+              form_field:form_fields(field_title, field_type, field_key)
+            )
+          `)
+          .eq('case_id', caseId)
+          .eq('status', 'draft')
+          .order('created_at', { ascending: false });
+
+        if (draftError) throw draftError;
+        data = draftData;
+      }
       
       // Transform the data to include form_fields at the submission level
-      const transformedData = data?.map(submission => ({
+      const transformedData = data?.map((submission: any) => ({
         ...submission,
         form_fields: submission.form_template?.form_fields || []
       })) || [];
+      
       
       setSubmissions(transformedData);
     } catch (err) {
@@ -268,8 +304,8 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
                           
                           // Fallback to database uploaded_at
                           let date;
-                          if (file.uploaded_at instanceof Date) {
-                            date = file.uploaded_at;
+                          if (file.uploaded_at && typeof file.uploaded_at === 'object' && file.uploaded_at !== null && 'getTime' in (file.uploaded_at as any)) {
+                            date = file.uploaded_at as Date;
                           } else if (typeof file.uploaded_at === 'string') {
                             date = new Date(file.uploaded_at);
                           } else if (typeof file.uploaded_at === 'number') {
@@ -329,6 +365,8 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
         );
       case 'multiple_choice':
         if (value === null || value === undefined) return <span className="text-muted-foreground">Not provided</span>;
+        if (Array.isArray(value) && value.length === 0) return <span className="text-muted-foreground">Not provided</span>;
+        if (value === '') return <span className="text-muted-foreground">Not provided</span>;
         return (
           <div className="flex flex-wrap gap-1">
             {Array.isArray(value) ? value.map((item, index) => (
@@ -394,15 +432,22 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
               {submission.form_template?.template_name || 'Form Submission'}
+              {submission.status === 'draft' && (
+                <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+                  Draft
+                </Badge>
+              )}
             </CardTitle>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                Submitted on {(() => {
+                {submission.status === 'draft' ? 'Last saved on ' : 'Submitted on '}
+                {(() => {
                   try {
-                    return format(new Date(submission.submitted_at), 'PPP p');
+                    const dateField = submission.status === 'draft' ? submission.updated_at : submission.submitted_at;
+                    return format(new Date(dateField), 'PPP p');
                   } catch (e) {
-                    console.warn('Invalid submission date:', submission.submitted_at);
+                    console.warn('Invalid date:', submission.status === 'draft' ? submission.updated_at : submission.submitted_at);
                     return 'Invalid date';
                   }
                 })()}
@@ -436,7 +481,9 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
           <CardContent>
             <div className="space-y-6">
               {/* Render all form fields, including file upload fields */}
-              {submission.form_fields?.map((fieldInfo) => {
+              {submission.form_fields
+                ?.sort((a, b) => (a.field_order || 0) - (b.field_order || 0))
+                ?.map((fieldInfo) => {
                 const fieldKey = fieldInfo.field_key;
                 const fieldTitle = fieldInfo.field_title;
                 const fieldType = fieldInfo.field_type;
@@ -450,10 +497,7 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
                     file.form_field?.field_key === fieldKey
                   );
                 
-                // Skip fields that have no value and no files
-                if (!value && !hasFiles) {
-                  return null;
-                }
+                // Show all fields - let the renderFieldValue function handle empty states
                 
                 return (
                   <div key={fieldKey} className="border rounded-lg p-4">
