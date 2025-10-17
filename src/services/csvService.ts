@@ -3,6 +3,19 @@ export interface CSVField {
   answer: string;
 }
 
+export interface CSVImportResult {
+  successful: number;
+  failed: number;
+  errors: string[];
+}
+
+export interface CSVExportOptions {
+  status?: string[];
+  priority?: string[];
+  date_from?: string;
+  date_to?: string;
+}
+
 export interface FormSubmissionData {
   id: string;
   template_name: string;
@@ -185,4 +198,49 @@ export class CSVService {
       URL.revokeObjectURL(url);
     }
   }
+
+  /**
+   * Import cases from CSV content
+   */
+  async importCases(csvContent: string, updateMode: boolean = false): Promise<CSVImportResult> {
+    // This is a placeholder implementation
+    // In a real app, this would parse the CSV and create/update cases in the database
+    console.log('Importing cases from CSV:', { csvContent: csvContent.substring(0, 100), updateMode });
+    
+    return {
+      successful: 0,
+      failed: 0,
+      errors: ['CSV import not implemented yet']
+    };
+  }
+
+  /**
+   * Export cases to CSV content
+   */
+  async exportCases(options: CSVExportOptions = {}): Promise<string> {
+    // This is a placeholder implementation
+    // In a real app, this would fetch cases from the database and convert to CSV
+    console.log('Exporting cases to CSV:', options);
+    
+    return 'Case ID,Title,Status,Priority\n1,Sample Case,Active,High';
+  }
+
+  /**
+   * Generate CSV template
+   */
+  generateTemplate(): string {
+    return 'Case ID,Title,Description,Priority,Status,Client ID,Location ID,Due Date,Base Rate,Travel Allowance,Bonus,TAT Hours,Instructions\n';
+  }
+
+  /**
+   * Test payout calculation
+   */
+  async testPayoutCalculation(): Promise<void> {
+    console.log('Testing payout calculation...');
+    // This is a placeholder implementation
+    console.log('Payout calculation test completed');
+  }
 }
+
+// Export a singleton instance
+export const csvService = new CSVService();

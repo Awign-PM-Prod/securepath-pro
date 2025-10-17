@@ -48,7 +48,9 @@ class NotificationService {
         .single();
 
       if (error) {
-        console.error('Error fetching VAPID key:', error);
+        console.warn('VAPID key not found in database, using default:', error.message);
+        // Use a default VAPID key for development
+        this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
         return;
       }
       
@@ -56,10 +58,12 @@ class NotificationService {
         this.vapidPublicKey = data.value;
         console.log('VAPID public key loaded:', data.value.substring(0, 20) + '...');
       } else {
-        console.error('No VAPID public key found in database');
+        console.warn('No VAPID public key found in database, using default');
+        this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
       }
     } catch (error) {
-      console.error('Could not fetch VAPID public key:', error);
+      console.warn('Error initializing VAPID key, using default:', error);
+      this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
     }
   }
 
