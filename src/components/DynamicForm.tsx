@@ -200,6 +200,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         return fieldData && fieldData.value !== undefined && fieldData.value !== '';
       });
       
+      console.log('Auto-save check:', {
+        hasFileChanges,
+        hasNonFileChanges,
+        willSave: hasFileChanges || hasNonFileChanges,
+        formDataKeys: Object.keys(saveFormData)
+      });
+      
       if (hasFileChanges || hasNonFileChanges) {
         // Prepare form data with location information for save
         const formDataWithLocation = {

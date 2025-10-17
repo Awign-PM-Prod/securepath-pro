@@ -184,6 +184,32 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
         form_fields: submission.form_template?.form_fields || []
       })) || [];
       
+      // Debug logging for file uploads
+      if (transformedData.length > 0) {
+        console.log('Form submission data:', {
+          submissionId: transformedData[0].id,
+          status: transformedData[0].status,
+          files: transformedData[0].form_submission_files,
+          fileCount: transformedData[0].form_submission_files?.length || 0,
+          rawData: transformedData[0]
+        });
+        
+        // Check if there are any file upload fields
+        const fileUploadFields = transformedData[0].form_fields?.filter(f => f.field_type === 'file_upload') || [];
+        console.log('File upload fields:', fileUploadFields);
+        
+        // Direct database query to check for files
+        const { data: directFiles, error: directFilesError } = await supabase
+          .from('form_submission_files' as any)
+          .select('*')
+          .eq('submission_id', transformedData[0].id);
+        
+        console.log('Direct database query for files:', {
+          directFiles,
+          directFilesError,
+          directFileCount: directFiles?.length || 0
+        });
+      }
       
       setSubmissions(transformedData);
     } catch (err) {
@@ -201,6 +227,14 @@ export default function DynamicFormSubmission({ caseId }: DynamicFormSubmissionP
         const fieldFiles = submission.form_submission_files?.filter(file => 
           file.form_field?.field_key === fieldKey
         ) || [];
+        
+        // Debug logging for file upload fields
+        console.log(`File upload field ${fieldKey}:`, {
+          allFiles: submission.form_submission_files,
+          fieldFiles,
+          fieldFilesCount: fieldFiles.length,
+          fieldKey
+        });
         
         if (fieldFiles.length === 0) {
           return <span className="text-muted-foreground">No files uploaded</span>;

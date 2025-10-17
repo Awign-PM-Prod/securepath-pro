@@ -493,6 +493,17 @@ export default function GigWorkerDashboard() {
   const handleImmediateSave = async (formData: FormData) => {
     if (!selectedCase || !gigWorkerId || isSaving) return;
 
+    console.log('Auto-save triggered with formData:', formData);
+    console.log('Files in formData:', Object.keys(formData).map(key => {
+      if (key === '_metadata') return null;
+      const fieldData = formData[key];
+      return {
+        fieldKey: key,
+        hasFiles: !!(fieldData && fieldData.files && fieldData.files.length > 0),
+        fileCount: fieldData?.files?.length || 0
+      };
+    }).filter(Boolean));
+
     setIsSaving(true);
     try {
       const result = await gigWorkerService.saveDraft({
