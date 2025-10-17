@@ -226,8 +226,8 @@ const VendorDashboard: React.FC = () => {
         city: '',
         state: '',
         is_available: true,
-        capacity_available: 0,
-        max_daily_capacity: 0,
+        capacity_available: 1,
+        max_daily_capacity: 1,
         quality_score: 0,
         completion_rate: 0,
         is_direct_gig: false
@@ -2040,11 +2040,11 @@ const VendorDashboard: React.FC = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {gigWorkers
-                    .filter(worker => worker.is_available && worker.capacity_available > 0)
+                    .filter(worker => worker.is_available)
                     .map((worker) => (
                       <SelectItem key={worker.id} value={worker.id}>
                         {worker.first_name} {worker.last_name} 
-                        {' '}({worker.capacity_available}/{worker.max_daily_capacity} available)
+                        {' '}({worker.email})
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -2080,11 +2080,11 @@ const VendorDashboard: React.FC = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {gigWorkers
-                    .filter(worker => worker.is_available && worker.capacity_available > 0)
+                    .filter(worker => worker.is_available)
                     .map((worker) => (
                       <SelectItem key={worker.id} value={worker.id}>
                         {worker.first_name} {worker.last_name} 
-                        {' '}({worker.capacity_available}/{worker.max_daily_capacity} available)
+                        {' '}({worker.email})
                       </SelectItem>
                     ))}
                 </SelectContent>
