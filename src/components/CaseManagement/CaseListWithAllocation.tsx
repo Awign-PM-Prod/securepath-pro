@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { allocationService } from '@/services/allocationService';
@@ -26,17 +27,23 @@ interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
+  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_approved' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
   client: {
     id: string;
     name: string;
+    contact_person: string;
+    phone: string;
     email: string;
   };
   location: {
+    id: string;
     address_line: string;
     city: string;
     state: string;
     pincode: string;
+    lat?: number;
+    lng?: number;
+    location_url?: string;
   };
   current_assignee?: {
     id: string;
@@ -47,10 +54,19 @@ interface Case {
   tat_hours: number;
   due_at: string;
   created_at: string;
+  updated_at: string;
+  created_by: string;
+  last_updated_by: string;
+  status_updated_at: string;
   base_rate_inr?: number;
   bonus_inr?: number;
   penalty_inr?: number;
   total_payout_inr?: number;
+  // QC Response field
+  QC_Response?: 'Rework' | 'Approved' | 'Rejected' | 'New';
+  // New fields for QC dashboard
+  assigned_at?: string;
+  submitted_at?: string;
 }
 
 interface CaseListWithAllocationProps {
@@ -131,7 +147,25 @@ export default function CaseListWithAllocation({
   const [isLoadingGigWorkers, setIsLoadingGigWorkers] = useState(false);
   const [isLoadingVendors, setIsLoadingVendors] = useState(false);
   const [activeTab, setActiveTab] = useState<'cases' | 'csv'>('cases');
+  const [qcResponseTab, setQcResponseTab] = useState('all');
+  const [qcStats, setQcStats] = useState({
+    all: 0,
+    approved: 0,
+    rejected: 0,
+    rework: 0
+  });
   const { toast } = useToast();
+
+  // Calculate QC stats when cases change
+  React.useEffect(() => {
+    const stats = {
+      all: cases.length,
+      approved: cases.filter(c => c.QC_Response === 'Approved').length,
+      rejected: cases.filter(c => c.QC_Response === 'Rejected').length,
+      rework: cases.filter(c => c.QC_Response === 'Rework').length
+    };
+    setQcStats(stats);
+  }, [cases]);
 
   const filteredCases = cases.filter(caseItem => {
     const matchesSearch = 
@@ -143,7 +177,10 @@ export default function CaseListWithAllocation({
     
     const matchesStatus = statusFilter === 'all' || caseItem.status === statusFilter;
     
-    return matchesSearch && matchesStatus;
+    // Filter by QC_Response tab
+    const matchesQcResponse = qcResponseTab === 'all' || caseItem.QC_Response === qcResponseTab;
+    
+    return matchesSearch && matchesStatus && matchesQcResponse;
   });
 
   // Filter cases that can be allocated (created status, no assignee)
@@ -482,6 +519,63 @@ export default function CaseListWithAllocation({
     return diffDays;
   };
 
+  // Helper functions for QC dashboard-style display
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const formatTime = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  };
+
+  const getTimeTaken = (assignedAt?: string, submittedAt?: string) => {
+    if (!assignedAt || !submittedAt) return 'N/A';
+    
+    const assigned = new Date(assignedAt);
+    const submitted = new Date(submittedAt);
+    const diffMs = submitted.getTime() - assigned.getTime();
+    
+    if (diffMs < 0) return 'Invalid';
+    
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (diffHours > 0) {
+      return `${diffHours}h ${diffMinutes}m`;
+    } else {
+      return `${diffMinutes}m`;
+    }
+  };
+
+  const getQCResponseBadge = (qcResponse?: string) => {
+    if (!qcResponse) return null;
+
+    const responseConfig = {
+      'Approved': { label: 'Approved', className: 'bg-green-100 text-green-800' },
+      'Rejected': { label: 'Rejected', className: 'bg-red-100 text-red-800' },
+      'Rework': { label: 'Rework', className: 'bg-orange-100 text-orange-800' },
+      'New': { label: 'New', className: 'bg-gray-100 text-gray-800' }
+    };
+
+    const config = responseConfig[qcResponse as keyof typeof responseConfig] || { label: qcResponse, className: 'bg-gray-100 text-gray-800' };
+
+    return (
+      <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.className}`}>
+        {config.label}
+      </span>
+    );
+  };
+
   const selectableCases = [...allocatableCases, ...unallocatableCases];
   const isAllSelected = selectableCases.length > 0 && selectedCases.size === selectableCases.length;
   const isPartiallySelected = selectedCases.size > 0 && selectedCases.size < selectableCases.length;
@@ -554,6 +648,28 @@ export default function CaseListWithAllocation({
         {/* Tab Content */}
         {activeTab === 'cases' && (
           <>
+            {/* QC Response Tabs */}
+            <Tabs value={qcResponseTab} onValueChange={setQcResponseTab} className="w-full mb-6">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="all" className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  All ({qcStats.all})
+                </TabsTrigger>
+                <TabsTrigger value="Approved" className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  Approved ({qcStats.approved})
+                </TabsTrigger>
+                <TabsTrigger value="Rejected" className="flex items-center gap-2">
+                  <XCircle className="h-4 w-4" />
+                  Rejected ({qcStats.rejected})
+                </TabsTrigger>
+                <TabsTrigger value="Rework" className="flex items-center gap-2">
+                  <RotateCcw className="h-4 w-4" />
+                  Rework ({qcStats.rework})
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
             {/* Search and Filter Controls */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="flex-1">
@@ -686,32 +802,71 @@ export default function CaseListWithAllocation({
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">
-                    <Checkbox
-                      checked={isAllSelected}
-                      ref={(el) => {
-                        if (el) el.indeterminate = isPartiallySelected;
-                      }}
-                      onCheckedChange={handleSelectAll}
-                    />
-                  </TableHead>
-                  <TableHead>Case #</TableHead>
-                  <TableHead>Candidate</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Contract Type</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Assignee</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Payout</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          <div className="space-y-4">
+            {/* Bulk Selection Header */}
+            {displayCases.length > 0 && (
+              <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={isAllSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isPartiallySelected;
+                    }}
+                    onCheckedChange={handleSelectAll}
+                  />
+                  <span className="text-sm font-medium">
+                    {selectedCases.size} of {displayCases.length} cases selected
+                  </span>
+                </div>
+                {selectedCases.size > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAllocationModeSelect('auto')}
+                      disabled={selectedAllocatableCases.length === 0}
+                    >
+                      <Zap className="h-4 w-4 mr-2" />
+                      Auto Allocate ({selectedAllocatableCases.length})
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAllocationModeSelect('manual')}
+                      disabled={selectedAllocatableCases.length === 0}
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Manual Allocate ({selectedAllocatableCases.length})
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleUnallocate}
+                      disabled={selectedUnallocatableCases.length === 0}
+                      className="text-orange-600"
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      Unallocate ({selectedUnallocatableCases.length})
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Case Cards */}
+            {displayCases.length === 0 ? (
+              <div className="text-center py-12">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Cases Found</h3>
+                <p className="text-muted-foreground">
+                  {searchTerm || statusFilter !== 'all' || qcResponseTab !== 'all'
+                    ? 'No cases match your current filters.'
+                    : 'There are currently no cases in this category.'
+                  }
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
                 {displayCases.map((caseItem) => {
                   const isAllocatable = caseItem.status === 'created' && !caseItem.current_assignee;
                   const isUnallocatable = (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && caseItem.current_assignee;
@@ -719,99 +874,29 @@ export default function CaseListWithAllocation({
                   const isSelected = selectedCases.has(caseItem.id);
                   
                   return (
-                    <TableRow 
-                      key={caseItem.id} 
-                      className={`hover:bg-muted/50 ${isSelected ? 'bg-blue-50' : ''} ${!isSelectable ? 'opacity-60' : ''}`}
+                    <div
+                      key={caseItem.id}
+                      className={`border rounded-lg p-4 hover:bg-muted/50 transition-colors ${isSelected ? 'bg-blue-50 border-blue-200' : ''} ${!isSelectable ? 'opacity-60' : ''}`}
                     >
-                      <TableCell>
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={(checked) => handleSelectCase(caseItem.id, checked as boolean)}
-                          disabled={!isSelectable}
-                        />
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        <div>
-                          <div className="font-semibold">{caseItem.case_number}</div>
-                          <div className="text-sm text-muted-foreground">Client ID: {caseItem.client_case_id}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="max-w-xs">
-                          <p className="font-medium truncate">{caseItem.candidate_name}</p>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {caseItem.phone_primary}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">{caseItem.client.name}</p>
-                            <p className="text-sm text-muted-foreground">{caseItem.client.email}</p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {getContractTypeBadge(caseItem.contract_type)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">{caseItem.location.city}, {caseItem.location.state}</p>
-                            <p className="text-sm text-muted-foreground">{caseItem.location.pincode}</p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {getStatusBadge(caseItem.status)}
-                      </TableCell>
-                      <TableCell>
-                        {caseItem.current_assignee ? (
-                          <div>
-                            <p className="font-medium">{caseItem.current_assignee.name}</p>
-                            <p className="text-sm text-muted-foreground capitalize">
-                              {caseItem.current_assignee.type}
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={(checked) => handleSelectCase(caseItem.id, checked as boolean)}
+                            disabled={!isSelectable}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="font-semibold text-lg">{caseItem.case_number}</h3>
+                              {getStatusBadge(caseItem.status)}
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {caseItem.client_case_id} • {getContractTypeBadge(caseItem.contract_type)}
                             </p>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">Unassigned</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className={`font-medium ${isOverdue(caseItem.due_at) ? 'text-red-600' : ''}`}>
-                              {format(new Date(caseItem.due_at), 'MMM dd, yyyy')}
-                            </p>
-                            <p className={`text-sm ${isOverdue(caseItem.due_at) ? 'text-red-500' : 'text-muted-foreground'}`}>
-                              {isOverdue(caseItem.due_at) 
-                                ? 'Overdue' 
-                                : `${getDaysUntilDue(caseItem.due_at)} days left`
-                              }
-                            </p>
+                            <h4 className="font-medium text-base mb-1">{caseItem.candidate_name}</h4>
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        {caseItem.total_payout_inr ? (
-                          <div>
-                            <p className="font-medium">₹{caseItem.total_payout_inr.toFixed(2)}</p>
-                            {caseItem.bonus_inr && caseItem.bonus_inr > 0 && (
-                              <p className="text-sm text-green-600">+₹{caseItem.bonus_inr.toFixed(2)} bonus</p>
-                            )}
-                            {caseItem.penalty_inr && caseItem.penalty_inr > 0 && (
-                              <p className="text-sm text-red-600">-₹{caseItem.penalty_inr.toFixed(2)} penalty</p>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">Not calculated</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="h-8 w-8 p-0">
@@ -848,12 +933,145 @@ export default function CaseListWithAllocation({
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Client</p>
+                            <p className="font-medium">{caseItem.client.name}</p>
+                            <p className="text-xs text-muted-foreground">{caseItem.client.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Phone</p>
+                            <p className="font-medium">{caseItem.phone_primary}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Location</p>
+                            <p className="font-medium">{caseItem.location.city}, {caseItem.location.state}</p>
+                            <p className="text-xs text-muted-foreground">{caseItem.location.pincode}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">TAT Hours</p>
+                            <p className="font-medium">{caseItem.tat_hours}h</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Additional Information */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-sm mt-4 pt-4 border-t">
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Assigned On</p>
+                            <p className="font-medium">{formatTime(caseItem.assigned_at)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {caseItem.assigned_at ? 'Assignment time' : 'Not assigned'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Submitted On</p>
+                            <p className="font-medium">{formatTime(caseItem.submitted_at || caseItem.status_updated_at)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {caseItem.submitted_at ? 'Submission time' : 'Update time'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Zap className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Time Taken</p>
+                            <p className="font-medium">
+                              {caseItem.assigned_at && (caseItem.submitted_at || caseItem.status_updated_at) 
+                                ? getTimeTaken(caseItem.assigned_at, caseItem.submitted_at || caseItem.status_updated_at)
+                                : 'N/A'
+                              }
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {caseItem.assigned_at && (caseItem.submitted_at || caseItem.status_updated_at) 
+                                ? 'Time difference'
+                                : 'Not available'
+                              }
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Due Date</p>
+                            <p className={`font-medium ${isOverdue(caseItem.due_at) ? 'text-red-600' : ''}`}>
+                              {format(new Date(caseItem.due_at), 'MMM dd, yyyy')}
+                            </p>
+                            <p className={`text-xs ${isOverdue(caseItem.due_at) ? 'text-red-500' : 'text-muted-foreground'}`}>
+                              {isOverdue(caseItem.due_at) 
+                                ? 'Overdue' 
+                                : `${getDaysUntilDue(caseItem.due_at)} days left`
+                              }
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Building className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-muted-foreground">Payout</p>
+                            {caseItem.total_payout_inr ? (
+                              <div>
+                                <p className="font-medium">₹{caseItem.total_payout_inr.toFixed(2)}</p>
+                                {caseItem.bonus_inr && caseItem.bonus_inr > 0 && (
+                                  <p className="text-xs text-green-600">+₹{caseItem.bonus_inr.toFixed(2)} bonus</p>
+                                )}
+                                {caseItem.penalty_inr && caseItem.penalty_inr > 0 && (
+                                  <p className="text-xs text-red-600">-₹{caseItem.penalty_inr.toFixed(2)} penalty</p>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-muted-foreground text-xs">Not calculated</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {caseItem.current_assignee && (
+                        <div className="mt-3 pt-3 border-t">
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm text-muted-foreground">Assigned to</p>
+                              <p className="font-medium">
+                                {caseItem.current_assignee.name}
+                                <span className="text-sm text-muted-foreground ml-2">
+                                  ({caseItem.current_assignee.type === 'gig' ? 'Gig Worker' : 'Vendor'})
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </div>
+            )}
           </div>
         )}
 

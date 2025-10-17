@@ -175,10 +175,11 @@ export class CaseService {
           }
 
           // Get allocation logs to find when case was assigned
+          // First try to get accepted allocation logs
           if (caseItem.current_assignee_id) {
             const { data: allocationLogs } = await supabase
               .from('allocation_logs')
-              .select('allocated_at, accepted_at')
+              .select('allocated_at, accepted_at, decision')
               .eq('case_id', caseItem.id)
               .eq('candidate_id', caseItem.current_assignee_id)
               .eq('decision', 'accepted')
@@ -187,6 +188,20 @@ export class CaseService {
 
             if (allocationLogs && allocationLogs.length > 0) {
               assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
+            }
+          }
+
+          // If no assignment found with current assignee, try to find any allocation logs for this case
+          if (!assignedAt) {
+            const { data: anyAllocationLogs } = await supabase
+              .from('allocation_logs')
+              .select('allocated_at, accepted_at, decision')
+              .eq('case_id', caseItem.id)
+              .order('accepted_at', { ascending: false })
+              .limit(1);
+
+            if (anyAllocationLogs && anyAllocationLogs.length > 0) {
+              assignedAt = anyAllocationLogs[0].accepted_at || anyAllocationLogs[0].allocated_at;
             }
           }
 
@@ -211,6 +226,11 @@ export class CaseService {
             if (formSubmissions && formSubmissions.length > 0) {
               submittedAt = formSubmissions[0].submitted_at;
             }
+          }
+
+          // If still no assignment found, but case has submissions, use case creation time as fallback
+          if (!assignedAt && submittedAt) {
+            assignedAt = caseItem.created_at;
           }
 
           return {
@@ -510,10 +530,11 @@ export class CaseService {
       let submittedAt = null;
 
       // Get allocation logs to find when case was assigned
+      // First try to get accepted allocation logs
       if (data.current_assignee_id) {
         const { data: allocationLogs } = await supabase
           .from('allocation_logs')
-          .select('allocated_at, accepted_at')
+          .select('allocated_at, accepted_at, decision')
           .eq('case_id', data.id)
           .eq('candidate_id', data.current_assignee_id)
           .eq('decision', 'accepted')
@@ -522,6 +543,20 @@ export class CaseService {
 
         if (allocationLogs && allocationLogs.length > 0) {
           assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
+        }
+      }
+
+      // If no assignment found with current assignee, try to find any allocation logs for this case
+      if (!assignedAt) {
+        const { data: anyAllocationLogs } = await supabase
+          .from('allocation_logs')
+          .select('allocated_at, accepted_at, decision')
+          .eq('case_id', data.id)
+          .order('accepted_at', { ascending: false })
+          .limit(1);
+
+        if (anyAllocationLogs && anyAllocationLogs.length > 0) {
+          assignedAt = anyAllocationLogs[0].accepted_at || anyAllocationLogs[0].allocated_at;
         }
       }
 
@@ -546,6 +581,11 @@ export class CaseService {
         if (formSubmissions && formSubmissions.length > 0) {
           submittedAt = formSubmissions[0].submitted_at;
         }
+      }
+
+      // If still no assignment found, but case has submissions, use case creation time as fallback
+      if (!assignedAt && submittedAt) {
+        assignedAt = data.created_at;
       }
 
       return {
