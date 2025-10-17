@@ -147,8 +147,6 @@ const VendorDashboard: React.FC = () => {
   const [selectedGigWorker, setSelectedGigWorker] = useState<string>('');
   const [reassignmentDialogOpen, setReassignmentDialogOpen] = useState(false);
   const [reassignCaseId, setReassignCaseId] = useState<string>('');
-  const [vendorAssignCaseId, setVendorAssignCaseId] = useState<string>('');
-  const [vendorAssignmentDialogOpen, setVendorAssignmentDialogOpen] = useState(false);
   
   // View case dialog state
   const [viewCaseDialogOpen, setViewCaseDialogOpen] = useState(false);
@@ -572,66 +570,6 @@ const VendorDashboard: React.FC = () => {
     setViewSubmissionDialogOpen(true);
   };
 
-  // Assign case to vendor with 30-minute timer
-  const handleAssignCaseToVendor = async (caseId: string) => {
-    if (!vendorId) {
-      toast({
-        title: 'Error',
-        description: 'Vendor ID not found',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    try {
-      // Get case details
-      const { data: caseData, error: caseError } = await supabase
-        .from('cases')
-        .select('id, locations(pincode)')
-        .eq('id', caseId)
-        .single();
-
-      if (caseError || !caseData) {
-        toast({
-          title: 'Error',
-          description: 'Case not found',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      // Assign case to vendor with 30-minute acceptance window
-      const acceptanceDeadline = new Date();
-      acceptanceDeadline.setMinutes(acceptanceDeadline.getMinutes() + 30);
-
-      const { error: updateError } = await supabase
-        .from('cases')
-        .update({
-          current_vendor_id: vendorId,
-          status: 'allocated',
-          acceptance_deadline: acceptanceDeadline.toISOString(),
-          status_updated_at: new Date().toISOString()
-        })
-        .eq('id', caseId);
-
-      if (updateError) throw updateError;
-
-      toast({
-        title: 'Success',
-        description: 'Case assigned to vendor with 30-minute acceptance window',
-      });
-      fetchAssignedCases();
-      fetchUnassignedCases(); // Refresh unassigned cases
-      fetchReworkCases(); // Refresh rework cases
-    } catch (error) {
-      console.error('Error assigning case to vendor:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to assign case to vendor',
-        variant: 'destructive',
-      });
-    }
-  };
 
   // Reassign case
   const handleReassignCase = async () => {
@@ -1725,8 +1663,8 @@ const VendorDashboard: React.FC = () => {
                           key={caseItem.id}
                           caseItem={caseItem}
                           onAssign={() => {
-                            setVendorAssignCaseId(caseItem.id);
-                            setVendorAssignmentDialogOpen(true);
+                            setSelectedCase(caseItem.id);
+                            setAssignmentDialogOpen(true);
                           }}
                           onView={() => handleViewCase(caseItem)}
                         />
@@ -1771,13 +1709,13 @@ const VendorDashboard: React.FC = () => {
                             <Button
                               size="sm"
                               onClick={() => {
-                                setVendorAssignCaseId(caseItem.id);
-                                setVendorAssignmentDialogOpen(true);
+                                setSelectedCase(caseItem.id);
+                                setAssignmentDialogOpen(true);
                               }}
                               className="bg-blue-600 hover:bg-blue-700"
                             >
                               <Briefcase className="h-4 w-4 mr-1" />
-                              Assign to Vendor
+                              Assign Case
                             </Button>
                             <Button
                               size="sm"
@@ -2164,43 +2102,6 @@ const VendorDashboard: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Vendor Assignment Dialog */}
-      <Dialog open={vendorAssignmentDialogOpen} onOpenChange={setVendorAssignmentDialogOpen}>
-        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2' : ''}>
-          <DialogHeader>
-            <DialogTitle>Assign Case to Vendor</DialogTitle>
-            <DialogDescription>
-              This will assign the case to your vendor with a 30-minute acceptance window.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              The case will be assigned to your vendor and you'll have 30 minutes to accept or reject it.
-            </p>
-          </div>
-          <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
-            <Button
-              variant="outline"
-              onClick={() => setVendorAssignmentDialogOpen(false)}
-              className={isMobile ? 'w-full' : ''}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (vendorAssignCaseId) {
-                  handleAssignCaseToVendor(vendorAssignCaseId);
-                  setVendorAssignmentDialogOpen(false);
-                  setVendorAssignCaseId('');
-                }
-              }}
-              className={`bg-blue-600 hover:bg-blue-700 ${isMobile ? 'w-full' : ''}`}
-            >
-              Assign to Vendor
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* View Case Dialog */}
       <Dialog open={viewCaseDialogOpen} onOpenChange={setViewCaseDialogOpen}>
