@@ -46,7 +46,7 @@ class NotificationService {
         .select('value')
         .eq('key', 'vapid_public_key')
         .single();
-      
+
       if (error) {
         console.error('Error fetching VAPID key:', error);
         return;
@@ -77,7 +77,7 @@ class NotificationService {
     }
 
     const permission = await Notification.requestPermission();
-    return {
+      return { 
       granted: permission === 'granted',
       denied: permission === 'denied',
       default: permission === 'default'
@@ -298,9 +298,9 @@ class NotificationService {
       };
     } catch (error) {
       console.error('Error getting notifications:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
       };
     }
   }

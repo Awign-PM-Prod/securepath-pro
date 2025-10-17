@@ -27,14 +27,24 @@ export class PayoutCalculationService {
         .select('*')
         .eq('client_id', clientId)
         .eq('contract_type', contractType)
-        .single();
+        .maybeSingle();
 
       if (contractError) {
         throw new Error(`Failed to fetch client contract: ${contractError.message}`);
       }
 
+      // If no contract found, use default values
       if (!contract) {
-        throw new Error(`No contract found for client ${clientId} and contract type ${contractType}`);
+        console.warn(`No contract found for client ${clientId} and contract type ${contractType}, using default values`);
+        // Return default payout values
+        return {
+          base_rate_inr: 500, // Default base rate
+          bonus_inr: bonusInr,
+          penalty_inr: penaltyInr,
+          total_payout_inr: 500 + bonusInr - penaltyInr,
+          tier: 'tier3', // Default tier
+          contract_id: null
+        };
       }
 
       // 2. Get the location to find pincode
@@ -111,7 +121,7 @@ export class PayoutCalculationService {
       .select('*')
       .eq('client_id', clientId)
       .eq('contract_type', contractType)
-      .single();
+      .maybeSingle();
 
     if (error) {
       throw new Error(`Failed to fetch client contract: ${error.message}`);

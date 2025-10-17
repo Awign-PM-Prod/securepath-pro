@@ -189,7 +189,7 @@ export class GigWorkerService {
         .select('id')
         .eq('contract_type_id', contractType.id)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();
 
       if (templateError && templateError.code !== 'PGRST116') {
         throw templateError;
