@@ -25,7 +25,8 @@ import {
   Phone,
   Mail,
   Navigation,
-  Download
+  Download,
+  ExternalLink
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -468,6 +469,19 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
                   <span className="text-sm text-muted-foreground">
                     Coordinates: {caseData.location.lat.toFixed(6)}, {caseData.location.lng.toFixed(6)}
                   </span>
+                </div>
+              )}
+              {caseData.location.location_url && (
+                <div className="flex items-center gap-2">
+                  <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                  <a 
+                    href={caseData.location.location_url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:text-blue-800 underline"
+                  >
+                    View Location
+                  </a>
                 </div>
               )}
             </CardContent>

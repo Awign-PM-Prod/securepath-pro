@@ -45,6 +45,7 @@ export interface CaseFormData {
   country: string;
   lat?: number;
   lng?: number;
+  location_url?: string;
   client_id: string;
   vendor_tat_start_date: Date;
   // These fields will be auto-calculated from client contract
@@ -67,6 +68,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
     country: initialData?.country || 'India',
     lat: initialData?.lat,
     lng: initialData?.lng,
+    location_url: initialData?.location_url || '',
     client_id: initialData?.client_id || '',
     vendor_tat_start_date: initialData?.vendor_tat_start_date || new Date(),
     tat_hours: initialData?.tat_hours || 24,
@@ -417,6 +419,19 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                 />
                 {errors.pincode && <p className="text-sm text-red-500">{errors.pincode}</p>}
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="location_url">Location URL (Optional)</Label>
+              <Input
+                id="location_url"
+                value={formData.location_url || ''}
+                onChange={(e) => handleInputChange('location_url', e.target.value)}
+                placeholder="Enter location URL (e.g., Google Maps link, property listing)"
+                type="url"
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional: Add a URL related to this location (Google Maps, property listing, etc.)
+              </p>
             </div>
           </div>
 

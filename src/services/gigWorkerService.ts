@@ -379,7 +379,7 @@ export class GigWorkerService {
           total_payout_inr,
           current_vendor_id,
           clients (name),
-          locations (address_line, city, state, pincode),
+          locations (address_line, city, state, pincode, location_url),
           form_submissions (id, submitted_at, created_at),
           submissions (id, submitted_at, created_at)
         `)

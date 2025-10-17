@@ -368,6 +368,7 @@ export default function CaseManagement() {
         pincode: caseData.pincode,
         lat: caseData.lat,
         lng: caseData.lng,
+        location_url: caseData.location_url,
       });
 
       if (!locationId) {

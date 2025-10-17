@@ -11,6 +11,7 @@ export interface CaseCSVRow {
   city: string;
   state: string;
   pincode: string;
+  location_url?: string;
   vendor_tat_start_date: string;
   // Optional fields for updates
   status?: string;
@@ -329,7 +330,8 @@ export class CSVService {
         state: row.state,
         pincode: row.pincode,
         pincode_tier: pincodeTier?.tier || 'tier_3',
-        country: 'India'
+        country: 'India',
+        location_url: row.location_url || null
       })
       .select()
       .single();

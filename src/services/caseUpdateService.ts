@@ -14,6 +14,7 @@ export interface UpdateCaseData {
   country: string;
   lat?: number;
   lng?: number;
+  location_url?: string;
   vendor_tat_start_date: Date;
   instructions?: string;
 }
@@ -65,7 +66,8 @@ export class CaseUpdateService {
               pincode: caseData.pincode,
               country: caseData.country,
               lat: caseData.lat,
-              lng: caseData.lng
+              lng: caseData.lng,
+              location_url: caseData.location_url
             })
             .select()
             .single();

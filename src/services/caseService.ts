@@ -26,6 +26,7 @@ export interface Case {
     pincode: string;
     lat?: number;
     lng?: number;
+    location_url?: string;
   };
   current_assignee?: {
     id: string;
@@ -189,6 +190,7 @@ export class CaseService {
               pincode: caseItem.locations.pincode,
               lat: caseItem.locations.lat,
               lng: caseItem.locations.lng,
+              location_url: caseItem.locations.location_url,
             },
             current_assignee: assigneeInfo,
             vendor_tat_start_date: caseItem.vendor_tat_start_date,
@@ -339,6 +341,7 @@ export class CaseService {
               pincode: caseItem.locations.pincode,
               lat: caseItem.locations.lat,
               lng: caseItem.locations.lng,
+              location_url: caseItem.locations.location_url,
             },
             current_assignee: assigneeInfo,
             vendor_tat_start_date: caseItem.vendor_tat_start_date,
@@ -624,6 +627,7 @@ export class CaseService {
     pincode: string;
     lat?: number;
     lng?: number;
+    location_url?: string;
   }): Promise<string | null> {
     try {
       // First, try to find existing location
@@ -659,6 +663,7 @@ export class CaseService {
           country: 'India',
           lat: locationData.lat,
           lng: locationData.lng,
+          location_url: locationData.location_url,
           pincode_tier: pincodeTier,
         })
         .select('id')

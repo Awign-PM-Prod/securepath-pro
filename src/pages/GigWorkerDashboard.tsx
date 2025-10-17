@@ -47,6 +47,7 @@ interface AllocatedCase {
     city: string;
     state: string;
     pincode: string;
+    location_url?: string;
   };
 }
 
@@ -753,7 +754,18 @@ export default function GigWorkerDashboard() {
                   {caseItem.locations?.address_line || caseItem.address}
                 </div>
                 <div className="text-xs text-gray-600 mt-1">
-                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+                  {caseItem.locations?.location_url ? (
+                    <a 
+                      href={caseItem.locations.location_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 underline font-medium"
+                    >
+                      {caseItem.locations?.city || caseItem.city}
+                    </a>
+                  ) : (
+                    <span>{caseItem.locations?.city || caseItem.city}</span>
+                  )}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
                 </div>
               </div>
             </div>
@@ -761,12 +773,21 @@ export default function GigWorkerDashboard() {
 
           {/* Payout and Time */}
           <div className="flex items-center justify-between bg-blue-50 rounded-lg p-3">
-            <div className="flex items-center gap-2">
-              <Building className="h-4 w-4 text-blue-600 flex-shrink-0" />
-              <span className="font-bold text-sm text-blue-900">
-                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
-              </span>
-            </div>
+            {!caseItem.is_direct_gig ? (
+              <div className="flex items-center gap-2">
+                <Building className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                <span className="font-bold text-sm text-blue-900">
+                  {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Building className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                <span className="font-bold text-sm text-blue-900">
+                  Contact Vendor
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
               <span className={`text-xs font-medium px-2 py-1 rounded-full ${
@@ -983,7 +1004,20 @@ export default function GigWorkerDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="text-sm">
-                                <div className="font-medium">{caseItem.locations?.city}</div>
+                                <div className="font-medium">
+                                  {caseItem.locations?.location_url ? (
+                                    <a 
+                                      href={caseItem.locations.location_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 underline"
+                                    >
+                                      {caseItem.locations?.city}
+                                    </a>
+                                  ) : (
+                                    <span>{caseItem.locations?.city}</span>
+                                  )}
+                                </div>
                                 <div className="text-muted-foreground">
                                   {caseItem.locations?.pincode}
                                 </div>
@@ -991,7 +1025,7 @@ export default function GigWorkerDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="font-medium">
-                                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                                {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1090,7 +1124,20 @@ export default function GigWorkerDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="text-sm">
-                                <div className="font-medium">{caseItem.locations?.city}</div>
+                                <div className="font-medium">
+                                  {caseItem.locations?.location_url ? (
+                                    <a 
+                                      href={caseItem.locations.location_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 underline"
+                                    >
+                                      {caseItem.locations?.city}
+                                    </a>
+                                  ) : (
+                                    <span>{caseItem.locations?.city}</span>
+                                  )}
+                                </div>
                                 <div className="text-muted-foreground">
                                   {caseItem.locations?.pincode}
                                 </div>
@@ -1098,7 +1145,7 @@ export default function GigWorkerDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="font-medium">
-                                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                                {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1191,16 +1238,27 @@ export default function GigWorkerDashboard() {
                                   {caseItem.locations?.address_line || caseItem.address}
                                 </div>
                                 <div className="text-sm text-muted-foreground">
-                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+                                  {caseItem.locations?.location_url ? (
+                                    <a 
+                                      href={caseItem.locations.location_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 underline font-medium"
+                                    >
+                                      {caseItem.locations?.city || caseItem.city}
+                                    </a>
+                                  ) : (
+                                    <span>{caseItem.locations?.city || caseItem.city}</span>
+                                  )}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell>
                               <div className="space-y-1">
                                 <div className="font-medium">
-                                  {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                                  {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
                                 </div>
-                                {!shouldHidePayout(caseItem) && (
+                                {!caseItem.is_direct_gig && !shouldHidePayout(caseItem) && (
                                   <div className="text-sm text-muted-foreground">
                                     Base: ₹{caseItem.base_rate_inr}
                                   </div>
@@ -1306,7 +1364,20 @@ export default function GigWorkerDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="text-sm">
-                                <div className="font-medium">{caseItem.locations?.city}</div>
+                                <div className="font-medium">
+                                  {caseItem.locations?.location_url ? (
+                                    <a 
+                                      href={caseItem.locations.location_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 underline"
+                                    >
+                                      {caseItem.locations?.city}
+                                    </a>
+                                  ) : (
+                                    <span>{caseItem.locations?.city}</span>
+                                  )}
+                                </div>
                                 <div className="text-muted-foreground">
                                   {caseItem.locations?.pincode}
                                 </div>
@@ -1314,7 +1385,7 @@ export default function GigWorkerDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="font-medium">
-                                {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
+                                {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1388,7 +1459,7 @@ export default function GigWorkerDashboard() {
                   <span className="font-medium">Location:</span> {selectedCase.locations?.city}
                 </div>
                 <div>
-                  <span className="font-medium">Payout:</span> {shouldHidePayout(selectedCase) ? 'Contact Vendor' : `₹${selectedCase.total_payout_inr}`}
+                  <span className="font-medium">Payout:</span> {selectedCase.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(selectedCase) ? 'Contact Vendor' : `₹${selectedCase.total_payout_inr}`)}
                 </div>
                 <div>
                   <span className="font-medium">Due Date:</span> {format(new Date(selectedCase.due_at), 'MMM dd, yyyy HH:mm')}

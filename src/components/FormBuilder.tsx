@@ -108,16 +108,15 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
     // Use local state for the field being edited to prevent re-renders
     const [localField, setLocalField] = useState<FormBuilderField>(editingField);
 
-    // Update local field when editingField changes
+    // Only update local field when editingField changes (when opening editor for different field)
     useEffect(() => {
       setLocalField(editingField);
-    }, [editingField]);
+    }, [editingField?.field_order]); // Only reset when field_order changes (different field)
 
     const updateField = (updates: Partial<FormBuilderField>) => {
       // Update local state first for immediate UI update
       setLocalField(prev => ({ ...prev, ...updates }));
-      // Then update parent state
-      setEditingField(prev => prev ? { ...prev, ...updates } : null);
+      // Don't update parent state immediately to prevent re-renders
     };
 
     const updateFieldConfig = (config: any) => {
@@ -126,11 +125,7 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
         ...prev,
         field_config: { ...prev.field_config, ...config }
       }));
-      // Then update parent state
-      setEditingField(prev => prev ? {
-        ...prev,
-        field_config: { ...prev.field_config, ...config }
-      } : null);
+      // Don't update parent state immediately to prevent re-renders
     };
 
     return (
