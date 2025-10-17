@@ -885,6 +885,25 @@ export default function GigWorkerDashboard() {
 
   return (
     <div className={`space-y-4 ${isMobile ? 'min-h-screen bg-gray-50 pb-4' : 'space-y-6'}`}>
+      {/* Desktop Header with Notifications */}
+      {!isMobile && gigWorkerId && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Gig Worker Dashboard</h1>
+            <p className="text-gray-600">Manage your assigned background verification cases</p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowNotificationTest(!showNotificationTest)}
+            className="flex items-center gap-2"
+          >
+            <Bell className="h-4 w-4" />
+            {notificationsEnabled ? 'Notifications On' : 'Setup Notifications'}
+          </Button>
+        </div>
+      )}
+
       {/* Mobile Header */}
       {isMobile && (
         <div className="bg-white shadow-sm border-b sticky top-0 z-10">
@@ -913,9 +932,9 @@ export default function GigWorkerDashboard() {
         </div>
       )}
 
-      {/* Notification Permission Card - Show on mobile or when testing */}
-      {(isMobile || window.innerWidth < 768) && gigWorkerId && (
-        <div className="mx-2 mb-4">
+      {/* Notification Permission Card - Show for all devices */}
+      {gigWorkerId && (
+        <div className={isMobile ? 'mx-2 mb-4' : 'mb-4'}>
           <NotificationPermission 
             gigWorkerId={gigWorkerId}
             onPermissionChange={setNotificationsEnabled}
@@ -949,6 +968,9 @@ export default function GigWorkerDashboard() {
           {showNotificationTest && gigWorkerId && (
             <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
               <h3 className="font-semibold text-blue-900 mb-2">🔔 Notification Setup</h3>
+              <p className="text-sm text-blue-700 mb-3">
+                Enable push notifications to receive instant alerts when cases are allocated to you.
+              </p>
               <NotificationPermission 
                 gigWorkerId={gigWorkerId}
                 onPermissionChange={setNotificationsEnabled}

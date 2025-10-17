@@ -115,7 +115,7 @@ export function NotificationPermission({ gigWorkerId, onPermissionChange }: Noti
             Notifications Not Supported
           </CardTitle>
           <CardDescription className="text-xs">
-            Push notifications are not supported on this device or browser.
+            Push notifications are not supported on this browser. Please use Chrome, Firefox, or Edge.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -215,7 +215,7 @@ export function NotificationPermission({ gigWorkerId, onPermissionChange }: Noti
           Enable Notifications
         </CardTitle>
         <CardDescription className="text-xs">
-          Get instant notifications when new cases are allocated to you.
+          Get instant notifications on this device when new cases are allocated to you.
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-0">

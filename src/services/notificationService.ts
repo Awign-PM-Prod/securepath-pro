@@ -252,6 +252,28 @@ class NotificationService {
       default: Notification.permission === 'default'
     };
   }
+
+  // Get notifications for a gig worker (for useNotifications hook)
+  async getNotifications(gigWorkerId: string, limit: number = 50): Promise<{
+    success: boolean;
+    notifications?: any[];
+    error?: string;
+  }> {
+    try {
+      // For now, return empty notifications since we don't have a notifications table
+      // This is just to prevent the error in useNotifications hook
+      return {
+        success: true,
+        notifications: []
+      };
+    } catch (error) {
+      console.error('Error getting notifications:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
 }
 
 export const notificationService = new NotificationService();
