@@ -60,6 +60,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     lat: number;
     lng: number;
     address?: string;
+    pincode: string;
     accuracy?: number;
   }>>({});
   
@@ -68,6 +69,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     lat: number;
     lng: number;
     address?: string;
+    pincode: string;
     accuracy?: number;
   }>>>({});
 
@@ -597,7 +599,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
 
   // Get current location
   const getCurrentLocation = useCallback(async () => {
-    return new Promise<{lat: number; lng: number; address?: string; accuracy?: number}>((resolve, reject) => {
+    return new Promise<{lat: number; lng: number; address?: string; pincode: string; accuracy?: number}>((resolve, reject) => {
       if (!navigator.geolocation) {
         reject(new Error('Geolocation is not supported'));
         return;
@@ -607,22 +609,25 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         async (position) => {
           const { latitude, longitude, accuracy } = position.coords;
           
-          // Try to get address from coordinates
+          // Try to get address and pincode from coordinates
           let address = '';
+          let pincode = '';
           try {
             const response = await fetch(
               `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
             );
             const data = await response.json();
             address = `${data.locality || ''} ${data.city || ''} ${data.principalSubdivision || ''}`.trim();
+            pincode = data.postcode || '';
           } catch (e) {
-            console.warn('Could not get address from coordinates:', e);
+            console.warn('Could not get address and pincode from coordinates:', e);
           }
 
           resolve({
             lat: latitude,
             lng: longitude,
             address: address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+            pincode: pincode || '',
             accuracy: accuracy
           });
         },

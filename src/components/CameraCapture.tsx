@@ -35,13 +35,14 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
     lat: number;
     lng: number;
     address?: string;
+    pincode: string;
     accuracy?: number;
   } | null>(null);
 
   // Get current location
   const getCurrentLocation = useCallback(async () => {
     console.log('getCurrentLocation called');
-    return new Promise<{lat: number; lng: number; address?: string; accuracy?: number}>((resolve, reject) => {
+    return new Promise<{lat: number; lng: number; address?: string; pincode: string; accuracy?: number}>((resolve, reject) => {
       if (!navigator.geolocation) {
         console.error('Geolocation is not supported');
         reject(new Error('Geolocation is not supported'));
@@ -55,24 +56,28 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
           const { latitude, longitude, accuracy } = position.coords;
           console.log('Coordinates:', { latitude, longitude, accuracy });
           
-          // Try to get address from coordinates
+          // Try to get address and pincode from coordinates
           let address = '';
+          let pincode = '';
           try {
-            console.log('Fetching address from coordinates...');
+            console.log('Fetching address and pincode from coordinates...');
             const response = await fetch(
               `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
             );
             const data = await response.json();
             console.log('Address response:', data);
             address = `${data.locality || ''} ${data.city || ''} ${data.principalSubdivision || ''}`.trim();
+            pincode = data.postcode || '';
+            console.log('Pincode found:', pincode);
           } catch (e) {
-            console.warn('Could not get address from coordinates:', e);
+            console.warn('Could not get address and pincode from coordinates:', e);
           }
 
           const locationData = {
             lat: latitude,
             lng: longitude,
             address: address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+            pincode: pincode || '',
             accuracy: accuracy
           };
           console.log('Resolving with location data:', locationData);

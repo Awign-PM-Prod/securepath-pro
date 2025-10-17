@@ -36,6 +36,7 @@ export const ImageOverlayDemo: React.FC = () => {
         lat: 12.9716,
         lng: 77.5946,
         address: 'Bangalore, Karnataka, India',
+        pincode: '560001',
         accuracy: 10
       };
 

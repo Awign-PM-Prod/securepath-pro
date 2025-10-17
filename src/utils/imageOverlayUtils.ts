@@ -6,6 +6,7 @@ export interface LocationData {
   lat: number;
   lng: number;
   address?: string;
+  pincode: string;
   accuracy?: number;
 }
 
@@ -51,9 +52,16 @@ export async function addImageOverlay(
         second: '2-digit'
       });
 
-      const locationString = location 
-        ? (location.address || `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`)
-        : 'Location not available';
+      // Create location strings for display
+      let addressString = 'Location not available';
+      let coordsString = '';
+      let pincodeString = '';
+      
+      if (location) {
+        coordsString = `Lat: ${location.lat.toFixed(6)}, Lng: ${location.lng.toFixed(6)}`;
+        pincodeString = location.pincode && location.pincode.trim() ? `Pincode: ${location.pincode}` : '';
+        addressString = location.address || coordsString;
+      }
 
       // Calculate overlay dimensions and position
       const padding = 16; // Increased from 10
@@ -66,16 +74,29 @@ export async function addImageOverlay(
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
       ctx.lineWidth = 3; // Increased from 2
 
-      // Calculate text dimensions
+      // Calculate text dimensions for all lines
       const timeMetrics = ctx.measureText(timeString);
-      const locationMetrics = ctx.measureText(locationString);
-      const maxWidth = Math.max(timeMetrics.width, locationMetrics.width);
+      const addressMetrics = ctx.measureText(addressString);
+      const coordsMetrics = ctx.measureText(coordsString);
+      const pincodeMetrics = ctx.measureText(pincodeString);
+      
+      // Determine number of lines and max width
+      const lines = [timeString, addressString];
+      if (coordsString && location) lines.push(coordsString);
+      if (pincodeString) lines.push(pincodeString);
+      
+      const maxWidth = Math.max(
+        timeMetrics.width, 
+        addressMetrics.width, 
+        coordsMetrics.width, 
+        pincodeMetrics.width
+      );
       
       // Position overlay in bottom-right corner
       const overlayX = img.width - maxWidth - (padding * 2);
-      const overlayY = img.height - (lineHeight * 2) - (padding * 2);
+      const overlayY = img.height - (lineHeight * lines.length) - (padding * 2);
       const overlayWidth = maxWidth + (padding * 2);
-      const overlayHeight = (lineHeight * 2) + (padding * 2);
+      const overlayHeight = (lineHeight * lines.length) + (padding * 2);
 
       // Draw background rectangle
       ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; // Increased opacity from 0.7
@@ -92,11 +113,10 @@ export async function addImageOverlay(
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
 
-      // Draw timestamp
-      ctx.fillText(timeString, overlayX + padding, overlayY + padding);
-      
-      // Draw location
-      ctx.fillText(locationString, overlayX + padding, overlayY + padding + lineHeight);
+      // Draw all lines
+      lines.forEach((line, index) => {
+        ctx.fillText(line, overlayX + padding, overlayY + padding + (lineHeight * index));
+      });
 
       // Convert canvas to blob and create new file
       canvas.toBlob((blob) => {
@@ -164,9 +184,12 @@ export function isImageFile(file: File): boolean {
 export function formatLocationForOverlay(location?: LocationData): string {
   if (!location) return 'Location not available';
   
+  const coords = `Lat: ${location.lat.toFixed(6)}, Lng: ${location.lng.toFixed(6)}`;
+  const pincode = location.pincode ? ` - Pincode: ${location.pincode}` : '';
+  
   if (location.address) {
-    return location.address;
+    return `${location.address}${pincode}`;
   }
   
-  return `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`;
+  return `${coords}${pincode}`;
 }
