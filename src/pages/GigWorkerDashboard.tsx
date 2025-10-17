@@ -198,6 +198,14 @@ export default function GigWorkerDashboard() {
            (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress' || caseItem.status === 'submitted');
   };
 
+  // Helper function to determine if payout section should be completely hidden
+  const shouldHidePayoutSection = (caseItem: AllocatedCase) => {
+    // Hide entire payout section if:
+    // 1. Direct gig worker, OR
+    // 2. Vendor-associated gig worker with allocated case
+    return caseItem.is_direct_gig || shouldHidePayout(caseItem);
+  };
+
   const loadAllocatedCases = async () => {
     if (!gigWorkerId) {
       setIsLoading(false); // Ensure loading state is cleared even without gigWorkerId
@@ -741,7 +749,6 @@ export default function GigWorkerDashboard() {
             </div>
             <div className="flex flex-col items-end gap-1.5">
               {getStatusBadge(caseItem.status, caseItem.id)}
-              {getPriorityBadge(caseItem.priority)}
             </div>
           </div>
         </CardHeader>
@@ -790,23 +797,8 @@ export default function GigWorkerDashboard() {
             </div>
           </div>
 
-          {/* Payout and Time */}
-          <div className="flex items-center justify-between bg-blue-50 rounded-lg p-3">
-            {!caseItem.is_direct_gig ? (
-              <div className="flex items-center gap-2">
-                <Building className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                <span className="font-bold text-sm text-blue-900">
-                  {shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Building className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                <span className="font-bold text-sm text-blue-900">
-                  Contact Vendor
-                </span>
-              </div>
-            )}
+          {/* Time */}
+          <div className="flex items-center justify-end bg-blue-50 rounded-lg p-3">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
               <span className={`text-xs font-medium px-2 py-1 rounded-full ${
@@ -1001,7 +993,7 @@ export default function GigWorkerDashboard() {
                           <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
-                          <TableHead>Payout</TableHead>
+                          {!shouldHidePayoutSection(pendingCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
                           <TableHead>Time Remaining</TableHead>
                           <TableHead>Actions</TableHead>
                         </TableRow>
@@ -1042,11 +1034,13 @@ export default function GigWorkerDashboard() {
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell>
-                              <div className="font-medium">
-                                {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
-                              </div>
-                            </TableCell>
+                            {!shouldHidePayoutSection(caseItem) && (
+                              <TableCell>
+                                <div className="font-medium">
+                                  ₹{caseItem.total_payout_inr}
+                                </div>
+                              </TableCell>
+                            )}
                             <TableCell>
                               <div className={`text-sm ${isExpired(caseItem.acceptance_deadline) ? 'text-red-600' : 'text-orange-600'}`}>
                                 {getTimeRemaining(caseItem.acceptance_deadline)}
@@ -1121,7 +1115,7 @@ export default function GigWorkerDashboard() {
                           <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
-                          <TableHead>Payout</TableHead>
+                          {!shouldHidePayoutSection(acceptedCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
                           <TableHead>Due Date</TableHead>
                           <TableHead>Actions</TableHead>
                         </TableRow>
@@ -1162,11 +1156,13 @@ export default function GigWorkerDashboard() {
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell>
-                              <div className="font-medium">
-                                {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
-                              </div>
-                            </TableCell>
+                            {!shouldHidePayoutSection(caseItem) && (
+                              <TableCell>
+                                <div className="font-medium">
+                                  ₹{caseItem.total_payout_inr}
+                                </div>
+                              </TableCell>
+                            )}
                             <TableCell>
                               <div className="text-sm">
                                 {format(new Date(caseItem.due_at), 'MMM dd, yyyy HH:mm')}
@@ -1225,7 +1221,7 @@ export default function GigWorkerDashboard() {
                           <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
-                          <TableHead>Payout</TableHead>
+                          {!shouldHidePayoutSection(inProgressCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
                           <TableHead>Due Date</TableHead>
                           <TableHead>Actions</TableHead>
                         </TableRow>
@@ -1272,18 +1268,18 @@ export default function GigWorkerDashboard() {
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="font-medium">
-                                  {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
-                                </div>
-                                {!caseItem.is_direct_gig && !shouldHidePayout(caseItem) && (
+                            {!shouldHidePayoutSection(caseItem) && (
+                              <TableCell>
+                                <div className="space-y-1">
+                                  <div className="font-medium">
+                                    ₹{caseItem.total_payout_inr}
+                                  </div>
                                   <div className="text-sm text-muted-foreground">
                                     Base: ₹{caseItem.base_rate_inr}
                                   </div>
-                                )}
-                              </div>
-                            </TableCell>
+                                </div>
+                              </TableCell>
+                            )}
                             <TableCell>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-1">
@@ -1360,7 +1356,7 @@ export default function GigWorkerDashboard() {
                           <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
-                          <TableHead>Payout</TableHead>
+                          {!shouldHidePayoutSection(submittedCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
                           <TableHead>Submitted At</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Actions</TableHead>
@@ -1402,11 +1398,13 @@ export default function GigWorkerDashboard() {
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell>
-                              <div className="font-medium">
-                                {caseItem.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(caseItem) ? 'Contact Vendor' : `₹${caseItem.total_payout_inr}`)}
-                              </div>
-                            </TableCell>
+                            {!shouldHidePayoutSection(caseItem) && (
+                              <TableCell>
+                                <div className="font-medium">
+                                  ₹{caseItem.total_payout_inr}
+                                </div>
+                              </TableCell>
+                            )}
                             <TableCell>
                               <div className="text-sm">
                                 {(() => {
@@ -1477,9 +1475,11 @@ export default function GigWorkerDashboard() {
                 <div>
                   <span className="font-medium">Location:</span> {selectedCase.locations?.city}
                 </div>
-                <div>
-                  <span className="font-medium">Payout:</span> {selectedCase.is_direct_gig ? 'Contact Vendor' : (shouldHidePayout(selectedCase) ? 'Contact Vendor' : `₹${selectedCase.total_payout_inr}`)}
-                </div>
+                {!shouldHidePayoutSection(selectedCase) && (
+                  <div>
+                    <span className="font-medium">Payout:</span> ₹{selectedCase.total_payout_inr}
+                  </div>
+                )}
                 <div>
                   <span className="font-medium">Due Date:</span> {format(new Date(selectedCase.due_at), 'MMM dd, yyyy HH:mm')}
                 </div>
