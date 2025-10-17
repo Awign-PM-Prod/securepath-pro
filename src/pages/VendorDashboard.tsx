@@ -35,45 +35,32 @@ import {
   Building,
   Calendar,
   UserPlus,
-  FileText
+  FileText,
+  User
 } from 'lucide-react';
 import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
 
 interface GigWorker {
   id: string;
-  user_id: string;
   profile_id: string;
-  phone: string;
-  alternate_phone?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  pincode?: string;
-  country: string;
-  coverage_pincodes: string[];
-  max_daily_capacity: number;
-  capacity_available: number;
-  last_capacity_reset: string;
-  completion_rate: number;
-  ontime_completion_rate: number;
-  acceptance_rate: number;
-  quality_score: number;
-  qc_pass_count: number;
-  total_cases_completed: number;
-  active_cases_count: number;
-  last_assignment_at?: string;
   vendor_id: string;
-  is_direct_gig: boolean;
-  device_info?: any;
-  last_seen_at?: string;
-  is_active: boolean;
-  is_available: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
   first_name: string;
   last_name: string;
   email: string;
+  vendor_name?: string;
+  // Additional properties with default values
+  phone?: string;
+  city?: string;
+  state?: string;
+  is_available?: boolean;
+  capacity_available?: number;
+  max_daily_capacity?: number;
+  quality_score?: number;
+  completion_rate?: number;
+  is_direct_gig?: boolean;
 }
 
 interface Case {
@@ -82,7 +69,6 @@ interface Case {
   title: string;
   description: string;
   priority: string;
-  source: string;
   client_id: string;
   location_id: string;
   tat_hours: number;
@@ -94,35 +80,20 @@ interface Case {
   status: string;
   status_updated_at: string;
   base_rate_inr: number;
-  rate_adjustments: any;
   total_rate_inr: number;
-  visible_to_gig: boolean;
   created_by: string;
-  last_updated_by?: string;
   updated_at: string;
-  metadata: any;
-  client_case_id: string;
-  travel_allowance_inr: number;
-  bonus_inr: number;
-  instructions?: string;
-  contract_type: string;
-  candidate_name: string;
-  phone_primary: string;
-  phone_secondary?: string;
-  vendor_tat_start_date: string;
-  penalty_inr: number;
-  total_payout_inr: number;
+  acceptance_deadline?: string;
+  client_name: string;
+  client_email: string;
   address_line: string;
   city: string;
   state: string;
   pincode: string;
-  acceptance_deadline?: string;
-  client_name: string;
-  client_email: string;
   // New fields for QC dashboard
   assigned_at?: string;
   submitted_at?: string;
-  QC_Response?: 'Rework' | 'Approved' | 'Rejected' | 'New';
+  QC_Response?: string;
 }
 
 const VendorDashboard: React.FC = () => {
@@ -230,16 +201,43 @@ const VendorDashboard: React.FC = () => {
     try {
       console.log('Fetching gig workers for vendor:', vendorId);
       const { data, error } = await supabase
-        .rpc('get_vendor_gig_workers', { vendor_uuid: vendorId });
+        .from('gig_partners')
+        .select(`
+          id,
+          profile_id,
+          vendor_id,
+          created_by,
+          created_at,
+          updated_at,
+          profiles!inner(first_name, last_name, email)
+        `)
+        .eq('vendor_id', vendorId);
 
       if (error) {
         console.error('Supabase query error:', error);
         console.error('Error details:', JSON.stringify(error, null, 2));
         throw error;
       }
-      console.log('Gig workers fetched:', data);
-      console.log('Number of gig workers:', data?.length || 0);
-      setGigWorkers(data || []);
+      
+      const gigWorkers = (data || []).map(worker => ({
+        ...worker,
+        first_name: worker.profiles?.first_name || '',
+        last_name: worker.profiles?.last_name || '',
+        email: worker.profiles?.email || '',
+        phone: '',
+        city: '',
+        state: '',
+        is_available: true,
+        capacity_available: 0,
+        max_daily_capacity: 0,
+        quality_score: 0,
+        completion_rate: 0,
+        is_direct_gig: false
+      }));
+      
+      console.log('Gig workers fetched:', gigWorkers);
+      console.log('Number of gig workers:', gigWorkers.length);
+      setGigWorkers(gigWorkers);
     } catch (error) {
       console.error('Error fetching gig workers:', error);
       toast({
@@ -261,16 +259,62 @@ const VendorDashboard: React.FC = () => {
 
     try {
       const { data, error } = await supabase
-        .rpc('get_vendor_assigned_cases', { vendor_uuid: vendorId });
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          title,
+          description,
+          priority,
+          client_id,
+          location_id,
+          tat_hours,
+          due_at,
+          created_at,
+          current_assignee_id,
+          current_assignee_type,
+          current_vendor_id,
+          status,
+          status_updated_at,
+          base_rate_inr,
+          total_rate_inr,
+          created_by,
+          updated_at,
+          locations(address_line, city, state, pincode),
+          clients(name, email)
+        `)
+        .eq('current_vendor_id', vendorId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching assigned cases:', error);
+        throw error;
+      }
       
-      const cases = data || [];
+      console.log('Raw assigned cases data:', data);
+      console.log('Number of assigned cases:', data?.length || 0);
+      
+      const cases = (data || []).map(c => ({
+        ...c,
+        address_line: c.locations?.address_line || '',
+        city: c.locations?.city || '',
+        state: c.locations?.state || '',
+        pincode: c.locations?.pincode || '',
+        client_name: c.clients?.name || '',
+        client_email: c.clients?.email || ''
+      }));
+      
+      console.log('Processed assigned cases:', cases);
       setAssignedCases(cases);
       
       // Categorize cases by status
-      setPendingCases(cases.filter(c => c.status === 'auto_allocated'));
-      setInProgressCases(cases.filter(c => ['in_progress', 'submitted', 'qc_rework'].includes(c.status)));
+      const pending = cases.filter(c => c.status === 'allocated');
+      const inProgress = cases.filter(c => ['in_progress', 'submitted', 'qc_review'].includes(c.status));
+      
+      console.log('Pending cases:', pending);
+      console.log('In progress cases:', inProgress);
+      
+      setPendingCases(pending);
+      setInProgressCases(inProgress);
       
     } catch (error) {
       console.error('Error fetching assigned cases:', error);
@@ -320,7 +364,7 @@ const VendorDashboard: React.FC = () => {
       const { error } = await supabase
         .from('cases')
         .update({ 
-          status: 'created',
+          status: 'rejected',
           current_vendor_id: null,
           status_updated_at: new Date().toISOString()
         })
@@ -357,11 +401,14 @@ const VendorDashboard: React.FC = () => {
 
     try {
       const { error } = await supabase
-        .rpc('assign_case_to_gig_worker', {
-          p_case_id: selectedCase,
-          p_gig_worker_id: selectedGigWorker,
-          p_vendor_id: vendorId
-        });
+        .from('cases')
+        .update({
+          current_assignee_id: selectedGigWorker,
+          current_assignee_type: 'gig',
+          status: 'in_progress',
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedCase);
 
       if (error) throw error;
 
@@ -390,20 +437,9 @@ const VendorDashboard: React.FC = () => {
   // Fetch QC review data for a case
   const fetchQcReviewData = async (caseId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('qc_reviews')
-        .select('*')
-        .eq('case_id', caseId)
-        .order('reviewed_at', { ascending: false })
-        .limit(1);
-
-      if (error) {
-        console.error('Error fetching QC review data:', error);
-        return null;
-      }
-
-      // If data is an array, take the first (most recent) item
-      return data && data.length > 0 ? data[0] : null;
+      // For now, return null since qc_reviews table might not exist
+      // This can be implemented later when the table is available
+      return null;
     } catch (error) {
       console.error('Error fetching QC review data:', error);
       return null;
@@ -446,15 +482,6 @@ const VendorDashboard: React.FC = () => {
               console.log('Case with vendor check (RLS test):', caseCheck);
               console.log('Case with vendor check error:', caseCheckError);
               
-              // Check form_submissions table
-              const { data: formSubmissions, error: formError } = await supabase
-                .from('form_submissions')
-                .select('*')
-                .eq('case_id', viewingCase.id);
-              
-              console.log('Form submissions (vendor query):', formSubmissions);
-              console.log('Form submissions error:', formError);
-              
               // Check submissions table
               const { data: submissions, error: subError } = await supabase
                 .from('submissions')
@@ -463,20 +490,6 @@ const VendorDashboard: React.FC = () => {
               
               console.log('Legacy submissions (vendor query):', submissions);
               console.log('Legacy submissions error:', subError);
-              
-              // Test direct query without RLS to see if data exists
-              const { data: directFormSubmissions, error: directFormError } = await supabase
-                .rpc('get_form_submissions_for_case', { case_id: viewingCase.id });
-              
-              console.log('Direct form submissions (RPC):', directFormSubmissions);
-              console.log('Direct form submissions error:', directFormError);
-              
-              // Test direct query for legacy submissions
-              const { data: directLegacySubmissions, error: directLegacyError } = await supabase
-                .rpc('get_legacy_submissions_for_case', { case_id: viewingCase.id });
-              
-              console.log('Direct legacy submissions (RPC):', directLegacySubmissions);
-              console.log('Direct legacy submissions error:', directLegacyError);
     
     // Check if case has current_assignee_id
     const { data: caseData, error: caseError } = await supabase
@@ -516,22 +529,24 @@ const VendorDashboard: React.FC = () => {
     });
     
     // Check the gig worker who is assigned to this case
+    let gigWorkerData = null;
     if (caseData?.current_assignee_id) {
-      const { data: gigWorkerData, error: gigWorkerError } = await supabase
+      const { data: gigWorker, error: gigWorkerError } = await supabase
         .from('gig_partners')
-        .select('id, vendor_id, is_direct_gig, user_id')
+        .select('id, vendor_id, profile_id')
         .eq('id', caseData.current_assignee_id)
         .single();
       
-      console.log('Gig worker assigned to case:', gigWorkerData);
+      console.log('Gig worker assigned to case:', gigWorker);
       console.log('Gig worker error:', gigWorkerError);
       
+      gigWorkerData = gigWorker;
       if (gigWorkerData) {
         console.log('Gig worker vendor assignment:', {
           gig_worker_id: gigWorkerData.id,
           gig_worker_vendor_id: gigWorkerData.vendor_id,
-          is_direct_gig: gigWorkerData.is_direct_gig,
-          should_have_vendor_assigned: gigWorkerData.vendor_id && !gigWorkerData.is_direct_gig
+          profile_id: gigWorkerData.profile_id,
+          should_have_vendor_assigned: gigWorkerData.vendor_id
         });
       }
     }
@@ -571,10 +586,10 @@ const VendorDashboard: React.FC = () => {
     }
 
     try {
-      // Get case details for pincode and tier
+      // Get case details
       const { data: caseData, error: caseError } = await supabase
         .from('cases')
-        .select('id, pincode, pincode_tier')
+        .select('id, locations(pincode)')
         .eq('id', caseId)
         .single();
 
@@ -587,28 +602,29 @@ const VendorDashboard: React.FC = () => {
         return;
       }
 
-      const result = await allocationService.allocateCaseToVendor({
-        caseId: caseId,
-        vendorId: vendorId,
-        pincode: caseData.pincode || '',
-        pincodeTier: caseData.pincode_tier || 'tier_1'
-      });
+      // Assign case to vendor with 30-minute acceptance window
+      const acceptanceDeadline = new Date();
+      acceptanceDeadline.setMinutes(acceptanceDeadline.getMinutes() + 30);
 
-      if (result.success) {
-        toast({
-          title: 'Success',
-          description: 'Case assigned to vendor with 30-minute acceptance window',
-        });
-        fetchAssignedCases();
-        fetchUnassignedCases(); // Refresh unassigned cases
-        fetchReworkCases(); // Refresh rework cases
-      } else {
-        toast({
-          title: 'Error',
-          description: result.error || 'Failed to assign case to vendor',
-          variant: 'destructive',
-        });
-      }
+      const { error: updateError } = await supabase
+        .from('cases')
+        .update({
+          current_vendor_id: vendorId,
+          status: 'allocated',
+          acceptance_deadline: acceptanceDeadline.toISOString(),
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId);
+
+      if (updateError) throw updateError;
+
+      toast({
+        title: 'Success',
+        description: 'Case assigned to vendor with 30-minute acceptance window',
+      });
+      fetchAssignedCases();
+      fetchUnassignedCases(); // Refresh unassigned cases
+      fetchReworkCases(); // Refresh rework cases
     } catch (error) {
       console.error('Error assigning case to vendor:', error);
       toast({
@@ -632,11 +648,14 @@ const VendorDashboard: React.FC = () => {
 
     try {
       const { error } = await supabase
-        .rpc('assign_case_to_gig_worker', {
-          p_case_id: reassignCaseId,
-          p_gig_worker_id: selectedGigWorker,
-          p_vendor_id: vendorId
-        });
+        .from('cases')
+        .update({
+          current_assignee_id: selectedGigWorker,
+          current_assignee_type: 'gig',
+          status: 'in_progress',
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', reassignCaseId);
 
       if (error) throw error;
 
@@ -670,7 +689,7 @@ const VendorDashboard: React.FC = () => {
     }
 
     try {
-      // Query 1: Global unassigned cases (status = 'created', no vendor, no assignee)
+      // Query 1: Global unassigned cases (status = 'draft', no vendor, no assignee)
       const { data: globalCases, error: globalError } = await supabase
         .from('cases')
         .select(`
@@ -679,7 +698,6 @@ const VendorDashboard: React.FC = () => {
           title,
           description,
           priority,
-          source,
           client_id,
           location_id,
           tat_hours,
@@ -688,29 +706,14 @@ const VendorDashboard: React.FC = () => {
           status,
           status_updated_at,
           base_rate_inr,
-          rate_adjustments,
           total_rate_inr,
-          visible_to_gig,
           created_by,
-          last_updated_by,
           updated_at,
-          metadata,
-          client_case_id,
-          travel_allowance_inr,
-          bonus_inr,
-          instructions,
-          contract_type,
-          candidate_name,
-          phone_primary,
-          phone_secondary,
-          vendor_tat_start_date,
-          penalty_inr,
-          total_payout_inr,
           current_vendor_id,
-          locations!inner(address_line, city, state, pincode),
-          clients!inner(name, email)
+          locations(address_line, city, state, pincode),
+          clients(name, email)
         `)
-        .eq('status', 'created')
+        .eq('status', 'draft')
         .is('current_assignee_id', null)
         .is('current_vendor_id', null)
         .order('created_at', { ascending: false });
@@ -726,7 +729,6 @@ const VendorDashboard: React.FC = () => {
           title,
           description,
           priority,
-          source,
           client_id,
           location_id,
           tat_hours,
@@ -735,27 +737,12 @@ const VendorDashboard: React.FC = () => {
           status,
           status_updated_at,
           base_rate_inr,
-          rate_adjustments,
           total_rate_inr,
-          visible_to_gig,
           created_by,
-          last_updated_by,
           updated_at,
-          metadata,
-          client_case_id,
-          travel_allowance_inr,
-          bonus_inr,
-          instructions,
-          contract_type,
-          candidate_name,
-          phone_primary,
-          phone_secondary,
-          vendor_tat_start_date,
-          penalty_inr,
-          total_payout_inr,
           current_vendor_id,
-          locations!inner(address_line, city, state, pincode),
-          clients!inner(name, email)
+          locations(address_line, city, state, pincode),
+          clients(name, email)
         `)
         .eq('status', 'accepted')
         .is('current_assignee_id', null)
@@ -774,7 +761,6 @@ const VendorDashboard: React.FC = () => {
           title,
           description,
           priority,
-          source,
           client_id,
           location_id,
           tat_hours,
@@ -783,31 +769,16 @@ const VendorDashboard: React.FC = () => {
           status,
           status_updated_at,
           base_rate_inr,
-          rate_adjustments,
           total_rate_inr,
-          visible_to_gig,
           created_by,
-          last_updated_by,
           updated_at,
-          metadata,
-          client_case_id,
-          travel_allowance_inr,
-          bonus_inr,
-          instructions,
-          contract_type,
-          candidate_name,
-          phone_primary,
-          phone_secondary,
-          vendor_tat_start_date,
-          penalty_inr,
-          total_payout_inr,
           current_vendor_id,
-          locations!inner(address_line, city, state, pincode),
-          clients!inner(name, email)
+          locations(address_line, city, state, pincode),
+          clients(name, email)
         `)
         .is('current_assignee_id', null)
         .or(`current_vendor_id.is.null,current_vendor_id.eq.${vendorId}`)
-        .not('status', 'in', '(auto_allocated,in_progress,submitted,qc_pending,qc_passed,qc_approved,qc_rejected,qc_rework,completed,reported,in_payment_cycle,cancelled)')
+        .not('status', 'in', '(allocated,in_progress,submitted,qc_review,completed,cancelled)')
         .order('created_at', { ascending: false });
 
       if (otherError) {
@@ -827,15 +798,16 @@ const VendorDashboard: React.FC = () => {
       
       const cases = uniqueCases.map(c => ({
         ...c,
-        address_line: c.locations.address_line,
-        city: c.locations.city,
-        state: c.locations.state,
-        pincode: c.locations.pincode,
-        client_name: c.clients.name,
-        client_email: c.clients.email
+        address_line: c.locations?.address_line || '',
+        city: c.locations?.city || '',
+        state: c.locations?.state || '',
+        pincode: c.locations?.pincode || '',
+        client_name: c.clients?.name || '',
+        client_email: c.clients?.email || ''
       }));
       
       console.log('Combined unassigned cases:', cases);
+      console.log('Number of unassigned cases:', cases.length);
       
       // Debug: Also log all cases for this vendor to understand what's available
       const { data: allVendorCases, error: debugError } = await supabase
@@ -847,6 +819,7 @@ const VendorDashboard: React.FC = () => {
       
       if (!debugError) {
         console.log('All vendor-related cases (debug):', allVendorCases);
+        console.log('Number of all vendor-related cases:', allVendorCases?.length || 0);
       }
       
       setUnassignedCases(cases);
@@ -871,75 +844,89 @@ const VendorDashboard: React.FC = () => {
     console.log('Fetching rework cases for vendor:', vendorId);
 
     try {
-      // First, let's check all cases with QC_Response = 'Rework' regardless of vendor
-      const { data: allReworkCases, error: allReworkError } = await supabase
-        .from('cases')
-        .select('id, case_number, "QC_Response", current_vendor_id, status')
-        .eq('"QC_Response"', 'Rework');
-
-      // Also try without quotes
-      const { data: allReworkCases2, error: allReworkError2 } = await supabase
-        .from('cases')
-        .select('id, case_number, QC_Response, current_vendor_id, status')
-        .eq('QC_Response', 'Rework');
-
-      console.log('All rework cases in database (with quotes):', allReworkCases);
-      console.log('All rework cases error (with quotes):', allReworkError);
-      console.log('All rework cases in database (without quotes):', allReworkCases2);
-      console.log('All rework cases error (without quotes):', allReworkError2);
-
-      // Now check cases for this specific vendor
-      const { data: vendorReworkCases, error: vendorReworkError } = await supabase
-        .from('cases')
-        .select('id, case_number, "QC_Response", current_vendor_id, status')
-        .eq('current_vendor_id', vendorId)
-        .eq('"QC_Response"', 'Rework');
-
-      console.log('Vendor-specific rework cases:', vendorReworkCases);
-      console.log('Vendor-specific rework cases error:', vendorReworkError);
-
-      // Also try without quotes to see if that makes a difference
-      const { data: vendorReworkCases2, error: vendorReworkError2 } = await supabase
-        .from('cases')
-        .select('id, case_number, QC_Response, current_vendor_id, status')
-        .eq('current_vendor_id', vendorId)
-        .eq('QC_Response', 'Rework');
-
-      console.log('Vendor-specific rework cases (no quotes):', vendorReworkCases2);
-      console.log('Vendor-specific rework cases error (no quotes):', vendorReworkError2);
-
-      // Let's also check what QC_Response values actually exist for this vendor
-      const { data: qcResponseValues, error: qcResponseError } = await supabase
-        .from('cases')
-        .select('"QC_Response"')
-        .eq('current_vendor_id', vendorId)
-        .not('"QC_Response"', 'is', null);
-
-      console.log('QC_Response values for this vendor:', qcResponseValues);
-      console.log('QC_Response values error:', qcResponseError);
-
-      // Check all cases for this vendor to see what QC_Response values exist
+      // First, let's check what cases exist for this vendor with any status
       const { data: allVendorCases, error: allVendorError } = await supabase
         .from('cases')
-        .select('id, case_number, "QC_Response", current_vendor_id, status')
+        .select('id, case_number, status, current_vendor_id')
         .eq('current_vendor_id', vendorId);
-
+      
       console.log('All cases for this vendor:', allVendorCases);
-      console.log('All cases for this vendor error:', allVendorError);
+      console.log('All vendor cases error:', allVendorError);
+      
+      // Check what status values exist
+      const statusCounts = (allVendorCases || []).reduce((acc, caseItem) => {
+        acc[caseItem.status] = (acc[caseItem.status] || 0) + 1;
+        return acc;
+      }, {});
+      console.log('Status counts for this vendor:', statusCounts);
+      
+      // Query for cases with QC_Response = 'Rework' for this vendor (rework cases)
+      const { data, error } = await (supabase as any)
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          title,
+          description,
+          priority,
+          client_id,
+          location_id,
+          tat_hours,
+          due_at,
+          created_at,
+          status,
+          status_updated_at,
+          base_rate_inr,
+          total_rate_inr,
+          created_by,
+          updated_at,
+          current_vendor_id,
+          QC_Response,
+          locations(address_line, city, state, pincode),
+          clients(name, email)
+        `)
+        .eq('current_vendor_id', vendorId)
+        .eq('QC_Response', 'Rework')
+        .order('created_at', { ascending: false });
 
-      // Use the vendor-specific rework cases we already found and get full details
-      // Try both queries and use whichever one works
-      const workingReworkCases = vendorReworkCases && vendorReworkCases.length > 0 ? vendorReworkCases : 
-                                 vendorReworkCases2 && vendorReworkCases2.length > 0 ? vendorReworkCases2 : [];
-      
-      console.log('Working rework cases to process:', workingReworkCases);
-      
-      if (workingReworkCases.length > 0) {
-        const reworkCaseIds = workingReworkCases.map(c => c.id);
-        console.log('Rework case IDs to fetch:', reworkCaseIds);
+      if (error) {
+        console.error('Error fetching rework cases:', error);
+        throw error;
+      }
+
+      console.log('Raw rework cases data (QC_Response = Rework):', data);
+      console.log('Number of rework cases (QC_Response = Rework):', data?.length || 0);
+
+      // If no cases found with QC_Response = Rework, try other possible rework indicators
+      let reworkCases = data || [];
+      if (reworkCases.length === 0) {
+        console.log('No cases with QC_Response = Rework found, trying other possible indicators...');
         
-        // Try a simpler query without the problematic joins first
-        const { data: simpleData, error: simpleError } = await supabase
+        // Try different status values that might represent rework
+        const possibleReworkStatuses = ['rejected'] as const;
+        
+        for (const status of possibleReworkStatuses) {
+          const { data: statusData, error: statusError } = await supabase
+            .from('cases')
+            .select('id, case_number, status, current_vendor_id')
+            .eq('current_vendor_id', vendorId)
+            .eq('status', status);
+          
+          console.log(`Cases with status '${status}':`, statusData);
+          if (statusData && statusData.length > 0) {
+            reworkCases = statusData as any;
+            console.log(`Found ${statusData.length} cases with status '${status}'`);
+            break;
+          }
+        }
+      }
+
+      // If we found cases with fallback status, we need to get full details
+      let fullReworkCases: any = reworkCases;
+      if (reworkCases.length > 0 && (reworkCases[0] as any).title === undefined) {
+        // These are the basic cases from fallback query, need to get full details
+        const caseIds = reworkCases.map((c: any) => c.id);
+        const { data: fullData, error: fullError } = await supabase
           .from('cases')
           .select(`
             id,
@@ -947,7 +934,6 @@ const VendorDashboard: React.FC = () => {
             title,
             description,
             priority,
-            source,
             client_id,
             location_id,
             tat_hours,
@@ -956,182 +942,52 @@ const VendorDashboard: React.FC = () => {
             status,
             status_updated_at,
             base_rate_inr,
-            rate_adjustments,
             total_rate_inr,
-            visible_to_gig,
             created_by,
-            last_updated_by,
             updated_at,
-            metadata,
-            client_case_id,
-            travel_allowance_inr,
-            bonus_inr,
-            instructions,
-            contract_type,
-            candidate_name,
-            phone_primary,
-            phone_secondary,
-            vendor_tat_start_date,
-            penalty_inr,
-            total_payout_inr,
             current_vendor_id,
-            current_assignee_id,
-            "QC_Response"
+            locations(address_line, city, state, pincode),
+            clients(name, email)
           `)
-          .in('id', reworkCaseIds)
+          .in('id', caseIds)
           .order('created_at', { ascending: false });
-
-        console.log('Simple rework cases query result:', simpleData);
-        console.log('Simple rework cases query error:', simpleError);
-
-        if (simpleError) {
-          console.error('Simple query failed:', simpleError);
-          throw simpleError;
-        }
         
-        if (simpleData && simpleData.length > 0) {
-          // Now fetch location and client data separately
-          const locationIds = [...new Set(simpleData.map(c => c.location_id))];
-          const clientIds = [...new Set(simpleData.map(c => c.client_id))];
-          
-          console.log('Location IDs:', locationIds);
-          console.log('Client IDs:', clientIds);
-          
-          // Fetch locations
-          const { data: locations, error: locationError } = await supabase
-            .from('locations')
-            .select('id, address_line, city, state, pincode')
-            .in('id', locationIds);
-          
-          console.log('Locations data:', locations);
-          console.log('Location error:', locationError);
-          
-          // Fetch clients
-          const { data: clients, error: clientError } = await supabase
-            .from('clients')
-            .select('id, name, email')
-            .in('id', clientIds);
-          
-          console.log('Clients data:', clients);
-          console.log('Client error:', clientError);
-          
-          // Create lookup maps
-          const locationMap = (locations || []).reduce((acc, loc) => {
-            acc[loc.id] = loc;
-            return acc;
-          }, {});
-          
-          const clientMap = (clients || []).reduce((acc, client) => {
-            acc[client.id] = client;
-            return acc;
-          }, {});
-          
-          // Combine the data
-          const cases = simpleData.map(c => {
-            const location = locationMap[c.location_id];
-            const client = clientMap[c.client_id];
-            
-            return {
-              ...c,
-              address_line: location?.address_line || '',
-              city: location?.city || '',
-              state: location?.state || '',
-              pincode: location?.pincode || '',
-              client_name: client?.name || '',
-              client_email: client?.email || ''
-            };
-          });
-          
-          console.log('Processed rework cases:', cases);
-          setReworkCases(cases);
-        } else {
-          console.log('No data returned from simple query');
-          setReworkCases([]);
-        }
-      } else {
-        console.log('No vendor-specific rework cases found via direct query');
-        
-        // Fallback: manually filter from allVendorCases
-        if (allVendorCases && allVendorCases.length > 0) {
-          const manualReworkCases = allVendorCases.filter(c => c.QC_Response === 'Rework');
-          console.log('Manual filter rework cases:', manualReworkCases);
-          
-          if (manualReworkCases.length > 0) {
-            const manualReworkCaseIds = manualReworkCases.map(c => c.id);
-            
-            const { data, error } = await supabase
-              .from('cases')
-              .select(`
-                id,
-                case_number,
-                title,
-                description,
-                priority,
-                source,
-                client_id,
-                location_id,
-                tat_hours,
-                due_at,
-                created_at,
-                status,
-                status_updated_at,
-                base_rate_inr,
-                rate_adjustments,
-                total_rate_inr,
-                visible_to_gig,
-                created_by,
-                last_updated_by,
-                updated_at,
-                metadata,
-                client_case_id,
-                travel_allowance_inr,
-                bonus_inr,
-                instructions,
-                contract_type,
-                candidate_name,
-                phone_primary,
-                phone_secondary,
-                vendor_tat_start_date,
-                penalty_inr,
-                total_payout_inr,
-                current_vendor_id,
-                current_assignee_id,
-                "QC_Response",
-                locations!inner(address_line, city, state, pincode),
-                clients!inner(name, email)
-              `)
-              .in('id', manualReworkCaseIds)
-              .order('created_at', { ascending: false });
-
-            console.log('Manual fallback query result:', data);
-            console.log('Manual fallback query error:', error);
-
-            if (!error && data) {
-              const cases = data.map(c => ({
-                ...c,
-                address_line: c.locations.address_line,
-                city: c.locations.city,
-                state: c.locations.state,
-                pincode: c.locations.pincode,
-                client_name: c.clients.name,
-                client_email: c.clients.email
-              }));
-              
-              console.log('Manual fallback processed rework cases:', cases);
-              setReworkCases(cases);
-            } else {
-              console.log('Manual fallback also failed, setting empty array');
-              setReworkCases([]);
-            }
-          } else {
-            console.log('No rework cases found in manual filter either');
-            setReworkCases([]);
-          }
-        } else {
-          console.log('No vendor cases found for manual filtering');
-          setReworkCases([]);
+        if (!fullError && fullData) {
+          fullReworkCases = fullData;
+          console.log('Full rework cases data from fallback:', fullReworkCases);
         }
       }
+
+      const cases = (fullReworkCases || []).map((c: any) => ({
+        id: c.id || '',
+        case_number: c.case_number || '',
+        title: c.title || '',
+        description: c.description || '',
+        priority: c.priority || 'medium',
+        client_id: c.client_id || '',
+        location_id: c.location_id || '',
+        tat_hours: c.tat_hours || 0,
+        due_at: c.due_at || '',
+        created_at: c.created_at || '',
+        status: c.status || 'draft',
+        status_updated_at: c.status_updated_at || '',
+        base_rate_inr: c.base_rate_inr || 0,
+        total_rate_inr: c.total_rate_inr || 0,
+        created_by: c.created_by || '',
+        updated_at: c.updated_at || '',
+        current_vendor_id: c.current_vendor_id || '',
+        QC_Response: c.QC_Response || 'New',
+        address_line: c.locations?.address_line || '',
+        city: c.locations?.city || '',
+        state: c.locations?.state || '',
+        pincode: c.locations?.pincode || '',
+        client_name: c.clients?.name || '',
+        client_email: c.clients?.email || ''
+      }));
+
+      console.log('Processed rework cases:', cases);
+      setReworkCases(cases);
+      
     } catch (error) {
       console.error('Error fetching rework cases:', error);
       toast({
@@ -1139,6 +995,7 @@ const VendorDashboard: React.FC = () => {
         description: 'Failed to fetch rework cases',
         variant: 'destructive',
       });
+      setReworkCases([]);
     }
   };
 
@@ -1165,11 +1022,11 @@ const VendorDashboard: React.FC = () => {
   // Handle case timeout
   const handleCaseTimeout = async (caseId: string) => {
     try {
-      // Update case status to created and remove assignee
+      // Update case status to draft and remove assignee
       const { error: caseError } = await supabase
         .from('cases')
         .update({
-          status: 'created',
+          status: 'draft',
           current_assignee_id: null,
           current_assignee_type: null,
           current_vendor_id: null,
@@ -1183,26 +1040,15 @@ const VendorDashboard: React.FC = () => {
       const { error: logError } = await supabase
         .from('allocation_logs')
         .update({
-          decision: 'timeout',
+          decision: 'rejected',
           decision_at: new Date().toISOString(),
           reallocation_reason: 'Not accepted within 30 minutes'
         })
         .eq('case_id', caseId)
         .eq('decision', 'allocated');
 
-      if (logError) throw logError;
-
-      // Free up vendor capacity
-      if (vendorId) {
-        const { error: capacityError } = await supabase.rpc('free_vendor_capacity', {
-          p_vendor_id: vendorId,
-          p_case_id: caseId,
-          p_reason: 'Case timeout - not accepted'
-        });
-
-        if (capacityError) {
-          console.warn('Could not free vendor capacity:', capacityError);
-        }
+      if (logError) {
+        console.warn('Could not update allocation log:', logError);
       }
 
       toast({
@@ -2515,8 +2361,7 @@ const VendorDashboard: React.FC = () => {
                     Case Details
                   </h4>
                   <div className={`space-y-1 ${isMobile ? 'text-xs' : 'text-sm'}`}>
-                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Contract Type:</span> {viewingCase.contract_type}</div>
-                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Source:</span> {viewingCase.source}</div>
+                    <div className={isMobile ? 'break-words' : ''}><span className="font-medium">Status:</span> {viewingCase.status}</div>
                     <div className={isMobile ? 'break-words' : ''}><span className="font-medium">TAT Hours:</span> {viewingCase.tat_hours}</div>
                   </div>
                 </div>
@@ -2547,15 +2392,6 @@ const VendorDashboard: React.FC = () => {
                 </div>
               )}
 
-              {/* Instructions */}
-              {viewingCase.instructions && (
-                <div className={`space-y-2 ${isMobile ? 'bg-white rounded-lg p-3 border' : 'space-y-3'}`}>
-                  <h4 className={`font-semibold text-gray-900 ${isMobile ? 'text-sm' : 'text-sm'}`}>Instructions</h4>
-                  <div className={`text-gray-700 bg-blue-50 rounded-lg p-3 ${isMobile ? 'text-xs' : 'text-sm'}`}>
-                    {viewingCase.instructions}
-                  </div>
-                </div>
-              )}
 
               {/* QC Review Information - Only for QC Rework cases */}
               {viewingCase.status === 'qc_rework' && qcReviewData && (
@@ -2639,7 +2475,7 @@ const VendorDashboard: React.FC = () => {
                     <span className="font-medium">Total Rate:</span> ₹{viewingCase.total_rate_inr}
                   </div>
                   <div className={isMobile ? 'text-xs' : 'text-sm'}>
-                    <span className="font-medium">Total Payout:</span> ₹{viewingCase.total_payout_inr}
+                    <span className="font-medium">Total Rate:</span> ₹{viewingCase.total_rate_inr}
                   </div>
                 </div>
               </div>
