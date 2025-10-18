@@ -1627,17 +1627,37 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         {/* Sticky Footer */}
         <div className={`flex p-6 pt-4 border-t bg-gray-50 sticky bottom-0 z-10 ${isMobile ? 'flex-col gap-3' : 'justify-end space-x-4'}`}>
-          <Button variant="outline" onClick={onCancel} disabled={loading} className={isMobile ? 'w-full' : ''}>
-            Cancel
-          </Button>
-          {onSaveDraft && (
-            <Button variant="secondary" onClick={handleSaveDraft} disabled={loading} className={isMobile ? 'w-full' : ''}>
-              {loading ? 'Saving...' : 'Save as Draft'}
-            </Button>
+          {isMobile ? (
+            // Mobile view: Submit and Save Draft first, Cancel at bottom
+            <>
+              {onSaveDraft && (
+                <Button variant="secondary" onClick={handleSaveDraft} disabled={loading} className="w-full">
+                  {loading ? 'Saving...' : 'Save as Draft'}
+                </Button>
+              )}
+              <Button onClick={handleSubmit} disabled={loading || !isFormComplete()} className="w-full">
+                {loading ? 'Submitting...' : 'Submit Form'}
+              </Button>
+              <Button variant="outline" onClick={onCancel} disabled={loading} className="w-full">
+                Cancel
+              </Button>
+            </>
+          ) : (
+            // Desktop view: Keep original order
+            <>
+              <Button variant="outline" onClick={onCancel} disabled={loading}>
+                Cancel
+              </Button>
+              {onSaveDraft && (
+                <Button variant="secondary" onClick={handleSaveDraft} disabled={loading}>
+                  {loading ? 'Saving...' : 'Save as Draft'}
+                </Button>
+              )}
+              <Button onClick={handleSubmit} disabled={loading || !isFormComplete()}>
+                {loading ? 'Submitting...' : 'Submit Form'}
+              </Button>
+            </>
           )}
-          <Button onClick={handleSubmit} disabled={loading || !isFormComplete()} className={isMobile ? 'w-full' : ''}>
-            {loading ? 'Submitting...' : 'Submit Form'}
-          </Button>
         </div>
       </CardContent>
 
