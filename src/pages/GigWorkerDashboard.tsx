@@ -536,6 +536,35 @@ export default function GigWorkerDashboard() {
       if (result.success) {
         setLastSaveTime(new Date());
         console.log('Form saved successfully');
+        
+        // Check if this case is currently in 'accepted' status and move it to 'in_progress'
+        const currentCase = allocatedCases.find(c => c.id === caseId);
+        if (currentCase && currentCase.status === 'accepted') {
+          console.log('Case is in accepted status, updating to in_progress...');
+          
+          // Update case status to in_progress
+          const { error: caseUpdateError } = await supabase
+            .from('cases')
+            .update({
+              status: 'in_progress',
+              status_updated_at: new Date().toISOString()
+            })
+            .eq('id', caseId);
+
+          if (caseUpdateError) {
+            console.error('Failed to update case status to in_progress:', caseUpdateError);
+          } else {
+            console.log('Case status updated to in_progress, refreshing case list...');
+            // Refresh the case list to reflect the tab change
+            await loadAllocatedCases();
+            
+            // Show a toast notification
+            toast({
+              title: "Case Moved to In Progress",
+              description: "Your case has been moved to the In Progress tab as you started working on it.",
+            });
+          }
+        }
       } else {
         console.warn('Save failed:', result.error);
       }
@@ -785,7 +814,7 @@ export default function GigWorkerDashboard() {
 
   const pendingCases = allocatedCases.filter(c => c.status === 'auto_allocated');
   const acceptedCases = allocatedCases.filter(c => c.status === 'accepted' && c.QC_Response !== 'Rework');
-  const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress');
+  const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress' && c.QC_Response !== 'Rework');
   const reworkCases = allocatedCases.filter(c => c.QC_Response === 'Rework');
   const submittedCases = allocatedCases
     .filter(c => c.status === 'submitted')
