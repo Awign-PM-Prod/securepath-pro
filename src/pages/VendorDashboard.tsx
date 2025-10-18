@@ -84,6 +84,7 @@ interface Case {
   created_by: string;
   updated_at: string;
   acceptance_deadline?: string;
+  metadata?: any;
   client_name: string;
   client_email: string;
   address_line: string;
@@ -396,21 +397,42 @@ const VendorDashboard: React.FC = () => {
     }
 
     try {
+      // First, get the case details to check if it's a rework case
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select('QC_Response, status')
+        .eq('id', selectedCase)
+        .single();
+
+      let isReworkCase = false;
+      if (caseError) {
+        console.warn('Could not fetch case details for rework detection:', caseError);
+        // Default to not being a rework case if we can't determine
+      } else if (caseData) {
+        // Determine if this is a rework case
+        isReworkCase = (caseData as any)?.QC_Response === 'Rework' || (caseData as any)?.status === 'qc_rework';
+      }
+      
+      // Set the appropriate status and assignee
+      const updateData: any = {
+        current_assignee_id: selectedGigWorker,
+        current_assignee_type: 'gig',
+        status: isReworkCase ? 'accepted' : 'in_progress',
+        status_updated_at: new Date().toISOString()
+      };
+
       const { error } = await supabase
         .from('cases')
-        .update({
-          current_assignee_id: selectedGigWorker,
-          current_assignee_type: 'gig',
-          status: 'in_progress',
-          status_updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', selectedCase);
 
       if (error) throw error;
 
       toast({
         title: 'Success',
-        description: 'Case assigned to gig worker successfully',
+        description: isReworkCase 
+          ? 'Rework case assigned to gig worker. Gig worker has 30 minutes to accept.'
+          : 'Case assigned to gig worker successfully',
       });
 
       setAssignmentDialogOpen(false);
@@ -696,119 +718,74 @@ const VendorDashboard: React.FC = () => {
     console.log('Fetching rework cases for vendor:', vendorId);
 
     try {
-      // First, let's check what cases exist for this vendor with any status
-      const { data: allVendorCases, error: allVendorError } = await supabase
-        .from('cases')
-        .select('id, case_number, status, current_vendor_id')
-        .eq('current_vendor_id', vendorId);
-      
-      console.log('All cases for this vendor:', allVendorCases);
-      console.log('All vendor cases error:', allVendorError);
-      
-      // Check what status values exist
-      const statusCounts = (allVendorCases || []).reduce((acc, caseItem) => {
-        acc[caseItem.status] = (acc[caseItem.status] || 0) + 1;
-        return acc;
-      }, {});
-      console.log('Status counts for this vendor:', statusCounts);
-      
       // Query for cases with QC_Response = 'Rework' for this vendor (rework cases)
       const { data, error } = await (supabase as any)
         .from('cases')
-        .select(`
-          id,
-          case_number,
-          title,
-          description,
-          priority,
-          client_id,
-          location_id,
-          tat_hours,
-          due_at,
-          created_at,
-          status,
-          status_updated_at,
-          base_rate_inr,
-          total_rate_inr,
-          created_by,
-          updated_at,
-          current_vendor_id,
-          QC_Response
-        `)
+        .select('*')
         .eq('current_vendor_id', vendorId)
         .eq('QC_Response', 'Rework')
         .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching rework cases:', error);
+        // If QC_Response column doesn't exist, try alternative approach
+        if (error.message?.includes('QC_Response')) {
+          console.log('QC_Response column not found, trying alternative query...');
+          
+          // Try to get cases that might be rework cases by status
+          const { data: altData, error: altError } = await supabase
+            .from('cases')
+            .select('*')
+            .eq('current_vendor_id', vendorId)
+            .in('status', ['qc_review', 'rejected'])
+            .order('created_at', { ascending: false });
+
+          if (altError) {
+            console.error('Alternative query also failed:', altError);
+            throw altError;
+          }
+
+          console.log('Alternative rework cases data:', altData);
+          const cases = (altData || []).map((c: any) => ({
+            id: c.id || '',
+            case_number: c.case_number || '',
+            title: c.title || '',
+            description: c.description || '',
+            priority: c.priority || 'medium',
+            client_id: c.client_id || '',
+            location_id: c.location_id || '',
+            tat_hours: c.tat_hours || 0,
+            due_at: c.due_at || '',
+            created_at: c.created_at || '',
+            status: c.status || 'draft',
+            status_updated_at: c.status_updated_at || '',
+            base_rate_inr: c.base_rate_inr || 0,
+            total_rate_inr: c.total_rate_inr || 0,
+            created_by: c.created_by || '',
+            updated_at: c.updated_at || '',
+            current_vendor_id: c.current_vendor_id || '',
+            QC_Response: 'Rework', // Assume these are rework cases
+            acceptance_deadline: c.metadata?.acceptance_deadline || '',
+            metadata: c.metadata || {},
+            address_line: '',
+            city: '',
+            state: '',
+            pincode: '',
+            client_name: '',
+            client_email: ''
+          }));
+
+          console.log('Processed alternative rework cases:', cases);
+          setReworkCases(cases);
+          return;
+        }
         throw error;
       }
 
       console.log('Raw rework cases data (QC_Response = Rework):', data);
       console.log('Number of rework cases (QC_Response = Rework):', data?.length || 0);
 
-      // If no cases found with QC_Response = Rework, try other possible rework indicators
-      let reworkCases = data || [];
-      if (reworkCases.length === 0) {
-        console.log('No cases with QC_Response = Rework found, trying other possible indicators...');
-        
-        // Try different status values that might represent rework
-        const possibleReworkStatuses = ['rejected'] as const;
-        
-        for (const status of possibleReworkStatuses) {
-          const { data: statusData, error: statusError } = await supabase
-            .from('cases')
-            .select('id, case_number, status, current_vendor_id')
-            .eq('current_vendor_id', vendorId)
-            .eq('status', status);
-          
-          console.log(`Cases with status '${status}':`, statusData);
-          if (statusData && statusData.length > 0) {
-            reworkCases = statusData as any;
-            console.log(`Found ${statusData.length} cases with status '${status}'`);
-            break;
-          }
-        }
-      }
-
-      // If we found cases with fallback status, we need to get full details
-      let fullReworkCases: any = reworkCases;
-      if (reworkCases.length > 0 && (reworkCases[0] as any).title === undefined) {
-        // These are the basic cases from fallback query, need to get full details
-        const caseIds = reworkCases.map((c: any) => c.id);
-        const { data: fullData, error: fullError } = await supabase
-          .from('cases')
-          .select(`
-            id,
-            case_number,
-            title,
-            description,
-            priority,
-            client_id,
-            location_id,
-            tat_hours,
-            due_at,
-            created_at,
-            status,
-            status_updated_at,
-            base_rate_inr,
-            total_rate_inr,
-            created_by,
-            updated_at,
-            current_vendor_id,
-            locations(address_line, city, state, pincode),
-            clients(name, email)
-          `)
-          .in('id', caseIds)
-          .order('created_at', { ascending: false });
-        
-        if (!fullError && fullData) {
-          fullReworkCases = fullData;
-          console.log('Full rework cases data from fallback:', fullReworkCases);
-        }
-      }
-
-      const cases = (fullReworkCases || []).map((c: any) => ({
+      const cases = (data || []).map((c: any) => ({
         id: c.id || '',
         case_number: c.case_number || '',
         title: c.title || '',
@@ -827,6 +804,8 @@ const VendorDashboard: React.FC = () => {
         updated_at: c.updated_at || '',
         current_vendor_id: c.current_vendor_id || '',
         QC_Response: c.QC_Response || 'New',
+        acceptance_deadline: c.metadata?.acceptance_deadline || '',
+        metadata: c.metadata || {},
         address_line: '',
         city: '',
         state: '',
@@ -866,6 +845,35 @@ const VendorDashboard: React.FC = () => {
       }
       // Reload cases
       fetchAssignedCases();
+    }
+
+    // Also check for expired rework case assignments (only unassigned ones)
+    const expiredReworkCases = reworkCases.filter(caseItem => {
+      if (caseItem.status !== 'qc_rework') return false;
+      
+      // For qc_rework cases, check if 30 minutes have passed since QC marked it for rework
+      const qcReworkTime = caseItem.metadata?.qc_rework_time || caseItem.metadata?.qc_rework_at;
+      let reworkTime;
+      
+      if (qcReworkTime) {
+        // Use the actual QC rework time
+        reworkTime = new Date(qcReworkTime);
+      } else {
+        // Fallback: use status_updated_at (when case was marked for rework)
+        reworkTime = new Date(caseItem.status_updated_at);
+      }
+      
+      const deadline = new Date(reworkTime.getTime() + (30 * 60 * 1000)); // Add 30 minutes
+      return now > deadline;
+    });
+
+    if (expiredReworkCases.length > 0) {
+      // Handle expired rework case assignments
+      for (const caseItem of expiredReworkCases) {
+        await handleReworkCaseTimeout(caseItem.id);
+      }
+      // Reload cases
+      fetchReworkCases();
     }
   };
 
@@ -908,6 +916,50 @@ const VendorDashboard: React.FC = () => {
       });
     } catch (error) {
       console.error('Error handling case timeout:', error);
+    }
+  };
+
+  // Handle rework case timeout
+  const handleReworkCaseTimeout = async (caseId: string) => {
+    try {
+      // First check if the case is still unassigned
+      const { data: caseData, error: fetchError } = await supabase
+        .from('cases')
+        .select('current_assignee_id, status')
+        .eq('id', caseId)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching case for timeout check:', fetchError);
+        return;
+      }
+
+      // Only proceed if case is still qc_rework status
+      if (caseData.status !== 'qc_rework' as any) {
+        console.log('Case status changed, skipping timeout handling');
+        return;
+      }
+
+      // Update case status back to qc_review and remove assignee
+      const { error: caseError } = await supabase
+        .from('cases')
+        .update({
+          status: 'qc_review',
+          current_assignee_id: null,
+          current_assignee_type: null,
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId);
+
+      if (caseError) throw caseError;
+
+      toast({
+        title: 'Rework Case Timeout',
+        description: 'Rework case was not accepted within 30 minutes and is available for reassignment',
+        variant: 'destructive',
+      });
+    } catch (error) {
+      console.error('Error handling rework case timeout:', error);
     }
   };
 
@@ -1007,8 +1059,75 @@ const VendorDashboard: React.FC = () => {
       return `${diffHours}h ${remainingMinutes}m`;
     };
 
-    const isExpired = caseItem.acceptance_deadline && new Date(caseItem.acceptance_deadline) < new Date();
-    const timeRemaining = getTimeRemaining(caseItem.acceptance_deadline);
+    // For rework cases, calculate timer based on when QC marked it for rework + 30 minutes
+    const getReworkTimer = (qcReworkTime: string) => {
+      const now = new Date();
+      const reworkTime = new Date(qcReworkTime);
+      const deadline = new Date(reworkTime.getTime() + (30 * 60 * 1000)); // Add 30 minutes
+      const diffMs = deadline.getTime() - now.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      
+      if (diffMinutes <= 0) return 'Expired';
+      if (diffMinutes < 60) return `${diffMinutes}m`;
+      
+      const diffHours = Math.floor(diffMinutes / 60);
+      const remainingMinutes = diffMinutes % 60;
+      return `${diffHours}h ${remainingMinutes}m`;
+    };
+
+    // For assigned cases, calculate timer based on TAT hours from assignment time
+    const getTATTimer = (assignmentTime: string, tatHours: number) => {
+      const now = new Date();
+      const assignTime = new Date(assignmentTime);
+      const deadline = new Date(assignTime.getTime() + (tatHours * 60 * 60 * 1000)); // Add TAT hours
+      const diffMs = deadline.getTime() - now.getTime();
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      
+      if (diffMs <= 0) return 'Expired';
+      if (diffHours < 24) return `${diffHours}h ${diffMinutes}m`;
+      
+      const diffDays = Math.floor(diffHours / 24);
+      const remainingHours = diffHours % 24;
+      return `${diffDays}d ${remainingHours}h`;
+    };
+
+    // Determine timer based on case type
+    let acceptanceDeadline = '';
+    let isExpired = false;
+    let timeRemaining = 'No timer';
+
+    if (caseItem.status === 'qc_rework') {
+      // For qc_rework status, show 30-minute timer from when QC set it for rework
+      const qcReworkTime = caseItem.metadata?.qc_rework_time || caseItem.metadata?.qc_rework_at;
+      
+      if (qcReworkTime) {
+        // Use the actual QC rework time
+        acceptanceDeadline = new Date(new Date(qcReworkTime).getTime() + (30 * 60 * 1000)).toISOString();
+        isExpired = new Date(acceptanceDeadline) < new Date();
+        timeRemaining = getReworkTimer(qcReworkTime);
+      } else {
+        // Fallback: assume QC rework happened when status was last updated to qc_rework
+        const fallbackTime = caseItem.status_updated_at;
+        acceptanceDeadline = new Date(new Date(fallbackTime).getTime() + (30 * 60 * 1000)).toISOString();
+        isExpired = new Date(acceptanceDeadline) < new Date();
+        timeRemaining = getReworkTimer(fallbackTime);
+      }
+    } else if (caseItem.status === 'accepted') {
+      // For accepted status, show TAT timer based on tat_hours
+      const assignmentTime = caseItem.status_updated_at; // When it was assigned
+      const tatHours = caseItem.tat_hours || 24; // Default to 24 hours if not set
+      const tatDeadline = new Date(new Date(assignmentTime).getTime() + (tatHours * 60 * 60 * 1000));
+      
+      acceptanceDeadline = tatDeadline.toISOString();
+      isExpired = new Date(acceptanceDeadline) < new Date();
+      timeRemaining = getTATTimer(assignmentTime, tatHours);
+    } else {
+      // For other cases, show "Expired" badge
+      acceptanceDeadline = '';
+      isExpired = true;
+      timeRemaining = 'Expired';
+    }
 
     return (
       <Card className="mb-3 shadow-sm border-0 bg-white">
@@ -1077,7 +1196,7 @@ const VendorDashboard: React.FC = () => {
                 Due: {new Date(caseItem.due_at).toLocaleDateString()}
               </span>
             </div>
-            {caseItem.acceptance_deadline && (
+            {acceptanceDeadline && (
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
                 <span className={`text-xs font-medium px-2 py-1 rounded-full ${
@@ -1090,6 +1209,33 @@ const VendorDashboard: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Rework Case Timer - Special display for rework cases */}
+          {caseItem.QC_Response === 'Rework' && timeRemaining !== 'No timer' && (
+            <div className="bg-red-50 rounded-lg p-3 border border-red-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                  <span className="font-bold text-sm text-red-900">
+                    Rework Assignment Timer
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-red-600 flex-shrink-0" />
+                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                    isExpired 
+                      ? 'bg-red-100 text-red-700' 
+                      : 'bg-red-100 text-red-700'
+                  }`}>
+                    {timeRemaining}
+                  </span>
+                </div>
+              </div>
+              <div className="text-xs text-red-700 mt-1">
+                Gig worker has 30 minutes to accept this rework case
+              </div>
+            </div>
+          )}
 
           {/* Additional QC Information */}
           <div className="grid grid-cols-2 gap-3 text-xs">
@@ -1462,6 +1608,10 @@ const VendorDashboard: React.FC = () => {
                                   <UserPlus className="h-4 w-4 mr-1" />
                                   Assign to Gig Worker
                                 </Button>
+                              ) : caseItem.status === 'accepted' ? (
+                                <div className="text-sm text-gray-600">
+                                  Assigned to Gig Worker
+                                </div>
                               ) : (
                                 <>
                                   <Button
@@ -1592,7 +1742,7 @@ const VendorDashboard: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <div className="flex space-x-2">
-                              {caseItem.status === 'qc_rework' && !assignedWorker ? (
+                              {caseItem.status === 'qc_rework' ? (
                                 <Button
                                   size="sm"
                                   onClick={() => {
@@ -1604,6 +1754,10 @@ const VendorDashboard: React.FC = () => {
                                   <UserPlus className="h-4 w-4 mr-1" />
                                   Assign to Gig Worker
                                 </Button>
+                              ) : caseItem.status === 'accepted' ? (
+                                <div className="text-sm text-gray-600">
+                                  Assigned to Gig Worker
+                                </div>
                               ) : (
                                 <Button
                                   size="sm"
@@ -1940,12 +2094,96 @@ const VendorDashboard: React.FC = () => {
                           <TableHead>Status</TableHead>
                           <TableHead>Assigned To</TableHead>
                           <TableHead>Due Date</TableHead>
+                          <TableHead>Timer</TableHead>
                           <TableHead>Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {reworkCases.map((caseItem) => {
                           const assignedWorker = gigWorkers.find(w => w.id === caseItem.current_assignee_id);
+                          
+                          // Calculate timer for rework cases
+                          let acceptanceDeadline = '';
+                          let timeRemaining = 'No timer';
+                          let isExpired = false;
+                          
+                          if (caseItem.status === 'qc_rework') {
+                            // For qc_rework status, show 30-minute timer from when QC set it for rework
+                            const qcReworkTime = caseItem.metadata?.qc_rework_time || caseItem.metadata?.qc_rework_at;
+                            
+                            if (qcReworkTime) {
+                              // Use the actual QC rework time
+                              acceptanceDeadline = new Date(new Date(qcReworkTime).getTime() + (30 * 60 * 1000)).toISOString();
+                              isExpired = new Date(acceptanceDeadline) < new Date();
+                              
+                              const now = new Date();
+                              const reworkTime = new Date(qcReworkTime);
+                              const deadline = new Date(reworkTime.getTime() + (30 * 60 * 1000));
+                              const diffMs = deadline.getTime() - now.getTime();
+                              const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                              
+                              if (diffMinutes <= 0) {
+                                timeRemaining = 'Expired';
+                              } else if (diffMinutes < 60) {
+                                timeRemaining = `${diffMinutes}m`;
+                              } else {
+                                const diffHours = Math.floor(diffMinutes / 60);
+                                const remainingMinutes = diffMinutes % 60;
+                                timeRemaining = `${diffHours}h ${remainingMinutes}m`;
+                              }
+                            } else {
+                              // Fallback: use status_updated_at (when case was marked for rework)
+                              acceptanceDeadline = new Date(new Date(caseItem.status_updated_at).getTime() + (30 * 60 * 1000)).toISOString();
+                              isExpired = new Date(acceptanceDeadline) < new Date();
+                              
+                              const now = new Date();
+                              const statusTime = new Date(caseItem.status_updated_at);
+                              const deadline = new Date(statusTime.getTime() + (30 * 60 * 1000));
+                              const diffMs = deadline.getTime() - now.getTime();
+                              const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                              
+                              if (diffMinutes <= 0) {
+                                timeRemaining = 'Expired';
+                              } else if (diffMinutes < 60) {
+                                timeRemaining = `${diffMinutes}m`;
+                              } else {
+                                const diffHours = Math.floor(diffMinutes / 60);
+                                const remainingMinutes = diffMinutes % 60;
+                                timeRemaining = `${diffHours}h ${remainingMinutes}m`;
+                              }
+                            }
+                          } else if (caseItem.status === 'accepted') {
+                            // For accepted status, show TAT timer based on tat_hours
+                            const assignmentTime = caseItem.status_updated_at; // When it was assigned
+                            const tatHours = caseItem.tat_hours || 24; // Default to 24 hours if not set
+                            const tatDeadline = new Date(new Date(assignmentTime).getTime() + (tatHours * 60 * 60 * 1000));
+                            
+                            acceptanceDeadline = tatDeadline.toISOString();
+                            isExpired = new Date(acceptanceDeadline) < new Date();
+                            
+                            const now = new Date();
+                            const assignTime = new Date(assignmentTime);
+                            const deadline = new Date(assignTime.getTime() + (tatHours * 60 * 60 * 1000));
+                            const diffMs = deadline.getTime() - now.getTime();
+                            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                            const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                            
+                            if (diffMs <= 0) {
+                              timeRemaining = 'Expired';
+                            } else if (diffHours < 24) {
+                              timeRemaining = `${diffHours}h ${diffMinutes}m`;
+                            } else {
+                              const diffDays = Math.floor(diffHours / 24);
+                              const remainingHours = diffHours % 24;
+                              timeRemaining = `${diffDays}d ${remainingHours}h`;
+                            }
+                          } else {
+                            // For other cases, show "Expired" badge
+                            acceptanceDeadline = '';
+                            isExpired = true;
+                            timeRemaining = 'Expired';
+                          }
+                          
                           return (
                             <TableRow key={caseItem.id}>
                               <TableCell className="font-mono">{caseItem.case_number}</TableCell>
@@ -1973,8 +2211,24 @@ const VendorDashboard: React.FC = () => {
                                 {new Date(caseItem.due_at).toLocaleDateString()}
                               </TableCell>
                               <TableCell>
+                                {timeRemaining !== 'No timer' ? (
+                                  <div className="flex items-center space-x-2">
+                                    <Clock className="h-4 w-4 text-orange-600" />
+                                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                                      isExpired 
+                                        ? 'bg-red-100 text-red-700' 
+                                        : 'bg-orange-100 text-orange-700'
+                                    }`}>
+                                      {timeRemaining}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground text-sm">No timer</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
                                 <div className="flex space-x-2">
-                                  {!assignedWorker ? (
+                                  {caseItem.status === 'qc_rework' ? (
                                     <Button
                                       size="sm"
                                       onClick={() => {
@@ -1986,6 +2240,10 @@ const VendorDashboard: React.FC = () => {
                                       <UserPlus className="h-4 w-4 mr-1" />
                                       Assign to Gig Worker
                                     </Button>
+                                  ) : caseItem.status === 'accepted' ? (
+                                    <div className="text-sm text-gray-600">
+                                      Assigned to Gig Worker
+                                    </div>
                                   ) : (
                                     <Button
                                       size="sm"
