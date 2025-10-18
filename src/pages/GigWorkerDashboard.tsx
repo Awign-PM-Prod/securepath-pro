@@ -1571,7 +1571,6 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
-                          onSubmit={() => handleSubmitResponse(caseItem)}
                           onViewSubmission={() => {
                             setSelectedSubmissionCase(caseItem);
                             setIsViewSubmissionDialogOpen(true);
@@ -1651,27 +1650,17 @@ export default function GigWorkerDashboard() {
                               {getStatusBadge(caseItem.status, caseItem.id)}
                             </TableCell>
                             <TableCell>
-                              <div className="flex space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setSelectedSubmissionCase(caseItem);
-                                    setIsViewSubmissionDialogOpen(true);
-                                  }}
-                                >
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  View Previous
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleSubmitResponse(caseItem)}
-                                  className="bg-blue-600 hover:bg-blue-700"
-                                >
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  Resubmit
-                                </Button>
-                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedSubmissionCase(caseItem);
+                                  setIsViewSubmissionDialogOpen(true);
+                                }}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                View Submission
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1955,7 +1944,7 @@ export default function GigWorkerDashboard() {
           </div>
           <DialogFooter className="flex-shrink-0">
             <div className={`flex gap-2 ${isMobile ? 'flex-col' : 'flex-row'}`}>
-              {selectedSubmissionCase?.QC_Response === 'Rework' && (
+              {selectedSubmissionCase?.QC_Response === 'Rework' && selectedSubmissionCase?.status === 'accepted' && (
                 <Button 
                   onClick={() => {
                     setIsViewSubmissionDialogOpen(false);
