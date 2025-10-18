@@ -83,6 +83,7 @@ export default function GigWorkerDashboard() {
   const [gigWorkerId, setGigWorkerId] = useState<string>('');
   const [selectedSubmissionCase, setSelectedSubmissionCase] = useState<AllocatedCase | null>(null);
   const [isViewSubmissionDialogOpen, setIsViewSubmissionDialogOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [qcReviewData, setQcReviewData] = useState<any>(null);
   const [allQcReviewData, setAllQcReviewData] = useState<Record<string, any>>({});
   const [draftData, setDraftData] = useState<any>(null);
@@ -575,6 +576,60 @@ export default function GigWorkerDashboard() {
       console.error('Error checking for draft or previous submission:', error);
       setDraftData(null);
       setIsSubmissionDialogOpen(true);
+    }
+  };
+
+  const handleStartEditing = async (caseItem: AllocatedCase) => {
+    try {
+      const { formService } = await import('@/services/formService');
+      
+      // Get the previous form submission for this case
+      const submissionResult = await formService.getFormSubmission(caseItem.id);
+      
+      if (submissionResult.success && submissionResult.submission) {
+        console.log('Loading previous submission for editing:', submissionResult.submission);
+        
+        // Transform the previous submission data to match draft format
+        let submissionData = submissionResult.submission.submission_data;
+        
+        // Handle different data formats
+        if (typeof submissionData === 'string') {
+          try {
+            submissionData = JSON.parse(submissionData);
+          } catch (e) {
+            console.error('Error parsing submission data as JSON:', e);
+            submissionData = {};
+          }
+        }
+        
+        const transformedSubmissionData = {
+          submission_data: submissionData,
+          files: submissionResult.submission.form_submission_files || []
+        };
+        
+        // Set the previous submission data as draft data for editing
+        setDraftData(transformedSubmissionData);
+        setIsEditMode(true);
+        
+        toast({
+          title: "Edit Mode Enabled",
+          description: "You can now edit your previous submission.",
+        });
+      } else {
+        console.log('No previous submission found for editing');
+        toast({
+          title: "Error",
+          description: "No previous submission found to edit.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error loading previous submission for editing:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load previous submission for editing.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -1938,28 +1993,59 @@ export default function GigWorkerDashboard() {
                   </div>
                 )}
                 
-                <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
+                {isEditMode ? (
+                  // Edit Mode - Show DynamicForm
+                  <DynamicForm
+                    contractTypeId={selectedSubmissionCase.contract_type}
+                    caseId={selectedSubmissionCase.id}
+                    gigWorkerId={gigWorkerId}
+                    onSubmit={handleDynamicFormSubmit}
+                    onSaveDraft={handleSaveDraft}
+                    onAutoSave={handleImmediateSave}
+                    onCancel={() => {
+                      setIsEditMode(false);
+                      setDraftData(null);
+                    }}
+                    loading={isSubmitting}
+                    draftData={draftData}
+                    isAutoSaving={isSaving}
+                    lastAutoSaveTime={lastSaveTime}
+                  />
+                ) : (
+                  // View Mode - Show submission details
+                  <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
+                )}
               </>
             )}
           </div>
           <DialogFooter className="flex-shrink-0">
             <div className={`flex gap-2 ${isMobile ? 'flex-col' : 'flex-row'}`}>
-              {selectedSubmissionCase?.QC_Response === 'Rework' && selectedSubmissionCase?.status === 'accepted' && (
+              {!isEditMode && selectedSubmissionCase?.QC_Response === 'Rework' && selectedSubmissionCase?.status === 'accepted' && (
                 <Button 
-                  onClick={() => {
-                    setIsViewSubmissionDialogOpen(false);
-                    // Open the editable form for rework
-                    setSelectedCase(selectedSubmissionCase);
-                    setDraftData(null);
-                    setIsSubmissionDialogOpen(true);
-                  }}
+                  onClick={() => handleStartEditing(selectedSubmissionCase)}
                   className={isMobile ? 'w-full' : ''}
                 >
                   <FileText className="h-4 w-4 mr-2" />
                   Start Editing/Resubmit
                 </Button>
               )}
-              <Button variant="outline" onClick={() => setIsViewSubmissionDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
+              {isEditMode && (
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditMode(false);
+                    setDraftData(null);
+                  }}
+                  className={isMobile ? 'w-full' : ''}
+                >
+                  Cancel Edit
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => {
+                setIsViewSubmissionDialogOpen(false);
+                setIsEditMode(false);
+                setDraftData(null);
+              }} className={isMobile ? 'w-full' : ''}>
                 Close
               </Button>
             </div>

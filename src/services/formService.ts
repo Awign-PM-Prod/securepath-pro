@@ -547,7 +547,7 @@ export class FormService {
         .from('form_submissions')
         .select(`
           *,
-          files (
+          form_submission_files (
             id,
             field_id,
             file_url,
@@ -570,8 +570,8 @@ export class FormService {
         hasSubmissionData: !!submission?.submission_data,
         submissionDataType: typeof submission?.submission_data,
         submissionDataKeys: Object.keys(submission?.submission_data || {}),
-        hasFiles: !!submission?.files,
-        filesLength: submission?.files?.length || 0
+        hasFiles: !!submission?.form_submission_files,
+        filesLength: submission?.form_submission_files?.length || 0
       });
 
       return { success: true, submission };
