@@ -560,7 +560,19 @@ export class FormService {
         .eq('case_id', caseId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.log('FormService: Error fetching form submission for case', caseId, ':', error);
+        throw error;
+      }
+
+      console.log('FormService: Found form submission for case', caseId, ':', submission);
+      console.log('FormService: Submission data structure:', {
+        hasSubmissionData: !!submission?.submission_data,
+        submissionDataType: typeof submission?.submission_data,
+        submissionDataKeys: Object.keys(submission?.submission_data || {}),
+        hasFiles: !!submission?.files,
+        filesLength: submission?.files?.length || 0
+      });
 
       return { success: true, submission };
     } catch (error) {

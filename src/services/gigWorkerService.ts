@@ -492,6 +492,7 @@ export class GigWorkerService {
           base_rate_inr,
           total_payout_inr,
           current_vendor_id,
+          "QC_Response",
           clients (id, name),
           locations (address_line, city, state, pincode, location_url),
           form_submissions (id, submitted_at, created_at),
@@ -506,6 +507,15 @@ export class GigWorkerService {
       console.log('Raw cases data from database:', cases);
       console.log('Client data for first case:', cases?.[0]?.clients);
       console.log('Client ID for first case:', cases?.[0]?.client_id);
+      
+      // Debug QC_Response field
+      cases?.forEach((caseItem, index) => {
+        console.log(`Case ${index + 1} (${caseItem.case_number}):`, {
+          id: caseItem.id,
+          QC_Response: caseItem.QC_Response,
+          status: caseItem.status
+        });
+      });
 
       // Get acceptance deadlines from allocation logs
       const caseIds = cases?.map(c => c.id) || [];

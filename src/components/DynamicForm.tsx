@@ -472,7 +472,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       });
       
       if (draftData && draftData.submission_data) {
-        console.log('Loading draft data:', draftData.submission_data);
+        console.log('DynamicForm: Loading draft data:', draftData);
+        console.log('DynamicForm: Draft data structure:', {
+          hasSubmissionData: !!draftData.submission_data,
+          submissionDataType: typeof draftData.submission_data,
+          submissionDataKeys: Object.keys(draftData.submission_data || {}),
+          hasFiles: !!draftData.files,
+          filesLength: draftData.files?.length || 0
+        });
         
         
         
@@ -490,11 +497,20 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         });
         
         // Merge draft data with current form data (only update fields that have values in draft)
+        console.log('DynamicForm: Processing submission data entries:', Object.entries(draftData.submission_data));
         Object.entries(draftData.submission_data).forEach(([key, value]) => {
           if (key === '_metadata') {
             // Handle metadata separately
             return;
           }
+          
+          console.log(`DynamicForm: Processing field ${key}:`, { 
+            key, 
+            value, 
+            valueType: typeof value,
+            initialDataKey: initialData[key],
+            hasInitialData: !!initialData[key]
+          });
           
           // Special debug for text fields
           if (textFields.includes(key)) {
@@ -546,9 +562,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         const updatedFormData = await loadDraftFilesFromDraft(draftData, initialData);
         
         // Update form data with loaded files
+        console.log('DynamicForm: Setting form data to:', updatedFormData);
         setFormData(updatedFormData);
         setDraftLoaded(true);
         setHasFormData(true);
+        console.log('DynamicForm: Form data loaded from draft:', updatedFormData);
       } else {
         // initialData is already initialized with template fields above
         // Set form data for fresh form

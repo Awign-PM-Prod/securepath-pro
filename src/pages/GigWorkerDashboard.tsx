@@ -41,6 +41,7 @@ interface AllocatedCase {
   is_direct_gig: boolean;
   vendor_id?: string;
   actual_submitted_at?: string;
+  QC_Response?: string;
   clients: {
     id: string;
     name: string;
@@ -541,22 +542,37 @@ export default function GigWorkerDashboard() {
   const handleSubmitResponse = async (caseItem: AllocatedCase) => {
     setSelectedCase(caseItem);
     
-    // Check if there's a draft for this case
     try {
       const { formService } = await import('@/services/formService');
-      const draftResult = await formService.getDraftSubmission(caseItem.id);
       
-      if (draftResult.success && draftResult.draft) {
-        // Show dialog to resume draft or start fresh
-        setPendingDraftCase(caseItem);
-        setIsDraftResumeDialogOpen(true);
+      // Check if this is a rework case (QC_Response = 'Rework')
+      if (caseItem.QC_Response === 'Rework') {
+        console.log('Rework case detected, opening view submission dialog...');
+        
+        // For rework cases, open the view submission dialog to show previous submission
+        setSelectedSubmissionCase(caseItem);
+        setIsViewSubmissionDialogOpen(true);
+        
+        toast({
+          title: "Previous Submission View",
+          description: "Viewing your previous submission for this rework case.",
+        });
       } else {
-        // No draft exists - start fresh
-        setDraftData(null);
-        setIsSubmissionDialogOpen(true);
+        // Regular case - check for draft
+        const draftResult = await formService.getDraftSubmission(caseItem.id);
+        
+        if (draftResult.success && draftResult.draft) {
+          // Show dialog to resume draft or start fresh
+          setPendingDraftCase(caseItem);
+          setIsDraftResumeDialogOpen(true);
+        } else {
+          // No draft exists - start fresh
+          setDraftData(null);
+          setIsSubmissionDialogOpen(true);
+        }
       }
     } catch (error) {
-      console.error('Error checking for draft:', error);
+      console.error('Error checking for draft or previous submission:', error);
       setDraftData(null);
       setIsSubmissionDialogOpen(true);
     }
@@ -707,8 +723,9 @@ export default function GigWorkerDashboard() {
   };
 
   const pendingCases = allocatedCases.filter(c => c.status === 'auto_allocated');
-  const acceptedCases = allocatedCases.filter(c => c.status === 'accepted');
+  const acceptedCases = allocatedCases.filter(c => c.status === 'accepted' && c.QC_Response !== 'Rework');
   const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress');
+  const reworkCases = allocatedCases.filter(c => c.QC_Response === 'Rework');
   const submittedCases = allocatedCases
     .filter(c => c.status === 'submitted')
     .sort((a, b) => {
@@ -747,6 +764,11 @@ export default function GigWorkerDashboard() {
             <div className="flex-1 min-w-0 pr-2">
               <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
                 {caseItem.case_number}
+                {caseItem.QC_Response === 'Rework' && (
+                  <Badge variant="destructive" className="ml-2 text-xs">
+                    Rework
+                  </Badge>
+                )}
               </CardTitle>
               <CardDescription className="text-sm text-blue-700 font-medium mt-1">
                 Client: {caseItem.clients?.name}
@@ -959,7 +981,7 @@ export default function GigWorkerDashboard() {
           {/* Notification Test Component - Removed duplicate, using main notification card */}
           
           <Tabs defaultValue="pending" className="w-full">
-            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-4 gap-1 h-12' : 'grid-cols-4'} ${isMobile ? 'overflow-x-auto' : ''}`}>
+            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-5 gap-1 h-12' : 'grid-cols-5'} ${isMobile ? 'overflow-x-auto' : ''}`}>
               <TabsTrigger 
                 value="pending" 
                 className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
@@ -1002,6 +1024,17 @@ export default function GigWorkerDashboard() {
                 </span>
                 <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
                   ({submittedCases.length})
+                </span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="rework" 
+                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+              >
+                <span className={isMobile ? 'text-xs font-medium' : ''}>
+                  {isMobile ? 'Rework' : 'Rework'}
+                </span>
+                <span className={isMobile ? 'text-xs font-bold text-red-600' : ''}>
+                  ({reworkCases.length})
                 </span>
               </TabsTrigger>
             </TabsList>
@@ -1052,7 +1085,14 @@ export default function GigWorkerDashboard() {
                         {pendingCases.map((caseItem) => (
                           <TableRow key={caseItem.id}>
                             <TableCell className="font-medium">
-                              {caseItem.case_number}
+                              <div className="flex items-center gap-2">
+                                {caseItem.case_number}
+                                {caseItem.QC_Response === 'Rework' && (
+                                  <Badge variant="destructive" className="text-xs">
+                                    Rework
+                                  </Badge>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>{caseItem.clients?.name}</TableCell>
                             <TableCell>
@@ -1279,7 +1319,16 @@ export default function GigWorkerDashboard() {
                       <TableBody>
                         {inProgressCases.map((caseItem) => (
                           <TableRow key={caseItem.id}>
-                            <TableCell className="font-medium">{caseItem.case_number}</TableCell>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                {caseItem.case_number}
+                                {caseItem.QC_Response === 'Rework' && (
+                                  <Badge variant="destructive" className="text-xs">
+                                    Rework
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>{caseItem.clients?.name || 'N/A'}</TableCell>
                             <TableCell>
                               <div className="space-y-1">
@@ -1416,7 +1465,14 @@ export default function GigWorkerDashboard() {
                         {submittedCases.map((caseItem) => (
                           <TableRow key={caseItem.id}>
                             <TableCell className="font-medium">
-                              {caseItem.case_number}
+                              <div className="flex items-center gap-2">
+                                {caseItem.case_number}
+                                {caseItem.QC_Response === 'Rework' && (
+                                  <Badge variant="destructive" className="text-xs">
+                                    Rework
+                                  </Badge>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>{caseItem.clients?.name}</TableCell>
                             <TableCell>
@@ -1488,6 +1544,134 @@ export default function GigWorkerDashboard() {
                                 <FileText className="h-4 w-4 mr-2" />
                                 View Submission
                               </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent value="rework" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+              {reworkCases.length === 0 ? (
+                <Alert className={isMobile ? 'mx-2' : ''}>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    No rework cases at the moment.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-3 px-1">
+                      {reworkCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onSubmit={() => handleSubmitResponse(caseItem)}
+                          onViewSubmission={() => {
+                            setSelectedSubmissionCase(caseItem);
+                            setIsViewSubmissionDialogOpen(true);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Case Number</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Candidate</TableHead>
+                          <TableHead>Location</TableHead>
+                          {!shouldHidePayoutSection(reworkCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
+                          <TableHead>Due Date</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {reworkCases.map((caseItem) => (
+                          <TableRow key={caseItem.id}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                {caseItem.case_number}
+                                <Badge variant="destructive" className="text-xs">
+                                  Rework
+                                </Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell>{caseItem.clients?.name}</TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{caseItem.candidate_name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.phone_primary}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div className="font-medium">
+                                  {caseItem.locations?.location_url ? (
+                                    <a 
+                                      href={caseItem.locations.location_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 underline"
+                                    >
+                                      {caseItem.locations?.city}
+                                    </a>
+                                  ) : (
+                                    <span>{caseItem.locations?.city}</span>
+                                  )}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  {caseItem.locations?.pincode}
+                                </div>
+                              </div>
+                            </TableCell>
+                            {!shouldHidePayoutSection(caseItem) && (
+                              <TableCell>
+                                <div className="font-medium">
+                                  ₹{caseItem.total_payout_inr}
+                                </div>
+                              </TableCell>
+                            )}
+                            <TableCell>
+                              <div className="text-sm">
+                                {format(new Date(caseItem.due_at), 'MMM dd, yyyy HH:mm')}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {getStatusBadge(caseItem.status, caseItem.id)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex space-x-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedSubmissionCase(caseItem);
+                                    setIsViewSubmissionDialogOpen(true);
+                                  }}
+                                >
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  View Previous
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSubmitResponse(caseItem)}
+                                  className="bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  Resubmit
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1688,12 +1872,19 @@ export default function GigWorkerDashboard() {
         <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[95vh] mx-2' : 'max-w-6xl max-h-[90vh]'} flex flex-col`}>
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>
-              {selectedSubmissionCase?.status === 'in_progress' ? 'Current Draft Details' : 'Form Submission Details'}
+              {selectedSubmissionCase?.QC_Response === 'Rework' 
+                ? 'Previous Submission Details (Rework Case)' 
+                : selectedSubmissionCase?.status === 'in_progress' 
+                  ? 'Current Draft Details' 
+                  : 'Form Submission Details'
+              }
             </DialogTitle>
             <DialogDescription>
-              {selectedSubmissionCase?.status === 'in_progress' 
-                ? 'View the current saved answers and files for this case.' 
-                : 'View the submitted form data and files for this case.'
+              {selectedSubmissionCase?.QC_Response === 'Rework'
+                ? 'This case was marked for rework. View your previous submission that needs to be corrected.'
+                : selectedSubmissionCase?.status === 'in_progress' 
+                  ? 'View the current saved answers and files for this case.' 
+                  : 'View the submitted form data and files for this case.'
               }
             </DialogDescription>
           </DialogHeader>
@@ -1763,9 +1954,26 @@ export default function GigWorkerDashboard() {
             )}
           </div>
           <DialogFooter className="flex-shrink-0">
-            <Button variant="outline" onClick={() => setIsViewSubmissionDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
-              Close
-            </Button>
+            <div className={`flex gap-2 ${isMobile ? 'flex-col' : 'flex-row'}`}>
+              {selectedSubmissionCase?.QC_Response === 'Rework' && (
+                <Button 
+                  onClick={() => {
+                    setIsViewSubmissionDialogOpen(false);
+                    // Open the editable form for rework
+                    setSelectedCase(selectedSubmissionCase);
+                    setDraftData(null);
+                    setIsSubmissionDialogOpen(true);
+                  }}
+                  className={isMobile ? 'w-full' : ''}
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Start Editing/Resubmit
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setIsViewSubmissionDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
+                Close
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1774,9 +1982,14 @@ export default function GigWorkerDashboard() {
       <Dialog open={isDraftResumeDialogOpen} onOpenChange={setIsDraftResumeDialogOpen}>
         <DialogContent className={isMobile ? 'max-w-[95vw] mx-2 my-2' : 'max-w-md'}>
           <DialogHeader>
-            <DialogTitle>Resume Draft or Start Fresh?</DialogTitle>
+            <DialogTitle>
+              {pendingDraftCase?.QC_Response === 'Rework' ? 'Resume Previous Submission or Start Fresh?' : 'Resume Draft or Start Fresh?'}
+            </DialogTitle>
             <DialogDescription>
-              A draft exists for this case. Would you like to continue editing your previous work or start with a fresh form?
+              {pendingDraftCase?.QC_Response === 'Rework' 
+                ? 'This case was marked for rework. Your previous submission has been loaded. Would you like to continue editing your previous work or start with a fresh form?'
+                : 'A draft exists for this case. Would you like to continue editing your previous work or start with a fresh form?'
+              }
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 py-4">
@@ -1785,14 +1998,14 @@ export default function GigWorkerDashboard() {
               className="w-full"
             >
               <FileText className="h-4 w-4 mr-2" />
-              Continue Editing Draft
+              {pendingDraftCase?.QC_Response === 'Rework' ? 'Continue Editing Previous Submission' : 'Continue Editing Draft'}
             </Button>
             <Button 
               onClick={handleStartFresh}
               variant="outline"
               className="w-full"
             >
-              Start Fresh (Delete Draft)
+              {pendingDraftCase?.QC_Response === 'Rework' ? 'Start Fresh (Ignore Previous Submission)' : 'Start Fresh (Delete Draft)'}
             </Button>
           </div>
           <DialogFooter>
