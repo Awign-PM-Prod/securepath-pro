@@ -468,12 +468,15 @@ export default function GigWorkerDashboard() {
   };
 
   const handleSaveDraft = async (formData: FormData) => {
-    if (!selectedCase || !gigWorkerId) return;
+    // Use selectedSubmissionCase.id when in edit mode, otherwise selectedCase.id
+    const caseId = isEditMode && selectedSubmissionCase ? selectedSubmissionCase.id : selectedCase?.id;
+    
+    if (!caseId || !gigWorkerId) return;
 
     setIsSubmitting(true);
     try {
       const result = await gigWorkerService.saveDraft({
-        caseId: selectedCase.id,
+        caseId: caseId,
         gigWorkerId,
         formData: formData,
       });
@@ -506,7 +509,10 @@ export default function GigWorkerDashboard() {
   };
 
   const handleImmediateSave = async (formData: FormData) => {
-    if (!selectedCase || !gigWorkerId || isSaving) return;
+    // Use selectedSubmissionCase.id when in edit mode, otherwise selectedCase.id
+    const caseId = isEditMode && selectedSubmissionCase ? selectedSubmissionCase.id : selectedCase?.id;
+    
+    if (!caseId || !gigWorkerId || isSaving) return;
 
     console.log('Auto-save triggered with formData:', formData);
     console.log('Files in formData:', Object.keys(formData).map(key => {
@@ -522,7 +528,7 @@ export default function GigWorkerDashboard() {
     setIsSaving(true);
     try {
       const result = await gigWorkerService.saveDraft({
-        caseId: selectedCase.id,
+        caseId: caseId,
         gigWorkerId,
         formData: formData,
       });
@@ -1915,17 +1921,26 @@ export default function GigWorkerDashboard() {
       <Dialog open={isViewSubmissionDialogOpen} onOpenChange={setIsViewSubmissionDialogOpen}>
         <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[95vh] mx-2' : 'max-w-6xl max-h-[90vh]'} flex flex-col`}>
           <DialogHeader className="flex-shrink-0">
-            <DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
               {selectedSubmissionCase?.QC_Response === 'Rework' 
-                ? 'Previous Submission Details (Rework Case)' 
+                ? (isEditMode ? 'Edit Previous Submission (Rework Case)' : 'Previous Submission Details (Rework Case)')
                 : selectedSubmissionCase?.status === 'in_progress' 
                   ? 'Current Draft Details' 
                   : 'Form Submission Details'
               }
+              {isEditMode && isSaving && (
+                <div className="flex items-center gap-1 text-sm text-blue-600">
+                  <div className="animate-spin h-3 w-3 border border-blue-600 border-t-transparent rounded-full"></div>
+                  <span>Auto-saving...</span>
+                </div>
+              )}
             </DialogTitle>
             <DialogDescription>
               {selectedSubmissionCase?.QC_Response === 'Rework'
-                ? 'This case was marked for rework. View your previous submission that needs to be corrected.'
+                ? (isEditMode 
+                    ? 'Edit your previous submission. Changes are automatically saved as you type.'
+                    : 'This case was marked for rework. View your previous submission that needs to be corrected.'
+                  )
                 : selectedSubmissionCase?.status === 'in_progress' 
                   ? 'View the current saved answers and files for this case.' 
                   : 'View the submitted form data and files for this case.'
