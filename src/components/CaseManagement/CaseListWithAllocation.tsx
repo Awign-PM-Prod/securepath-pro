@@ -6,11 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone } from 'lucide-react';
+import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { allocationService } from '@/services/allocationService';
@@ -124,6 +126,10 @@ export default function CaseListWithAllocation({
 }: CaseListWithAllocationProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<Date | null>(null);
+  const [clientFilter, setClientFilter] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
   const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const [isAllocationDialogOpen, setIsAllocationDialogOpen] = useState(false);
   const [allocationMode, setAllocationMode] = useState<'auto' | 'manual' | null>(null);
@@ -167,6 +173,11 @@ export default function CaseListWithAllocation({
     setQcStats(stats);
   }, [cases]);
 
+  // Reset to page 1 when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, dateFilter, clientFilter, qcResponseTab]);
+
   const filteredCases = cases.filter(caseItem => {
     const matchesSearch = 
       caseItem.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -180,8 +191,25 @@ export default function CaseListWithAllocation({
     // Filter by QC_Response tab
     const matchesQcResponse = qcResponseTab === 'all' || caseItem.QC_Response === qcResponseTab;
     
-    return matchesSearch && matchesStatus && matchesQcResponse;
-  });
+    // Filter by date
+    const matchesDate = (() => {
+      if (!dateFilter) return true;
+      
+      const caseDate = new Date(caseItem.created_at);
+      const selectedDate = new Date(dateFilter);
+      
+      // Compare only the date part (year, month, day) ignoring time
+      const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
+      const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      
+      return caseDateOnly.getTime() === selectedDateOnly.getTime();
+    })();
+    
+    // Filter by client
+    const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
+    
+    return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesClient;
+  }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   // Filter cases that can be allocated (created status, no assignee)
   const allocatableCases = filteredCases.filter(caseItem => 
@@ -194,8 +222,14 @@ export default function CaseListWithAllocation({
     caseItem.current_assignee
   );
 
-  // Show all cases for selection, but highlight different types
-  const displayCases = filteredCases;
+  // Pagination logic
+  const totalPages = Math.ceil(filteredCases.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedCases = filteredCases.slice(startIndex, endIndex);
+
+  // Show paginated cases for selection, but highlight different types
+  const displayCases = paginatedCases;
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -672,7 +706,7 @@ export default function CaseListWithAllocation({
 
             {/* Search and Filter Controls */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <div className="flex-1">
+          <div className="flex-1 max-w-md">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
@@ -683,7 +717,7 @@ export default function CaseListWithAllocation({
               />
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40">
                 <Filter className="h-4 w-4 mr-2" />
@@ -696,6 +730,62 @@ export default function CaseListWithAllocation({
                     {label}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            
+            <div className="flex gap-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-40 justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="h-4 w-4 mr-2" />
+                    {dateFilter ? format(dateFilter, "PPP") : "Select date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateFilter || undefined}
+                    onSelect={(date) => setDateFilter(date || null)}
+                    disabled={(date) => {
+                      const today = new Date();
+                      const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                      const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                      return dateOnly > todayDateOnly;
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {dateFilter && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setDateFilter(null)}
+                  className="w-10 h-10"
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger className="w-48">
+                <Building className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clients</SelectItem>
+                {Array.from(new Set(cases.map(c => c.client.id))).map(clientId => {
+                  const client = cases.find(c => c.client.id === clientId)?.client;
+                  return (
+                    <SelectItem key={clientId} value={clientId}>
+                      {client?.name || 'Unknown Client'}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
@@ -1072,6 +1162,63 @@ export default function CaseListWithAllocation({
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {filteredCases.length > itemsPerPage && (
+          <div className="flex items-center justify-between mt-6">
+            <div className="text-sm text-muted-foreground">
+              Showing {startIndex + 1} to {Math.min(endIndex, filteredCases.length)} of {filteredCases.length} cases
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCurrentPage(pageNum)}
+                      className="w-8 h-8 p-0"
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         )}
 

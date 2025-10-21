@@ -121,7 +121,7 @@ export class CaseService {
             lng
           )
         `)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
@@ -348,7 +348,7 @@ export class CaseService {
           )
         `)
         .eq('status', status)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
