@@ -145,6 +145,7 @@ export default function CaseListWithAllocation({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<Date | null>(null);
+  const [tatExpiryFilter, setTatExpiryFilter] = useState<Date | null>(null);
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
@@ -192,9 +193,9 @@ export default function CaseListWithAllocation({
   }, [cases]);
 
   // Reset to page 1 when filters change
-  React.useEffect(() => {
+  React.  useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, dateFilter, clientFilter, qcResponseTab]);
+  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab]);
 
   const filteredCases = cases.filter(caseItem => {
     const matchesSearch = 
@@ -209,7 +210,7 @@ export default function CaseListWithAllocation({
     // Filter by QC_Response tab
     const matchesQcResponse = qcResponseTab === 'all' || caseItem.QC_Response === qcResponseTab;
     
-    // Filter by date
+    // Filter by creation date
     const matchesDate = (() => {
       if (!dateFilter) return true;
       
@@ -223,10 +224,24 @@ export default function CaseListWithAllocation({
       return caseDateOnly.getTime() === selectedDateOnly.getTime();
     })();
     
+    // Filter by TAT expiry date
+    const matchesTatExpiry = (() => {
+      if (!tatExpiryFilter) return true;
+      
+      const caseDueDate = new Date(caseItem.due_at);
+      const selectedDate = new Date(tatExpiryFilter);
+      
+      // Compare only the date part (year, month, day) ignoring time
+      const caseDueDateOnly = new Date(caseDueDate.getFullYear(), caseDueDate.getMonth(), caseDueDate.getDate());
+      const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      
+      return caseDueDateOnly.getTime() === selectedDateOnly.getTime();
+    })();
+    
     // Filter by client
     const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
     
-    return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesClient;
+    return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesTatExpiry && matchesClient;
   }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   // Filter cases that can be allocated (created status, no assignee)
@@ -756,10 +771,10 @@ export default function CaseListWithAllocation({
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className="w-40 justify-start text-left font-normal"
+                    className="w-48 justify-start text-left font-normal"
                   >
                     <CalendarIcon className="h-4 w-4 mr-2" />
-                    {dateFilter ? format(dateFilter, "PPP") : "Select date"}
+                    {dateFilter ? format(dateFilter, "PPP") : "Case Creation Date"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -782,6 +797,38 @@ export default function CaseListWithAllocation({
                   variant="outline"
                   size="icon"
                   onClick={() => setDateFilter(null)}
+                  className="w-10 h-10"
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            
+            <div className="flex gap-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-48 justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="h-4 w-4 mr-2" />
+                    {tatExpiryFilter ? format(tatExpiryFilter, "PPP") : "TAT Expiry Date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={tatExpiryFilter || undefined}
+                    onSelect={(date) => setTatExpiryFilter(date || null)}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {tatExpiryFilter && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setTatExpiryFilter(null)}
                   className="w-10 h-10"
                 >
                   <XCircle className="h-4 w-4" />
