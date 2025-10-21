@@ -437,7 +437,7 @@ export class AllocationService {
           current_assignee_id: request.vendorId,
           current_assignee_type: 'vendor',
           current_vendor_id: request.vendorId,
-          status: 'auto_allocated',
+          status: 'allocated',
           status_updated_at: new Date().toISOString(),
           last_updated_by: (await supabase.auth.getUser()).data.user?.id,
           updated_at: new Date().toISOString()

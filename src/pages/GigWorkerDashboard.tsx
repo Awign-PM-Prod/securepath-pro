@@ -202,7 +202,7 @@ export default function GigWorkerDashboard() {
     return gigWorkerVendorInfo && 
            !gigWorkerVendorInfo.isDirectGig && 
            gigWorkerVendorInfo.vendorId && 
-           (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress' || caseItem.status === 'submitted');
+           (caseItem.status === 'allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress' || caseItem.status === 'submitted');
   };
 
   // Helper function to determine if payout section should be completely hidden
@@ -812,7 +812,7 @@ export default function GigWorkerDashboard() {
     return new Date() > new Date(deadline);
   };
 
-  const pendingCases = allocatedCases.filter(c => c.status === 'auto_allocated');
+  const pendingCases = allocatedCases.filter(c => c.status === 'allocated');
   const acceptedCases = allocatedCases.filter(c => c.status === 'accepted' && c.QC_Response !== 'Rework');
   const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress' && c.QC_Response !== 'Rework');
   const reworkCases = allocatedCases.filter(c => c.QC_Response === 'Rework');

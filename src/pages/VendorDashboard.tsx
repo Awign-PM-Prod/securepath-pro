@@ -253,11 +253,13 @@ const VendorDashboard: React.FC = () => {
       setAssignedCases([]);
       setPendingCases([]);
       setInProgressCases([]);
+      setUnassignedCases([]);
       return;
     }
 
     try {
-      const { data, error } = await supabase
+      // Fetch cases auto_allocated to this vendor
+      const { data: allocatedData, error: allocatedError } = await supabase
         .from('cases')
         .select(`
           id,
@@ -280,17 +282,54 @@ const VendorDashboard: React.FC = () => {
           created_by,
           updated_at
         `)
-        .eq('current_vendor_id', vendorId);
+        .eq('current_vendor_id', vendorId)
+        .eq('status', 'auto_allocated');
 
-      if (error) {
-        console.error('Error fetching assigned cases:', error);
-        throw error;
+      if (allocatedError) {
+        console.error('Error fetching allocated cases:', allocatedError);
+        throw allocatedError;
+      }
+
+      // Fetch accepted cases for unassigned section
+      const { data: acceptedData, error: acceptedError } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          title,
+          description,
+          priority,
+          client_id,
+          location_id,
+          tat_hours,
+          due_at,
+          created_at,
+          current_assignee_id,
+          current_assignee_type,
+          current_vendor_id,
+          status,
+          status_updated_at,
+          base_rate_inr,
+          total_rate_inr,
+          created_by,
+          updated_at
+        `)
+        .eq('current_vendor_id', vendorId)
+        .eq('status', 'accepted');
+
+      if (acceptedError) {
+        console.error('Error fetching accepted cases:', acceptedError);
+        throw acceptedError;
       }
       
-      console.log('Raw assigned cases data:', data);
-      console.log('Number of assigned cases:', data?.length || 0);
+      // Combine both datasets
+      const allCases = [...(allocatedData || []), ...(acceptedData || [])];
       
-      const cases = (data || []).map(c => ({
+      console.log('Raw allocated cases data:', allocatedData);
+      console.log('Raw accepted cases data:', acceptedData);
+      console.log('Total cases:', allCases.length);
+      
+      const cases = allCases.map(c => ({
         ...c,
         address_line: '',
         city: '',
@@ -300,24 +339,66 @@ const VendorDashboard: React.FC = () => {
         client_email: ''
       }));
       
-      console.log('Processed assigned cases:', cases);
+      console.log('Processed all cases:', cases);
       setAssignedCases(cases);
       
       // Categorize cases by status
-      const pending = cases.filter(c => c.status === 'allocated');
-      const inProgress = cases.filter(c => ['in_progress', 'submitted', 'qc_review'].includes(c.status));
+      // Pending shows only 'auto_allocated' cases for this vendor
+      const pending = cases.filter(c => c.status === 'auto_allocated' && c.current_vendor_id === vendorId);
+      const inProgress = cases.filter(c => ['in_progress', 'submitted', 'qc_passed', 'qc_rejected', 'qc_rework'].includes(c.status));
+      const unassigned = cases.filter(c => c.status === 'accepted' && c.current_vendor_id === vendorId);
       
-      console.log('Pending cases:', pending);
+      console.log('Pending cases (auto_allocated to vendor):', pending);
       console.log('In progress cases:', inProgress);
+      console.log('Unassigned cases (accepted):', unassigned);
       
       setPendingCases(pending);
       setInProgressCases(inProgress);
+      setUnassignedCases(unassigned);
       
     } catch (error) {
-      console.error('Error fetching assigned cases:', error);
+      console.error('Error fetching cases:', error);
       toast({
         title: 'Error',
-        description: 'Failed to fetch assigned cases',
+        description: 'Failed to fetch cases',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Pick up case (for new cases)
+  const handlePickUpCase = async (caseId: string) => {
+    try {
+      const { error } = await supabase
+        .from('cases')
+        .update({
+          current_vendor_id: vendorId,
+          current_assignee_id: vendorId,
+          current_assignee_type: 'vendor',
+          status: 'allocated',
+          status_updated_at: new Date().toISOString(),
+          last_updated_by: user?.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId);
+
+      if (error) {
+        console.error('Error picking up case:', error);
+        throw error;
+      }
+
+      toast({
+        title: 'Success',
+        description: 'Case picked up successfully',
+      });
+
+      // Refresh the cases
+      fetchAssignedCases();
+    } catch (error) {
+      console.error('Error picking up case:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to pick up case',
         variant: 'destructive',
       });
     }
@@ -737,7 +818,7 @@ const VendorDashboard: React.FC = () => {
             .from('cases')
             .select('*')
             .eq('current_vendor_id', vendorId)
-            .in('status', ['qc_review', 'rejected'])
+            .in('status', ['qc_passed', 'qc_rejected', 'qc_rework'])
             .order('created_at', { ascending: false });
 
           if (altError) {
@@ -884,7 +965,7 @@ const VendorDashboard: React.FC = () => {
       const { error: caseError } = await supabase
         .from('cases')
         .update({
-          status: 'draft',
+          status: 'new',
           current_assignee_id: null,
           current_assignee_type: null,
           current_vendor_id: null,
@@ -944,7 +1025,7 @@ const VendorDashboard: React.FC = () => {
       const { error: caseError } = await supabase
         .from('cases')
         .update({
-          status: 'qc_review',
+          status: 'qc_passed',
           current_assignee_id: null,
           current_assignee_type: null,
           status_updated_at: new Date().toISOString()
@@ -1097,7 +1178,15 @@ const VendorDashboard: React.FC = () => {
     let isExpired = false;
     let timeRemaining = 'No timer';
 
-    if (caseItem.status === 'qc_rework') {
+    if (caseItem.status === 'auto_allocated') {
+      // For auto_allocated status, show 30-minute timer from status_updated_at
+      const allocationTime = caseItem.status_updated_at;
+      if (allocationTime) {
+        acceptanceDeadline = new Date(new Date(allocationTime).getTime() + (30 * 60 * 1000)).toISOString();
+        isExpired = new Date(acceptanceDeadline) < new Date();
+        timeRemaining = getReworkTimer(allocationTime);
+      }
+    } else if (caseItem.status === 'qc_rework') {
       // For qc_rework status, show 30-minute timer from when QC set it for rework
       const qcReworkTime = caseItem.metadata?.qc_rework_time || caseItem.metadata?.qc_rework_at;
       
@@ -1251,23 +1340,7 @@ const VendorDashboard: React.FC = () => {
               <User className="h-3 w-3 text-muted-foreground flex-shrink-0" />
               <div>
                 <p className="text-muted-foreground">Assigned</p>
-                <p className="font-medium">{caseItem.assigned_at ? formatDate(caseItem.assigned_at) : 'N/A'}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Briefcase className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-              <div>
-                <p className="text-muted-foreground">Submitted</p>
-                <p className="font-medium">{caseItem.submitted_at ? formatDate(caseItem.submitted_at) : 'N/A'}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Clock className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-              <div>
-                <p className="text-muted-foreground">Time Taken</p>
-                <p className="font-medium">{getTimeTaken(caseItem.assigned_at, caseItem.submitted_at)}</p>
+                <p className="font-medium">{caseItem.status_updated_at ? formatDate(caseItem.status_updated_at) : 'N/A'}</p>
               </div>
             </div>
           </div>
@@ -1481,7 +1554,7 @@ const VendorDashboard: React.FC = () => {
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <CardTitle className={isMobile ? 'text-lg' : ''}>Pending Cases</CardTitle>
               <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Cases assigned to you that need acceptance or rejection
+                Cases auto-allocated to you that need acceptance or rejection
               </CardDescription>
             </CardHeader>
             <CardContent className={isMobile ? 'px-2' : ''}>
@@ -1521,8 +1594,6 @@ const VendorDashboard: React.FC = () => {
                       <TableHead>Time Remaining</TableHead>
                       <TableHead>TAT Hours</TableHead>
                       <TableHead>Assigned On</TableHead>
-                      <TableHead>Submitted On</TableHead>
-                      <TableHead>Time Taken</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1543,8 +1614,16 @@ const VendorDashboard: React.FC = () => {
                         return `${diffHours}h ${remainingMinutes}m`;
                       };
 
-                      const isExpired = caseItem.acceptance_deadline && new Date(caseItem.acceptance_deadline) < new Date();
-                      const timeRemaining = getTimeRemaining(caseItem.acceptance_deadline);
+                      // For auto_allocated cases, show 30-minute timer from status_updated_at
+                      let acceptanceDeadline = '';
+                      if (caseItem.status === 'auto_allocated' && caseItem.status_updated_at) {
+                        acceptanceDeadline = new Date(new Date(caseItem.status_updated_at).getTime() + (30 * 60 * 1000)).toISOString();
+                      } else {
+                        acceptanceDeadline = caseItem.acceptance_deadline;
+                      }
+
+                      const isExpired = acceptanceDeadline && new Date(acceptanceDeadline) < new Date();
+                      const timeRemaining = getTimeRemaining(acceptanceDeadline);
 
                       return (
                         <TableRow key={caseItem.id} className={isExpired ? 'bg-red-50' : ''}>
@@ -1581,17 +1660,7 @@ const VendorDashboard: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
-                              {caseItem.assigned_at ? formatDate(caseItem.assigned_at) : 'N/A'}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              {caseItem.submitted_at ? formatDate(caseItem.submitted_at) : 'N/A'}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              {getTimeTaken(caseItem.assigned_at, caseItem.submitted_at)}
+                              {caseItem.status_updated_at ? formatDate(caseItem.status_updated_at) : 'N/A'}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1799,7 +1868,7 @@ const VendorDashboard: React.FC = () => {
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <CardTitle className={isMobile ? 'text-lg' : ''}>Unassigned Cases</CardTitle>
               <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Cases available for assignment to your vendor or gig workers
+                Accepted cases ready for assignment to gig workers
               </CardDescription>
             </CardHeader>
             <CardContent className={isMobile ? 'px-2' : ''}>
