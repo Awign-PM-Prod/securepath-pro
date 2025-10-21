@@ -378,6 +378,7 @@ export default function CaseListWithAllocation({
         `)
         .eq('is_active', true)
         .eq('is_available', true)
+        .eq('is_direct_gig', true)
         .gt('capacity_available', 0)
         .order('capacity_available', { ascending: false });
 
