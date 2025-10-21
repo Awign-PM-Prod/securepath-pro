@@ -1194,23 +1194,24 @@ export default function GigWorkerDashboard() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="text-sm">
-                                <div className="font-medium">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 text-sm">
+                                  <MapPin className="h-3 w-3" />
                                   {caseItem.locations?.location_url ? (
                                     <a 
                                       href={caseItem.locations.location_url} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 underline"
+                                      className="text-blue-600 hover:text-blue-800 underline font-medium"
                                     >
-                                      {caseItem.locations?.city}
+                                      {caseItem.locations?.address_line || caseItem.address}
                                     </a>
                                   ) : (
-                                    <span>{caseItem.locations?.city}</span>
+                                    <span>{caseItem.locations?.address_line || caseItem.address}</span>
                                   )}
                                 </div>
-                                <div className="text-muted-foreground">
-                                  {caseItem.locations?.pincode}
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
                                 </div>
                               </div>
                             </TableCell>
@@ -1316,23 +1317,24 @@ export default function GigWorkerDashboard() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="text-sm">
-                                <div className="font-medium">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 text-sm">
+                                  <MapPin className="h-3 w-3" />
                                   {caseItem.locations?.location_url ? (
                                     <a 
                                       href={caseItem.locations.location_url} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 underline"
+                                      className="text-blue-600 hover:text-blue-800 underline font-medium"
                                     >
-                                      {caseItem.locations?.city}
+                                      {caseItem.locations?.address_line || caseItem.address}
                                     </a>
                                   ) : (
-                                    <span>{caseItem.locations?.city}</span>
+                                    <span>{caseItem.locations?.address_line || caseItem.address}</span>
                                   )}
                                 </div>
-                                <div className="text-muted-foreground">
-                                  {caseItem.locations?.pincode}
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
                                 </div>
                               </div>
                             </TableCell>
@@ -1439,9 +1441,6 @@ export default function GigWorkerDashboard() {
                               <div className="space-y-1">
                                 <div className="flex items-center gap-1 text-sm">
                                   <MapPin className="h-3 w-3" />
-                                  {caseItem.locations?.address_line || caseItem.address}
-                                </div>
-                                <div className="text-sm text-muted-foreground">
                                   {caseItem.locations?.location_url ? (
                                     <a 
                                       href={caseItem.locations.location_url} 
@@ -1449,11 +1448,14 @@ export default function GigWorkerDashboard() {
                                       rel="noopener noreferrer"
                                       className="text-blue-600 hover:text-blue-800 underline font-medium"
                                     >
-                                      {caseItem.locations?.city || caseItem.city}
+                                      {caseItem.locations?.address_line || caseItem.address}
                                     </a>
                                   ) : (
-                                    <span>{caseItem.locations?.city || caseItem.city}</span>
-                                  )}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+                                    <span>{caseItem.locations?.address_line || caseItem.address}</span>
+                                  )}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
                                 </div>
                               </div>
                             </TableCell>
@@ -1574,23 +1576,24 @@ export default function GigWorkerDashboard() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="text-sm">
-                                <div className="font-medium">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 text-sm">
+                                  <MapPin className="h-3 w-3" />
                                   {caseItem.locations?.location_url ? (
                                     <a 
                                       href={caseItem.locations.location_url} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 underline"
+                                      className="text-blue-600 hover:text-blue-800 underline font-medium"
                                     >
-                                      {caseItem.locations?.city}
+                                      {caseItem.locations?.address_line || caseItem.address}
                                     </a>
                                   ) : (
-                                    <span>{caseItem.locations?.city}</span>
+                                    <span>{caseItem.locations?.address_line || caseItem.address}</span>
                                   )}
                                 </div>
-                                <div className="text-muted-foreground">
-                                  {caseItem.locations?.pincode}
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
                                 </div>
                               </div>
                             </TableCell>
@@ -1704,23 +1707,24 @@ export default function GigWorkerDashboard() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="text-sm">
-                                <div className="font-medium">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 text-sm">
+                                  <MapPin className="h-3 w-3" />
                                   {caseItem.locations?.location_url ? (
                                     <a 
                                       href={caseItem.locations.location_url} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 underline"
+                                      className="text-blue-600 hover:text-blue-800 underline font-medium"
                                     >
-                                      {caseItem.locations?.city}
+                                      {caseItem.locations?.address_line || caseItem.address}
                                     </a>
                                   ) : (
-                                    <span>{caseItem.locations?.city}</span>
+                                    <span>{caseItem.locations?.address_line || caseItem.address}</span>
                                   )}
                                 </div>
-                                <div className="text-muted-foreground">
-                                  {caseItem.locations?.pincode}
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
                                 </div>
                               </div>
                             </TableCell>

@@ -1112,7 +1112,18 @@ export default function CaseListWithAllocation({
                           <MapPin className="h-4 w-4 text-muted-foreground" />
                           <div>
                             <p className="text-muted-foreground">Location</p>
-                            <p className="font-medium">{caseItem.location.city}, {caseItem.location.state}</p>
+                            {caseItem.location.location_url ? (
+                              <a
+                                href={caseItem.location.location_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                              >
+                                {caseItem.location.city}, {caseItem.location.state}
+                              </a>
+                            ) : (
+                              <p className="font-medium">{caseItem.location.city}, {caseItem.location.state}</p>
+                            )}
                              <div className="flex items-center gap-2">
                                <span className="text-xs text-muted-foreground">{caseItem.location.pincode}</span>
                                <Badge variant="outline" className="text-xs">

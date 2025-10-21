@@ -120,7 +120,8 @@ export class CaseService {
             pincode,
             pincode_tier,
             lat,
-            lng
+            lng,
+            location_url
           )
         `)
         .order('created_at', { ascending: false });
