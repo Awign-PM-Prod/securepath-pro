@@ -812,7 +812,7 @@ export default function GigWorkerDashboard() {
     return new Date() > new Date(deadline);
   };
 
-  const pendingCases = allocatedCases.filter(c => c.status === 'allocated');
+  const pendingCases = allocatedCases.filter(c => c.status === 'auto_allocated');
   const acceptedCases = allocatedCases.filter(c => c.status === 'accepted' && c.QC_Response !== 'Rework');
   const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress' && c.QC_Response !== 'Rework');
   const reworkCases = allocatedCases.filter(c => c.QC_Response === 'Rework');

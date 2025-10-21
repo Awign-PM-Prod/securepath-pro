@@ -149,6 +149,10 @@ const VendorDashboard: React.FC = () => {
   const [reassignmentDialogOpen, setReassignmentDialogOpen] = useState(false);
   const [reassignCaseId, setReassignCaseId] = useState<string>('');
   
+  // Case selection state for allocation
+  const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
+  const [bulkAssignmentDialogOpen, setBulkAssignmentDialogOpen] = useState(false);
+  
   // View case dialog state
   const [viewCaseDialogOpen, setViewCaseDialogOpen] = useState(false);
   const [viewingCase, setViewingCase] = useState<Case | null>(null);
@@ -345,12 +349,24 @@ const VendorDashboard: React.FC = () => {
       // Categorize cases by status
       // Pending shows only 'auto_allocated' cases for this vendor
       const pending = cases.filter(c => c.status === 'auto_allocated' && c.current_vendor_id === vendorId);
-      const inProgress = cases.filter(c => ['in_progress', 'submitted', 'qc_passed', 'qc_rejected', 'qc_rework'].includes(c.status));
-      const unassigned = cases.filter(c => c.status === 'accepted' && c.current_vendor_id === vendorId);
+      // Unassigned shows 'accepted' cases that are not yet assigned to gig workers
+      const unassigned = cases.filter(c => c.status === 'accepted' && c.current_vendor_id === vendorId && !c.current_assignee_id);
+      // In progress shows cases assigned to gig workers (status 'accepted' with gig worker assignee)
+      const inProgress = cases.filter(c => c.status === 'accepted' && c.current_assignee_type === 'gig' && c.current_vendor_id === vendorId);
+      
+      // Debug logging
+      console.log('All cases for vendor:', cases.map(c => ({
+        id: c.id,
+        case_number: c.case_number,
+        status: c.status,
+        current_vendor_id: c.current_vendor_id,
+        current_assignee_id: c.current_assignee_id,
+        current_assignee_type: c.current_assignee_type
+      })));
       
       console.log('Pending cases (auto_allocated to vendor):', pending);
       console.log('In progress cases:', inProgress);
-      console.log('Unassigned cases (accepted):', unassigned);
+      console.log('Unassigned cases (accepted, not assigned to gig worker):', unassigned);
       
       setPendingCases(pending);
       setInProgressCases(inProgress);
@@ -375,7 +391,7 @@ const VendorDashboard: React.FC = () => {
           current_vendor_id: vendorId,
           current_assignee_id: vendorId,
           current_assignee_type: 'vendor',
-          status: 'allocated',
+          status: 'accepted',
           status_updated_at: new Date().toISOString(),
           last_updated_by: user?.id,
           updated_at: new Date().toISOString()
@@ -461,6 +477,96 @@ const VendorDashboard: React.FC = () => {
       toast({
         title: 'Error',
         description: 'Failed to reject case',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Handle case selection for allocation
+  const handleCaseSelection = (caseId: string) => {
+    setSelectedCases(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(caseId)) {
+        newSet.delete(caseId);
+      } else {
+        newSet.add(caseId);
+      }
+      return newSet;
+    });
+  };
+
+  // Handle bulk assignment
+  const handleBulkAssign = () => {
+    if (selectedCases.size === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please select at least one case',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setBulkAssignmentDialogOpen(true);
+  };
+
+  // Clear all selections
+  const clearSelections = () => {
+    setSelectedCases(new Set());
+  };
+
+  // Handle bulk assignment of selected cases
+  const handleBulkAssignCases = async () => {
+    if (!selectedGigWorker || !vendorId || selectedCases.size === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please select a gig worker and at least one case',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const caseIds = Array.from(selectedCases);
+      const updateData = {
+        current_assignee_id: selectedGigWorker,
+        current_assignee_type: 'gig' as const,
+        current_vendor_id: vendorId,
+        status: 'accepted' as const,
+        assignment_time: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('cases')
+        .update(updateData)
+        .in('id', caseIds);
+
+      if (error) throw error;
+
+      console.log('Assignment successful, updating data...');
+      console.log('Updated cases:', caseIds);
+      console.log('Update data:', updateData);
+
+      toast({
+        title: 'Success',
+        description: `${caseIds.length} cases assigned to gig worker successfully`,
+      });
+
+      setBulkAssignmentDialogOpen(false);
+      setSelectedGigWorker('');
+      setSelectedCases(new Set());
+      
+      // Add a small delay to ensure database is updated
+      setTimeout(() => {
+        fetchAssignedCases();
+        fetchUnassignedCases();
+        fetchReworkCases();
+        fetchGigWorkers();
+      }, 500);
+    } catch (error) {
+      console.error('Error assigning cases:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to assign cases. Please try again.',
         variant: 'destructive',
       });
     }
@@ -1116,13 +1222,15 @@ const VendorDashboard: React.FC = () => {
   }
 
   // Mobile-friendly case card component
-  const MobileCaseCard = ({ caseItem, onAccept, onReject, onAssign, onReassign, onView, showActions = true }: {
+  const MobileCaseCard = ({ caseItem, onAccept, onReject, onAssign, onReassign, onView, onSelect, isSelected = false, showActions = true }: {
     caseItem: Case;
     onAccept?: () => void;
     onReject?: () => void;
     onAssign?: () => void;
     onReassign?: () => void;
     onView?: () => void;
+    onSelect?: () => void;
+    isSelected?: boolean;
     showActions?: boolean;
   }) => {
     const getTimeRemaining = (deadline?: string) => {
@@ -1219,7 +1327,12 @@ const VendorDashboard: React.FC = () => {
     }
 
     return (
-      <Card className="mb-3 shadow-sm border-0 bg-white">
+      <Card 
+        className={`mb-3 shadow-sm border-0 bg-white cursor-pointer transition-all duration-200 hover:shadow-md ${
+          isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''
+        }`}
+        onClick={onSelect}
+      >
         <CardHeader className="pb-2 px-4 pt-4">
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0 pr-2">
@@ -1231,6 +1344,11 @@ const VendorDashboard: React.FC = () => {
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-1.5">
+              {isSelected && (
+                <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                  <CheckCircle className="h-3 w-3 text-white" />
+                </div>
+              )}
               <Badge variant={
                 caseItem.priority === 'high' ? 'destructive' :
                 caseItem.priority === 'medium' ? 'default' : 'secondary'
@@ -1347,7 +1465,7 @@ const VendorDashboard: React.FC = () => {
 
           {/* Actions */}
           {showActions && (
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
               {onAccept && (
                 <Button
                   size="sm"
@@ -1552,10 +1670,31 @@ const VendorDashboard: React.FC = () => {
         <TabsContent value="pending" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
           <Card className={isMobile ? 'shadow-sm border-0' : ''}>
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
-              <CardTitle className={isMobile ? 'text-lg' : ''}>Pending Cases</CardTitle>
-              <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Cases auto-allocated to you that need acceptance or rejection
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className={isMobile ? 'text-lg' : ''}>Pending Cases</CardTitle>
+                  <CardDescription className={isMobile ? 'text-sm' : ''}>
+                    Cases auto-allocated to you that need acceptance or rejection
+                  </CardDescription>
+                </div>
+                {selectedCases.size > 0 && (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={clearSelections}
+                    >
+                      Clear ({selectedCases.size})
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleBulkAssign}
+                    >
+                      Assign Selected
+                    </Button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent className={isMobile ? 'px-2' : ''}>
               {pendingCases.length === 0 ? (
@@ -1577,6 +1716,8 @@ const VendorDashboard: React.FC = () => {
                             setSelectedCase(caseItem.id);
                             setAssignmentDialogOpen(true);
                           } : undefined}
+                          onSelect={() => handleCaseSelection(caseItem.id)}
+                          isSelected={selectedCases.has(caseItem.id)}
                         />
                       ))}
                     </div>
@@ -1754,6 +1895,8 @@ const VendorDashboard: React.FC = () => {
                               setAssignmentDialogOpen(true);
                             } : undefined}
                             onView={() => handleViewCase(caseItem)}
+                            onSelect={() => handleCaseSelection(caseItem.id)}
+                            isSelected={selectedCases.has(caseItem.id)}
                           />
                         );
                       })}
@@ -1866,10 +2009,31 @@ const VendorDashboard: React.FC = () => {
         <TabsContent value="unassigned" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
           <Card className={isMobile ? 'shadow-sm border-0' : ''}>
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
-              <CardTitle className={isMobile ? 'text-lg' : ''}>Unassigned Cases</CardTitle>
-              <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Accepted cases ready for assignment to gig workers
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className={isMobile ? 'text-lg' : ''}>Unassigned Cases</CardTitle>
+                  <CardDescription className={isMobile ? 'text-sm' : ''}>
+                    Accepted cases ready for assignment to gig workers
+                  </CardDescription>
+                </div>
+                {selectedCases.size > 0 && (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={clearSelections}
+                    >
+                      Clear ({selectedCases.size})
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleBulkAssign}
+                    >
+                      Assign Selected
+                    </Button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent className={isMobile ? 'px-2' : ''}>
               {unassignedCases.length === 0 ? (
@@ -1890,6 +2054,8 @@ const VendorDashboard: React.FC = () => {
                             setAssignmentDialogOpen(true);
                           }}
                           onView={() => handleViewCase(caseItem)}
+                          onSelect={() => handleCaseSelection(caseItem.id)}
+                          isSelected={selectedCases.has(caseItem.id)}
                         />
                       ))}
                     </div>
@@ -2117,10 +2283,31 @@ const VendorDashboard: React.FC = () => {
         <TabsContent value="rework" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
           <Card className={isMobile ? 'shadow-sm border-0' : ''}>
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
-              <CardTitle className={isMobile ? 'text-lg' : ''}>Rework Cases</CardTitle>
-              <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Cases that require rework based on QC feedback
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className={isMobile ? 'text-lg' : ''}>Rework Cases</CardTitle>
+                  <CardDescription className={isMobile ? 'text-sm' : ''}>
+                    Cases that require rework based on QC feedback
+                  </CardDescription>
+                </div>
+                {selectedCases.size > 0 && (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={clearSelections}
+                    >
+                      Clear ({selectedCases.size})
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleBulkAssign}
+                    >
+                      Assign Selected
+                    </Button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent className={isMobile ? 'px-2' : ''}>
               {reworkCases.length === 0 ? (
@@ -2147,6 +2334,8 @@ const VendorDashboard: React.FC = () => {
                               setAssignmentDialogOpen(true);
                             } : undefined}
                             onView={() => handleViewCase(caseItem)}
+                            onSelect={() => handleCaseSelection(caseItem.id)}
+                            isSelected={selectedCases.has(caseItem.id)}
                           />
                         );
                       })}
@@ -2429,6 +2618,46 @@ const VendorDashboard: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Bulk Assignment Dialog */}
+      <Dialog open={bulkAssignmentDialogOpen} onOpenChange={setBulkAssignmentDialogOpen}>
+        <DialogContent className={isMobile ? 'max-w-[95vw] max-h-[90vh] mx-2 my-2' : ''}>
+          <DialogHeader>
+            <DialogTitle>Assign Selected Cases to Gig Worker</DialogTitle>
+            <DialogDescription>
+              Select a gig worker to assign {selectedCases.size} selected cases to.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="gig-worker">Gig Worker</Label>
+              <Select value={selectedGigWorker} onValueChange={setSelectedGigWorker}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a gig worker" />
+                </SelectTrigger>
+                <SelectContent>
+                  {gigWorkers.filter(worker => worker.is_available).map((worker) => (
+                    <SelectItem key={worker.id} value={worker.id}>
+                      {worker.first_name} {worker.last_name} 
+                      {' '}({worker.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Selected cases: {selectedCases.size}
+            </div>
+          </div>
+          <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
+            <Button variant="outline" onClick={() => setBulkAssignmentDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkAssignCases} className={isMobile ? 'w-full' : ''}>
+              Assign {selectedCases.size} Cases
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* View Case Dialog */}
       <Dialog open={viewCaseDialogOpen} onOpenChange={setViewCaseDialogOpen}>

@@ -29,7 +29,7 @@ interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_approved' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
+  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
   client: {
     id: string;
     name: string;
@@ -231,12 +231,12 @@ export default function CaseListWithAllocation({
 
   // Filter cases that can be allocated (created status, no assignee)
   const allocatableCases = filteredCases.filter(caseItem => 
-    caseItem.status === 'new' && !caseItem.current_assignee
+    caseItem.status === 'created' && !caseItem.current_assignee
   );
 
-  // Filter cases that can be unallocated (allocated status, has assignee)
+  // Filter cases that can be unallocated (auto_allocated status, has assignee)
   const unallocatableCases = filteredCases.filter(caseItem => 
-    (caseItem.status === 'allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && 
+    (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && 
     caseItem.current_assignee
   );
 
@@ -976,8 +976,8 @@ export default function CaseListWithAllocation({
             ) : (
               <div className="grid gap-4">
                  {displayCases.map((caseItem) => {
-                   const isAllocatable = caseItem.status === 'new' && !caseItem.current_assignee;
-                   const isUnallocatable = (caseItem.status === 'allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && caseItem.current_assignee;
+                   const isAllocatable = caseItem.status === 'created' && !caseItem.current_assignee;
+                   const isUnallocatable = (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && caseItem.current_assignee;
                    const isSelectable = isAllocatable || isUnallocatable;
                    const isSelected = selectedCases.has(caseItem.id);
                   
