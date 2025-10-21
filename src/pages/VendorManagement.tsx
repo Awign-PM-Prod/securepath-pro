@@ -86,7 +86,7 @@ export default function VendorManagement() {
       }
 
       // Transform vendors data
-      const transformedVendors = (vendorsData || []).map(vendor => ({
+      const transformedVendors = (vendorsData || []).map((vendor: any) => ({
         id: vendor.id,
         name: vendor.name,
         email: vendor.email,
@@ -101,7 +101,7 @@ export default function VendorManagement() {
         active_gig_workers: 0, // Will be calculated from gig_workers
         total_cases: vendor.total_cases_assigned || 0,
         completed_cases: 0, // Will be calculated from cases
-        quality_score: vendor.quality_score || 0,
+        quality_score: Math.round(((vendor.quality_score || 0) * 100)), // Convert decimal to percentage
         created_at: vendor.created_at,
       }));
 
@@ -118,8 +118,8 @@ export default function VendorManagement() {
       }
 
       // Load profiles for gig workers
-      const profileIds = (gigWorkersData || []).map(worker => worker.profile_id).filter(Boolean);
-      let profilesData = [];
+      const profileIds = (gigWorkersData || []).map((worker: any) => worker.profile_id).filter(Boolean);
+      let profilesData: any[] = [];
       
       if (profileIds.length > 0) {
         const { data: profiles, error: profilesError } = await supabase
@@ -135,13 +135,13 @@ export default function VendorManagement() {
       }
 
       // Transform gig workers data
-      const transformedGigWorkers = (gigWorkersData || []).map(worker => {
+      const transformedGigWorkers = (gigWorkersData || []).map((worker: any) => {
         const profile = profilesData.find(p => p.id === worker.profile_id);
         return {
           id: worker.id,
           name: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : 'Unknown',
           email: profile?.email || '',
-          phone: profile?.phone || worker.phone || '',
+          phone: profile?.phone || '',
           vendor_id: worker.vendor_id || '',
           is_active: worker.is_active,
           coverage_pincodes: worker.coverage_pincodes || [],
@@ -149,7 +149,7 @@ export default function VendorManagement() {
           current_capacity: worker.capacity_available || 0,
           total_cases: worker.total_cases_completed || 0,
           completed_cases: worker.total_cases_completed || 0,
-          quality_score: worker.quality_score || 0,
+          quality_score: Math.round(((worker.quality_score || 0) * 100)), // Convert decimal to percentage
           last_active: worker.last_seen_at || worker.updated_at,
         };
       });
