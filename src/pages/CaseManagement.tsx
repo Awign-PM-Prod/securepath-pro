@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, FileText, Users, MapPin, Clock, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import CaseForm, { CaseFormData } from '@/components/CaseManagement/CaseForm';
 import CaseListWithAllocation from '@/components/CaseManagement/CaseListWithAllocation';
 import CaseDetail from '@/components/CaseManagement/CaseDetail';
@@ -425,14 +424,6 @@ export default function CaseManagement() {
     navigate('/ops/cases');
   };
 
-  // Calculate dashboard stats
-  const stats = {
-    total: cases.length,
-    pending: cases.filter(c => ['created', 'auto_allocated', 'pending_acceptance'].includes(c.status)).length,
-    inProgress: cases.filter(c => ['accepted', 'in_progress'].includes(c.status)).length,
-    completed: cases.filter(c => ['completed', 'reported'].includes(c.status)).length,
-    overdue: cases.filter(c => new Date(c.due_at) < new Date()).length,
-  };
 
   if (viewMode === 'create' || viewMode === 'edit') {
     console.log('Rendering CaseForm in edit mode:', viewMode === 'edit');
@@ -525,125 +516,16 @@ export default function CaseManagement() {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      {/* Dashboard Stats */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Cases</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">All verification cases</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.pending}</div>
-            <p className="text-xs text-muted-foreground">Awaiting assignment</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-            <AlertCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.inProgress}</div>
-            <p className="text-xs text-muted-foreground">Currently being processed</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.completed}</div>
-            <p className="text-xs text-muted-foreground">Successfully completed</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Overdue</CardTitle>
-            <AlertCircle className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.overdue}</div>
-            <p className="text-xs text-muted-foreground">Past due date</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Case Management Tabs */}
-      <Tabs defaultValue="cases" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="cases">Cases</TabsTrigger>
-          <TabsTrigger value="clients">Clients</TabsTrigger>
-          <TabsTrigger value="rate-cards">Rate Cards</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="cases">
-          <CaseListWithAllocation
-            cases={cases}
-            onViewCase={handleViewCase}
-            onEditCase={handleEditCase}
-            onDeleteCase={handleDeleteCase}
-            onCreateCase={handleCreateCase}
-            onRefresh={loadData}
-            isLoading={isLoading}
-          />
-        </TabsContent>
-
-        <TabsContent value="clients">
-          <Card>
-            <CardHeader>
-              <CardTitle>Client Management</CardTitle>
-              <CardDescription>Manage client accounts and settings</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">Client Management</h3>
-                <p className="text-muted-foreground mb-4">Client management features coming soon...</p>
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Client
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="rate-cards">
-          <Card>
-            <CardHeader>
-              <CardTitle>Rate Cards</CardTitle>
-              <CardDescription>Manage pricing and rate cards</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">Rate Card Management</h3>
-                <p className="text-muted-foreground mb-4">Rate card management features coming soon...</p>
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Rate Card
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+    <div className="container mx-auto py-6">
+      <CaseListWithAllocation
+        cases={cases}
+        onViewCase={handleViewCase}
+        onEditCase={handleEditCase}
+        onDeleteCase={handleDeleteCase}
+        onCreateCase={handleCreateCase}
+        onRefresh={loadData}
+        isLoading={isLoading}
+      />
     </div>
   );
 }
