@@ -382,6 +382,75 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
+  // Accept case (for auto_allocated cases)
+  const handleAcceptCase = async (caseId: string) => {
+    try {
+      const { error } = await supabase
+        .from('cases')
+        .update({
+          status: 'accepted',
+          status_updated_at: new Date().toISOString(),
+          last_updated_by: user?.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId)
+        .eq('current_vendor_id', vendorId)
+        .eq('status', 'auto_allocated');
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Case accepted successfully',
+      });
+
+      fetchAssignedCases();
+    } catch (error) {
+      console.error('Error accepting case:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to accept case',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Reject case (for auto_allocated cases)
+  const handleRejectCase = async (caseId: string) => {
+    try {
+      const { error } = await supabase
+        .from('cases')
+        .update({
+          status: 'new',
+          current_vendor_id: null,
+          current_assignee_id: null,
+          current_assignee_type: null,
+          status_updated_at: new Date().toISOString(),
+          last_updated_by: user?.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId)
+        .eq('current_vendor_id', vendorId)
+        .eq('status', 'auto_allocated');
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Case rejected and returned to allocation pool',
+      });
+
+      fetchAssignedCases();
+    } catch (error) {
+      console.error('Error rejecting case:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to reject case',
+        variant: 'destructive',
+      });
+    }
+  };
+
   // Pick up case (for new cases)
   const handlePickUpCase = async (caseId: string) => {
     try {
@@ -420,67 +489,6 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
-  // Accept case
-  const handleAcceptCase = async (caseId: string) => {
-    try {
-      const { error } = await supabase
-        .from('cases')
-        .update({ 
-          status: 'accepted',
-          current_assignee_id: null, // Clear assignee so it appears in unassigned cases
-          status_updated_at: new Date().toISOString()
-        })
-        .eq('id', caseId);
-
-      if (error) throw error;
-
-      toast({
-        title: 'Success',
-        description: 'Case accepted successfully and moved to unassigned cases',
-      });
-
-      // Refresh both assigned cases and unassigned cases
-      fetchAssignedCases();
-      fetchUnassignedCases();
-    } catch (error) {
-      console.error('Error accepting case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to accept case',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  // Reject case
-  const handleRejectCase = async (caseId: string) => {
-    try {
-      const { error } = await supabase
-        .from('cases')
-        .update({ 
-          status: 'rejected',
-          current_vendor_id: null,
-          status_updated_at: new Date().toISOString()
-        })
-        .eq('id', caseId);
-
-      if (error) throw error;
-
-      toast({
-        title: 'Success',
-        description: 'Case rejected and returned to pool',
-      });
-
-      fetchAssignedCases();
-    } catch (error) {
-      console.error('Error rejecting case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to reject case',
-        variant: 'destructive',
-      });
-    }
-  };
 
   // Handle case selection for allocation
   const handleCaseSelection = (caseId: string) => {
@@ -604,7 +612,7 @@ const VendorDashboard: React.FC = () => {
       const updateData: any = {
         current_assignee_id: selectedGigWorker,
         current_assignee_type: 'gig',
-        status: isReworkCase ? 'accepted' : 'in_progress',
+        status: 'accepted', // Always set to accepted when vendor assigns to gig worker
         status_updated_at: new Date().toISOString()
       };
 
@@ -617,9 +625,7 @@ const VendorDashboard: React.FC = () => {
 
       toast({
         title: 'Success',
-        description: isReworkCase 
-          ? 'Rework case assigned to gig worker. Gig worker has 30 minutes to accept.'
-          : 'Case assigned to gig worker successfully',
+        description: 'Case assigned to gig worker successfully',
       });
 
       setAssignmentDialogOpen(false);

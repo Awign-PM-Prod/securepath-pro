@@ -53,6 +53,16 @@ interface AllocatedCase {
     pincode: string;
     location_url?: string;
   };
+  form_submissions?: Array<{
+    id: string;
+    submitted_at?: string;
+    created_at: string;
+  }>;
+  submissions?: Array<{
+    id: string;
+    submitted_at?: string;
+    created_at: string;
+  }>;
 }
 
 interface CaseSubmission {
@@ -536,6 +546,7 @@ export default function GigWorkerDashboard() {
       if (result.success) {
         setLastSaveTime(new Date());
         console.log('Form saved successfully');
+        console.log('Auto-save result:', result);
         
         // Check if this case is currently in 'accepted' status and move it to 'in_progress'
         const currentCase = allocatedCases.find(c => c.id === caseId);
@@ -595,13 +606,18 @@ export default function GigWorkerDashboard() {
         });
       } else {
         // Regular case - check for draft
+        console.log('Checking for draft for case:', caseItem.id);
         const draftResult = await formService.getDraftSubmission(caseItem.id);
         
+        console.log('Draft check result:', draftResult);
+        
         if (draftResult.success && draftResult.draft) {
+          console.log('Draft exists, showing resume dialog');
           // Show dialog to resume draft or start fresh
           setPendingDraftCase(caseItem);
           setIsDraftResumeDialogOpen(true);
         } else {
+          console.log('No draft exists, starting fresh');
           // No draft exists - start fresh
           setDraftData(null);
           setIsSubmissionDialogOpen(true);
@@ -706,14 +722,19 @@ export default function GigWorkerDashboard() {
     if (!pendingDraftCase) return;
     
     try {
+      console.log('Resuming draft for case:', pendingDraftCase.id);
       const { formService } = await import('@/services/formService');
       const draftResult = await formService.getDraftSubmission(pendingDraftCase.id);
       
+      console.log('Draft result:', draftResult);
+      
       if (draftResult.success && draftResult.draft) {
+        console.log('Draft found, setting draft data:', draftResult.draft);
         setDraftData(draftResult.draft);
         setIsDraftResumeDialogOpen(false);
         setIsSubmissionDialogOpen(true);
       } else {
+        console.log('No draft found or error:', draftResult.error);
         throw new Error('Draft not found');
       }
     } catch (error) {
@@ -813,8 +834,55 @@ export default function GigWorkerDashboard() {
   };
 
   const pendingCases = allocatedCases.filter(c => c.status === 'auto_allocated');
-  const acceptedCases = allocatedCases.filter(c => c.status === 'accepted' && c.QC_Response !== 'Rework');
-  const inProgressCases = allocatedCases.filter(c => c.status === 'in_progress' && c.QC_Response !== 'Rework');
+  
+  // Helper function to check if case has form responses
+  const hasFormResponse = (caseItem: AllocatedCase) => {
+    return (caseItem.form_submissions && caseItem.form_submissions.length > 0) ||
+           (caseItem.submissions && caseItem.submissions.length > 0);
+  };
+  
+  const acceptedCases = allocatedCases.filter(c => {
+    // Include cases that are accepted and not rework
+    if (c.status === 'accepted' && c.QC_Response !== 'Rework') {
+      return true;
+    }
+    // Include cases without form responses regardless of status (except auto_allocated, submitted, and rework)
+    if (c.status !== 'auto_allocated' && c.status !== 'submitted' && c.QC_Response !== 'Rework' && !hasFormResponse(c)) {
+      return true;
+    }
+    return false;
+  });
+
+  // Debug logging for accepted cases
+  console.log('Accepted cases filter debug:', {
+    totalCases: allocatedCases.length,
+    acceptedCases: acceptedCases.length,
+    casesWithoutFormResponse: allocatedCases.filter(c => !hasFormResponse(c)).length,
+    acceptedCasesDetails: acceptedCases.map(c => ({
+      case_number: c.case_number,
+      status: c.status,
+      hasFormResponse: hasFormResponse(c),
+      QC_Response: c.QC_Response
+    }))
+  });
+  
+  const inProgressCases = allocatedCases.filter(c => 
+    c.status === 'in_progress' && 
+    c.QC_Response !== 'Rework' && 
+    hasFormResponse(c)
+  );
+
+  // Debug logging for in-progress cases
+  console.log('In-progress cases filter debug:', {
+    totalInProgressStatus: allocatedCases.filter(c => c.status === 'in_progress').length,
+    inProgressCases: inProgressCases.length,
+    inProgressCasesDetails: inProgressCases.map(c => ({
+      case_number: c.case_number,
+      status: c.status,
+      hasFormResponse: hasFormResponse(c),
+      QC_Response: c.QC_Response
+    }))
+  });
   const reworkCases = allocatedCases.filter(c => c.QC_Response === 'Rework');
   const submittedCases = allocatedCases
     .filter(c => c.status === 'submitted')
@@ -1268,7 +1336,7 @@ export default function GigWorkerDashboard() {
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    No accepted cases. Accept cases from the Pending tab to start working on them.
+                    No accepted cases. Accept cases from the Pending tab or cases without form responses will appear here.
                   </AlertDescription>
                 </Alert>
               ) : (
@@ -1376,7 +1444,7 @@ export default function GigWorkerDashboard() {
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    No cases in progress. Start working on accepted cases to see them here.
+                    No cases in progress. Cases with form responses will appear here.
                   </AlertDescription>
                 </Alert>
               ) : (
