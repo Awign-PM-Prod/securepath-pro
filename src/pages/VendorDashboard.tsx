@@ -283,7 +283,7 @@ const VendorDashboard: React.FC = () => {
           updated_at
         `)
         .eq('current_vendor_id', vendorId)
-        .eq('status', 'auto_allocated');
+        .eq('status', 'auto_allocated' as any);
 
       if (allocatedError) {
         console.error('Error fetching allocated cases:', allocatedError);

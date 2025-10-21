@@ -1101,9 +1101,9 @@ export default function CaseListWithAllocation({
                           <FileText className="h-4 w-4 text-muted-foreground" />
                           <div>
                             <p className="text-muted-foreground">Submitted On</p>
-                            <p className="font-medium">{formatTime(caseItem.submitted_at || caseItem.status_updated_at)}</p>
+                            <p className="font-medium">{formatTime(caseItem.submitted_at)}</p>
                             <p className="text-xs text-muted-foreground">
-                              {caseItem.submitted_at ? 'Submission time' : 'Update time'}
+                              {caseItem.submitted_at ? 'Submission time' : 'Not submitted'}
                             </p>
                           </div>
                         </div>
@@ -1113,15 +1113,15 @@ export default function CaseListWithAllocation({
                           <div>
                             <p className="text-muted-foreground">Time Taken</p>
                             <p className="font-medium">
-                              {caseItem.assigned_at && (caseItem.submitted_at || caseItem.status_updated_at) 
-                                ? getTimeTaken(caseItem.assigned_at, caseItem.submitted_at || caseItem.status_updated_at)
+                              {caseItem.assigned_at && caseItem.submitted_at 
+                                ? getTimeTaken(caseItem.assigned_at, caseItem.submitted_at)
                                 : 'N/A'
                               }
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {caseItem.assigned_at && (caseItem.submitted_at || caseItem.status_updated_at) 
-                                ? 'Time difference'
-                                : 'Not available'
+                              {caseItem.assigned_at && caseItem.submitted_at 
+                                ? 'From assignment to submission'
+                                : 'Not submitted yet'
                               }
                             </p>
                           </div>

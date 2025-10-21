@@ -10,7 +10,7 @@ export interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_approved' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
+  status: 'created' | 'auto_allocated' | 'allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_approved' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
   client: {
     id: string;
     name: string;

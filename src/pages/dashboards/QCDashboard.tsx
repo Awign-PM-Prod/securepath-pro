@@ -149,7 +149,7 @@ const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (case
               <FileText className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-muted-foreground">Submitted</p>
-                <p className="font-medium">{formatDate(caseItem.submitted_at || caseItem.status_updated_at)}</p>
+                <p className="font-medium">{formatDate(caseItem.submitted_at)}</p>
               </div>
             </div>
 
@@ -157,7 +157,7 @@ const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (case
               <Clock className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-muted-foreground">Time Taken</p>
-                <p className="font-medium">{getTimeTaken(caseItem.assigned_at, caseItem.submitted_at || caseItem.status_updated_at)}</p>
+                <p className="font-medium">{getTimeTaken(caseItem.assigned_at, caseItem.submitted_at)}</p>
               </div>
             </div>
           </div>
