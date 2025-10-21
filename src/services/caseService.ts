@@ -24,6 +24,7 @@ export interface Case {
     city: string;
     state: string;
     pincode: string;
+    pincode_tier?: string;
     lat?: number;
     lng?: number;
     location_url?: string;
@@ -117,6 +118,7 @@ export class CaseService {
             city,
             state,
             pincode,
+            pincode_tier,
             lat,
             lng
           )
@@ -124,6 +126,7 @@ export class CaseService {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+
 
       // Get assignee information separately for both gig workers and vendors
       const casesWithAssignees = await Promise.all(
@@ -255,6 +258,7 @@ export class CaseService {
               city: caseItem.locations.city,
               state: caseItem.locations.state,
               pincode: caseItem.locations.pincode,
+              pincode_tier: caseItem.locations.pincode_tier,
               lat: caseItem.locations.lat,
               lng: caseItem.locations.lng,
               location_url: caseItem.locations.location_url,
@@ -333,6 +337,7 @@ export class CaseService {
             city,
             state,
             pincode,
+            pincode_tier,
             lat,
             lng
           ),
@@ -446,6 +451,7 @@ export class CaseService {
               city: caseItem.locations.city,
               state: caseItem.locations.state,
               pincode: caseItem.locations.pincode,
+              pincode_tier: caseItem.locations.pincode_tier,
               lat: caseItem.locations.lat,
               lng: caseItem.locations.lng,
               location_url: caseItem.locations.location_url,
@@ -516,6 +522,7 @@ export class CaseService {
             city,
             state,
             pincode,
+            pincode_tier,
             lat,
             lng
           )
@@ -609,6 +616,7 @@ export class CaseService {
           city: data.locations.city,
           state: data.locations.state,
           pincode: data.locations.pincode,
+          pincode_tier: data.locations.pincode_tier,
           lat: data.locations.lat,
           lng: data.locations.lng,
         },

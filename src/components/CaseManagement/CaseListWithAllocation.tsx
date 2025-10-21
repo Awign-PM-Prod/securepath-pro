@@ -43,6 +43,7 @@ interface Case {
     city: string;
     state: string;
     pincode: string;
+    pincode_tier?: string;
     lat?: number;
     lng?: number;
     location_url?: string;
@@ -113,6 +114,23 @@ const STATUS_LABELS = {
   reported: 'Reported',
   in_payment_cycle: 'In Payment Cycle',
   cancelled: 'Cancelled',
+};
+
+const getTierNumber = (tierString: string | undefined | null) => {
+  // Handle null/undefined cases
+  if (!tierString) return '?';
+  
+  // Handle the specific enum values: tier_1, tier_2, tier_3, tier1, tier2, tier3
+  const tierMap: Record<string, string> = {
+    'tier_1': '1',
+    'tier_2': '2', 
+    'tier_3': '3',
+    'tier1': '1',
+    'tier2': '2',
+    'tier3': '3'
+  };
+  
+  return tierMap[tierString] || '?';
 };
 
 export default function CaseListWithAllocation({ 
@@ -957,11 +975,11 @@ export default function CaseListWithAllocation({
               </div>
             ) : (
               <div className="grid gap-4">
-                {displayCases.map((caseItem) => {
-                  const isAllocatable = caseItem.status === 'created' && !caseItem.current_assignee;
-                  const isUnallocatable = (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && caseItem.current_assignee;
-                  const isSelectable = isAllocatable || isUnallocatable;
-                  const isSelected = selectedCases.has(caseItem.id);
+                 {displayCases.map((caseItem) => {
+                   const isAllocatable = caseItem.status === 'created' && !caseItem.current_assignee;
+                   const isUnallocatable = (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && caseItem.current_assignee;
+                   const isSelectable = isAllocatable || isUnallocatable;
+                   const isSelected = selectedCases.has(caseItem.id);
                   
                   return (
                     <div
@@ -1048,7 +1066,12 @@ export default function CaseListWithAllocation({
                           <div>
                             <p className="text-muted-foreground">Location</p>
                             <p className="font-medium">{caseItem.location.city}, {caseItem.location.state}</p>
-                            <p className="text-xs text-muted-foreground">{caseItem.location.pincode}</p>
+                             <div className="flex items-center gap-2">
+                               <span className="text-xs text-muted-foreground">{caseItem.location.pincode}</span>
+                               <Badge variant="outline" className="text-xs">
+                                 Tier {getTierNumber(caseItem.location.pincode_tier)}
+                               </Badge>
+                             </div>
                           </div>
                         </div>
 
