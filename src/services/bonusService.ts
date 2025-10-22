@@ -37,7 +37,7 @@ export class BonusService {
     }
 
     // Check if bonus can be added based on case status
-    const allowedStatuses = ['created', 'allocated', 'pending_acceptance'];
+    const allowedStatuses = ['created', 'allocated'];
     if (!allowedStatuses.includes(caseData.status)) {
       throw new Error(`Bonus cannot be added to cases in ${caseData.status} status`);
     }
@@ -132,7 +132,7 @@ export class BonusService {
       return false;
     }
 
-    const allowedStatuses = ['created', 'allocated', 'pending_acceptance'];
+    const allowedStatuses = ['created', 'allocated'];
     return allowedStatuses.includes(data.status);
   }
 }

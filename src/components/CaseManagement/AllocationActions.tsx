@@ -37,8 +37,8 @@ export default function AllocationActions({
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const { toast } = useToast();
 
-  const canAllocate = ['created', 'allocated', 'pending_acceptance'].includes(currentStatus);
-  const canReallocate = ['allocated', 'pending_acceptance'].includes(currentStatus);
+  const canAllocate = ['created', 'allocated'].includes(currentStatus);
+  const canReallocate = ['allocated'].includes(currentStatus);
 
   const handleAllocate = async () => {
     setIsAllocating(true);

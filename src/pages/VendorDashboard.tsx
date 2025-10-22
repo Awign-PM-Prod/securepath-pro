@@ -349,10 +349,10 @@ const VendorDashboard: React.FC = () => {
       // Categorize cases by status
       // Pending shows only 'allocated' cases for this vendor (not yet accepted)
       const pending = cases.filter(c => c.status === 'allocated' && c.current_vendor_id === vendorId);
-      // Unassigned shows 'accepted' cases that are not yet assigned to gig workers
-      const unassigned = cases.filter(c => c.status === 'accepted' && c.current_vendor_id === vendorId && !c.current_assignee_id);
-      // In progress shows cases assigned to gig workers (status 'in_progress' with gig worker assignee)
-      const inProgress = cases.filter(c => c.status === 'in_progress' && c.current_assignee_type === 'gig' && c.current_vendor_id === vendorId);
+      // Unassigned shows 'accepted' cases with current_assignee_type as 'vendor'
+      const unassigned = cases.filter(c => c.status === 'accepted' && c.current_assignee_type === 'vendor' && c.current_vendor_id === vendorId);
+      // In progress shows 'accepted' cases with current_assignee_type as 'gig'
+      const inProgress = cases.filter(c => c.status === 'accepted' && c.current_assignee_type === 'gig' && c.current_vendor_id === vendorId);
       
       // Debug logging
       console.log('All cases for vendor:', cases.map(c => ({
@@ -365,8 +365,8 @@ const VendorDashboard: React.FC = () => {
       })));
       
       console.log('Pending cases (allocated to vendor):', pending);
-      console.log('In progress cases:', inProgress);
-      console.log('Unassigned cases (accepted, not assigned to gig worker):', unassigned);
+      console.log('In progress cases (accepted with gig worker):', inProgress);
+      console.log('Unassigned cases (accepted with vendor assignee):', unassigned);
       
       setPendingCases(pending);
       setInProgressCases(inProgress);
@@ -1870,7 +1870,7 @@ const VendorDashboard: React.FC = () => {
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <CardTitle className={isMobile ? 'text-lg' : ''}>In Progress Cases</CardTitle>
               <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Cases currently being worked on by your gig workers, including QC rework cases
+                Accepted cases assigned to gig workers
               </CardDescription>
             </CardHeader>
             <CardContent className={isMobile ? 'px-2' : ''}>
@@ -2019,7 +2019,7 @@ const VendorDashboard: React.FC = () => {
                 <div>
                   <CardTitle className={isMobile ? 'text-lg' : ''}>Unassigned Cases</CardTitle>
                   <CardDescription className={isMobile ? 'text-sm' : ''}>
-                    Accepted cases ready for assignment to gig workers
+                    Accepted cases with vendor assignee type
                   </CardDescription>
                 </div>
                 {selectedCases.size > 0 && (

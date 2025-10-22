@@ -173,7 +173,7 @@ SELECT
     public.is_case_timed_out(c.id) as is_timed_out,
     CASE 
         WHEN c.status = 'allocated' AND public.is_case_timed_out(c.id) THEN 'expired'
-        WHEN c.status = 'allocated' THEN 'pending_acceptance'
+        WHEN c.status = 'allocated' THEN 'allocated'
         WHEN c.status = 'accepted' THEN 'accepted'
         WHEN c.status = 'in_progress' THEN 'in_progress'
         WHEN c.status = 'submitted' THEN 'submitted'

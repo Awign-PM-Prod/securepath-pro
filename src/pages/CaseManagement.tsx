@@ -55,7 +55,7 @@ const mockCases = [
     title: 'Address Verification - Jane Smith',
     description: 'Verify residential address for Jane Smith in Delhi.',
     priority: 'medium' as const,
-    status: 'pending_acceptance' as const,
+    status: 'allocated' as const,
     client: {
       id: '2',
       name: 'XYZ Industries',

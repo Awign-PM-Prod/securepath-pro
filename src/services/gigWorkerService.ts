@@ -500,7 +500,7 @@ export class GigWorkerService {
         `)
         .eq('current_assignee_id', gigWorkerId)
         .eq('current_assignee_type', 'gig')
-        .in('status', ['allocated', 'pending_acceptance', 'accepted', 'in_progress', 'submitted']);
+        .in('status', ['allocated', 'accepted', 'in_progress', 'submitted']);
 
       if (error) throw error;
 
