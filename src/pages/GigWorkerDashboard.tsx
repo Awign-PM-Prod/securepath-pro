@@ -776,15 +776,15 @@ export default function GigWorkerDashboard() {
     // Check if this is a QC rework case by looking at the allQcReviewData
     const isQcRework = caseId && allQcReviewData[caseId] && allQcReviewData[caseId].result === 'rework';
     
-    if (isQcRework && status === 'auto_allocated') {
+    if (isQcRework && status === 'accepted') {
       return <Badge variant="destructive" className="bg-red-100 text-red-800">QC Rework - Pending Acceptance</Badge>;
     }
     
     switch (status) {
-      case 'auto_allocated':
-        return <Badge variant="outline" className="bg-yellow-100 text-yellow-800">Pending Acceptance</Badge>;
+      case 'allocated':
+        return <Badge variant="outline" className="bg-blue-100 text-blue-800">Allocated</Badge>;
       case 'accepted':
-        return <Badge variant="outline" className="bg-blue-100 text-blue-800">Accepted</Badge>;
+        return <Badge variant="outline" className="bg-green-100 text-green-800">Accepted</Badge>;
       case 'in_progress':
         return <Badge variant="outline" className="bg-green-100 text-green-800">In Progress</Badge>;
       case 'submitted':
@@ -833,7 +833,7 @@ export default function GigWorkerDashboard() {
     return new Date() > new Date(deadline);
   };
 
-  const pendingCases = allocatedCases.filter(c => c.status === 'auto_allocated');
+  const pendingCases = allocatedCases.filter(c => c.status === 'allocated');
   
   // Helper function to check if case has form responses
   const hasFormResponse = (caseItem: AllocatedCase) => {
@@ -846,8 +846,8 @@ export default function GigWorkerDashboard() {
     if (c.status === 'accepted' && c.QC_Response !== 'Rework') {
       return true;
     }
-    // Include cases without form responses regardless of status (except auto_allocated, submitted, and rework)
-    if (c.status !== 'auto_allocated' && c.status !== 'submitted' && c.QC_Response !== 'Rework' && !hasFormResponse(c)) {
+    // Include cases without form responses regardless of status (except allocated, accepted, submitted, and rework)
+    if (c.status !== 'allocated' && c.status !== 'accepted' && c.status !== 'submitted' && c.QC_Response !== 'Rework' && !hasFormResponse(c)) {
       return true;
     }
     return false;

@@ -10,7 +10,7 @@ export interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'created' | 'auto_allocated' | 'allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_approved' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
+  status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
   client: {
     id: string;
     name: string;
@@ -686,7 +686,7 @@ export class CaseService {
           candidate_name: caseData.candidate_name,
           phone_primary: caseData.phone_primary,
           phone_secondary: caseData.phone_secondary,
-          status: 'created',
+          status: 'new',
           client_id: caseData.client_id,
           location_id: caseData.location_id,
           vendor_tat_start_date: caseData.vendor_tat_start_date,

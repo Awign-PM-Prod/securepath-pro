@@ -17,7 +17,7 @@ interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
+  status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
   client: {
     id: string;
     name: string;
@@ -56,36 +56,34 @@ interface CaseListProps {
 
 
 const STATUS_COLORS = {
-  created: 'bg-gray-100 text-gray-800',
-  auto_allocated: 'bg-blue-100 text-blue-800',
-  pending_acceptance: 'bg-yellow-100 text-yellow-800',
+  new: 'bg-gray-100 text-gray-800',
+  allocated: 'bg-blue-100 text-blue-800',
   accepted: 'bg-green-100 text-green-800',
+  pending_allocation: 'bg-yellow-100 text-yellow-800',
   in_progress: 'bg-blue-100 text-blue-800',
   submitted: 'bg-purple-100 text-purple-800',
-  qc_pending: 'bg-orange-100 text-orange-800',
   qc_passed: 'bg-green-100 text-green-800',
   qc_rejected: 'bg-red-100 text-red-800',
   qc_rework: 'bg-yellow-100 text-yellow-800',
-  completed: 'bg-green-100 text-green-800',
   reported: 'bg-green-100 text-green-800',
   in_payment_cycle: 'bg-blue-100 text-blue-800',
+  payment_complete: 'bg-green-100 text-green-800',
   cancelled: 'bg-gray-100 text-gray-800',
 };
 
 const STATUS_LABELS = {
-  created: 'Created',
-  auto_allocated: 'Auto Allocated',
-  pending_acceptance: 'Pending Acceptance',
+  new: 'New',
+  allocated: 'Allocated',
   accepted: 'Accepted',
+  pending_allocation: 'Pending Allocation',
   in_progress: 'In Progress',
   submitted: 'Submitted',
-  qc_pending: 'QC Pending',
   qc_passed: 'QC Passed',
   qc_rejected: 'QC Rejected',
   qc_rework: 'QC Rework',
-  completed: 'Completed',
   reported: 'Reported',
   in_payment_cycle: 'In Payment Cycle',
+  payment_complete: 'Payment Complete',
   cancelled: 'Cancelled',
 };
 
@@ -99,6 +97,7 @@ export default function CaseList({
 }: CaseListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [tierFilter, setTierFilter] = useState<string>('all');
 
     const filteredCases = cases.filter(caseItem => {
     const matchesSearch = 
@@ -109,8 +108,9 @@ export default function CaseList({
       caseItem.location.city.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || caseItem.status === statusFilter;
+    const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
     
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesTier;
   });
 
   const getStatusBadge = (status: Case['status']) => (
@@ -204,6 +204,19 @@ export default function CaseList({
                 ))}
               </SelectContent>
             </Select>
+            
+            <Select value={tierFilter} onValueChange={setTierFilter}>
+              <SelectTrigger className="w-32">
+                <MapPin className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tiers</SelectItem>
+                <SelectItem value="tier_1">Tier 1</SelectItem>
+                <SelectItem value="tier_2">Tier 2</SelectItem>
+                <SelectItem value="tier_3">Tier 3</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -213,12 +226,12 @@ export default function CaseList({
             <Building className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-medium mb-2">No cases found</h3>
             <p className="text-muted-foreground mb-4">
-              {searchTerm || statusFilter !== 'all'
+              {searchTerm || statusFilter !== 'all' || tierFilter !== 'all'
                 ? 'Try adjusting your filters'
                 : 'Get started by creating your first case'
               }
             </p>
-            {!searchTerm && statusFilter === 'all' && (
+            {!searchTerm && statusFilter === 'all' && tierFilter === 'all' && (
               <Button onClick={onCreateCase}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Case

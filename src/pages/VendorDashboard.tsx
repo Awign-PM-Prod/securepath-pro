@@ -287,7 +287,7 @@ const VendorDashboard: React.FC = () => {
           updated_at
         `)
         .eq('current_vendor_id', vendorId)
-        .eq('status', 'auto_allocated' as any);
+        .eq('status', 'allocated' as any);
 
       if (allocatedError) {
         console.error('Error fetching allocated cases:', allocatedError);
@@ -347,12 +347,12 @@ const VendorDashboard: React.FC = () => {
       setAssignedCases(cases);
       
       // Categorize cases by status
-      // Pending shows only 'auto_allocated' cases for this vendor
-      const pending = cases.filter(c => c.status === 'auto_allocated' && c.current_vendor_id === vendorId);
+      // Pending shows only 'allocated' cases for this vendor (not yet accepted)
+      const pending = cases.filter(c => c.status === 'allocated' && c.current_vendor_id === vendorId);
       // Unassigned shows 'accepted' cases that are not yet assigned to gig workers
       const unassigned = cases.filter(c => c.status === 'accepted' && c.current_vendor_id === vendorId && !c.current_assignee_id);
-      // In progress shows cases assigned to gig workers (status 'accepted' with gig worker assignee)
-      const inProgress = cases.filter(c => c.status === 'accepted' && c.current_assignee_type === 'gig' && c.current_vendor_id === vendorId);
+      // In progress shows cases assigned to gig workers (status 'in_progress' with gig worker assignee)
+      const inProgress = cases.filter(c => c.status === 'in_progress' && c.current_assignee_type === 'gig' && c.current_vendor_id === vendorId);
       
       // Debug logging
       console.log('All cases for vendor:', cases.map(c => ({
@@ -395,7 +395,7 @@ const VendorDashboard: React.FC = () => {
         })
         .eq('id', caseId)
         .eq('current_vendor_id', vendorId)
-        .eq('status', 'auto_allocated');
+        .eq('status', 'allocated');
 
       if (error) throw error;
 
@@ -431,7 +431,7 @@ const VendorDashboard: React.FC = () => {
         })
         .eq('id', caseId)
         .eq('current_vendor_id', vendorId)
-        .eq('status', 'auto_allocated');
+        .eq('status', 'allocated');
 
       if (error) throw error;
 
@@ -873,8 +873,8 @@ const VendorDashboard: React.FC = () => {
       console.log('All cases for vendor (vendorId=' + vendorId + '):', data);
       console.log('Number of all cases for vendor:', data?.length || 0);
       
-      // Filter to show only cases with status = "created"
-      const createdCases = (data || []).filter(c => (c.status as any) === 'created');
+      // Filter to show only cases with status = "new"
+      const createdCases = (data || []).filter(c => (c.status as any) === 'new');
       console.log('Cases with status=created:', createdCases);
       console.log('Number of created cases:', createdCases.length);
       
@@ -1025,7 +1025,7 @@ const VendorDashboard: React.FC = () => {
   const checkTimeouts = async () => {
     const now = new Date();
     const timeoutCases = pendingCases.filter(caseItem => {
-      if (caseItem.status !== 'auto_allocated') return false;
+      if (caseItem.status !== 'allocated') return false;
       if (!caseItem.acceptance_deadline) return false;
       const deadline = new Date(caseItem.acceptance_deadline);
       return now > deadline;
@@ -1292,8 +1292,8 @@ const VendorDashboard: React.FC = () => {
     let isExpired = false;
     let timeRemaining = 'No timer';
 
-    if (caseItem.status === 'auto_allocated') {
-      // For auto_allocated status, show 30-minute timer from status_updated_at
+    if (caseItem.status === 'allocated') {
+      // For allocated status, show 30-minute timer from status_updated_at
       const allocationTime = caseItem.status_updated_at;
       if (allocationTime) {
         acceptanceDeadline = new Date(new Date(allocationTime).getTime() + (30 * 60 * 1000)).toISOString();
@@ -1316,8 +1316,8 @@ const VendorDashboard: React.FC = () => {
         isExpired = new Date(acceptanceDeadline) < new Date();
         timeRemaining = getReworkTimer(fallbackTime);
       }
-    } else if (caseItem.status === 'accepted') {
-      // For accepted status, show TAT timer based on tat_hours
+    } else if (caseItem.status === 'in_progress') {
+      // For in_progress status, show TAT timer based on tat_hours
       const assignmentTime = caseItem.status_updated_at; // When it was assigned
       const tatHours = caseItem.tat_hours || 24; // Default to 24 hours if not set
       const tatDeadline = new Date(new Date(assignmentTime).getTime() + (tatHours * 60 * 60 * 1000));
@@ -1716,8 +1716,8 @@ const VendorDashboard: React.FC = () => {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
-                          onAccept={caseItem.status === 'auto_allocated' ? () => handleAcceptCase(caseItem.id) : undefined}
-                          onReject={caseItem.status === 'auto_allocated' ? () => handleRejectCase(caseItem.id) : undefined}
+                          onAccept={caseItem.status === 'allocated' ? () => handleAcceptCase(caseItem.id) : undefined}
+                          onReject={caseItem.status === 'allocated' ? () => handleRejectCase(caseItem.id) : undefined}
                           onAssign={caseItem.status === 'qc_rework' ? () => {
                             setSelectedCase(caseItem.id);
                             setAssignmentDialogOpen(true);
@@ -1761,9 +1761,9 @@ const VendorDashboard: React.FC = () => {
                         return `${diffHours}h ${remainingMinutes}m`;
                       };
 
-                      // For auto_allocated cases, show 30-minute timer from status_updated_at
+                      // For allocated cases, show 30-minute timer from status_updated_at
                       let acceptanceDeadline = '';
-                      if (caseItem.status === 'auto_allocated' && caseItem.status_updated_at) {
+                      if (caseItem.status === 'allocated' && caseItem.status_updated_at) {
                         acceptanceDeadline = new Date(new Date(caseItem.status_updated_at).getTime() + (30 * 60 * 1000)).toISOString();
                       } else {
                         acceptanceDeadline = caseItem.acceptance_deadline;
@@ -1824,7 +1824,7 @@ const VendorDashboard: React.FC = () => {
                                   <UserPlus className="h-4 w-4 mr-1" />
                                   Assign to Gig Worker
                                 </Button>
-                              ) : caseItem.status === 'accepted' ? (
+                              ) : caseItem.status === 'in_progress' ? (
                                 <div className="text-sm text-gray-600">
                                   Assigned to Gig Worker
                                 </div>
@@ -1972,7 +1972,7 @@ const VendorDashboard: React.FC = () => {
                                   <UserPlus className="h-4 w-4 mr-1" />
                                   Assign to Gig Worker
                                 </Button>
-                              ) : caseItem.status === 'accepted' ? (
+                              ) : caseItem.status === 'in_progress' ? (
                                 <div className="text-sm text-gray-600">
                                   Assigned to Gig Worker
                                 </div>
@@ -2504,7 +2504,7 @@ const VendorDashboard: React.FC = () => {
                                       <UserPlus className="h-4 w-4 mr-1" />
                                       Assign to Gig Worker
                                     </Button>
-                                  ) : caseItem.status === 'accepted' ? (
+                                  ) : caseItem.status === 'in_progress' ? (
                                     <div className="text-sm text-gray-600">
                                       Assigned to Gig Worker
                                     </div>

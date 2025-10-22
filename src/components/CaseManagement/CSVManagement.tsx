@@ -248,12 +248,19 @@ export default function CSVManagement({ onRefresh }: CSVManagementProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All statuses</SelectItem>
-                      <SelectItem value="created">Created</SelectItem>
-                      <SelectItem value="auto_allocated">Auto Allocated</SelectItem>
+                      <SelectItem value="new">New</SelectItem>
+                      <SelectItem value="allocated">Allocated</SelectItem>
                       <SelectItem value="accepted">Accepted</SelectItem>
+                      <SelectItem value="pending_allocation">Pending Allocation</SelectItem>
                       <SelectItem value="in_progress">In Progress</SelectItem>
                       <SelectItem value="submitted">Submitted</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="qc_passed">QC Passed</SelectItem>
+                      <SelectItem value="qc_rejected">QC Rejected</SelectItem>
+                      <SelectItem value="qc_rework">QC Rework</SelectItem>
+                      <SelectItem value="reported">Reported</SelectItem>
+                      <SelectItem value="in_payment_cycle">In Payment Cycle</SelectItem>
+                      <SelectItem value="payment_complete">Payment Complete</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

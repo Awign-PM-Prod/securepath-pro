@@ -29,7 +29,7 @@ interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'created' | 'auto_allocated' | 'pending_acceptance' | 'accepted' | 'in_progress' | 'submitted' | 'qc_pending' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'completed' | 'reported' | 'in_payment_cycle' | 'cancelled';
+  status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
   client: {
     id: string;
     name: string;
@@ -83,36 +83,34 @@ interface CaseListWithAllocationProps {
 }
 
 const STATUS_COLORS = {
-  created: 'bg-gray-100 text-gray-800',
-  auto_allocated: 'bg-blue-100 text-blue-800',
-  pending_acceptance: 'bg-yellow-100 text-yellow-800',
+  new: 'bg-gray-100 text-gray-800',
+  allocated: 'bg-blue-100 text-blue-800',
   accepted: 'bg-green-100 text-green-800',
+  pending_allocation: 'bg-yellow-100 text-yellow-800',
   in_progress: 'bg-blue-100 text-blue-800',
   submitted: 'bg-purple-100 text-purple-800',
-  qc_pending: 'bg-orange-100 text-orange-800',
   qc_passed: 'bg-green-100 text-green-800',
   qc_rejected: 'bg-red-100 text-red-800',
   qc_rework: 'bg-yellow-100 text-yellow-800',
-  completed: 'bg-green-100 text-green-800',
   reported: 'bg-green-100 text-green-800',
   in_payment_cycle: 'bg-blue-100 text-blue-800',
+  payment_complete: 'bg-green-100 text-green-800',
   cancelled: 'bg-gray-100 text-gray-800',
 };
 
 const STATUS_LABELS = {
-  created: 'Created',
-  auto_allocated: 'Auto Allocated',
-  pending_acceptance: 'Pending Acceptance',
+  new: 'New',
+  allocated: 'Allocated',
   accepted: 'Accepted',
+  pending_allocation: 'Pending Allocation',
   in_progress: 'In Progress',
   submitted: 'Submitted',
-  qc_pending: 'QC Pending',
   qc_passed: 'QC Passed',
   qc_rejected: 'QC Rejected',
   qc_rework: 'QC Rework',
-  completed: 'Completed',
   reported: 'Reported',
   in_payment_cycle: 'In Payment Cycle',
+  payment_complete: 'Payment Complete',
   cancelled: 'Cancelled',
 };
 
@@ -147,9 +145,9 @@ export default function CaseListWithAllocation({
   const [dateFilter, setDateFilter] = useState<Date | null>(null);
   const [tatExpiryFilter, setTatExpiryFilter] = useState<Date | null>(null);
   const [clientFilter, setClientFilter] = useState<string>('all');
+  const [tierFilter, setTierFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
-  const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const [isAllocationDialogOpen, setIsAllocationDialogOpen] = useState(false);
   const [allocationMode, setAllocationMode] = useState<'auto' | 'manual' | null>(null);
   const [isAllocating, setIsAllocating] = useState(false);
@@ -241,17 +239,20 @@ export default function CaseListWithAllocation({
     // Filter by client
     const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
     
-    return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesTatExpiry && matchesClient;
+    // Filter by tier
+    const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
+    
+    return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesTatExpiry && matchesClient && matchesTier;
   }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  // Filter cases that can be allocated (created status, no assignee)
+  // Filter cases that can be allocated (new status, no assignee)
   const allocatableCases = filteredCases.filter(caseItem => 
-    caseItem.status === 'created' && !caseItem.current_assignee
+    caseItem.status === 'new' && !caseItem.current_assignee
   );
 
-  // Filter cases that can be unallocated (auto_allocated status, has assignee)
+  // Filter cases that can be unallocated (allocated status, has assignee)
   const unallocatableCases = filteredCases.filter(caseItem => 
-    (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && 
+    (caseItem.status === 'allocated' || caseItem.status === 'in_progress') && 
     caseItem.current_assignee
   );
 
@@ -264,40 +265,9 @@ export default function CaseListWithAllocation({
   // Show paginated cases for selection, but highlight different types
   const displayCases = paginatedCases;
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      // Select all cases that can be either allocated or unallocated
-      const selectableCases = [...allocatableCases, ...unallocatableCases];
-      setSelectedCases(new Set(selectableCases.map(c => c.id)));
-    } else {
-      setSelectedCases(new Set());
-    }
-  };
 
-  const handleSelectCase = (caseId: string, checked: boolean) => {
-    const newSelected = new Set(selectedCases);
-    if (checked) {
-      newSelected.add(caseId);
-    } else {
-      newSelected.delete(caseId);
-    }
-    setSelectedCases(newSelected);
-  };
-
-  const handleAllocationModeSelect = (mode: 'auto' | 'manual') => {
-    setAllocationMode(mode);
-    setIsAllocationDialogOpen(true);
-  };
 
   const handleAutoAllocate = async () => {
-    if (selectedAllocatableCases.length === 0) {
-      toast({
-        title: 'No Allocatable Cases Selected',
-        description: 'Please select unallocated cases to allocate',
-        variant: 'destructive',
-      });
-      return;
-    }
 
     setIsAllocating(true);
     setAllocationResults(null);
@@ -445,8 +415,8 @@ export default function CaseListWithAllocation({
         errors: [] as string[]
       };
 
-      // Allocate each selected case to the chosen gig worker or vendor
-      for (const caseId of selectedAllocatableCases) {
+      // Allocate each case to the chosen gig worker or vendor
+      for (const caseId of []) {
         try {
           const caseItem = cases.find(c => c.id === caseId);
           if (!caseItem) continue;
@@ -508,24 +478,12 @@ export default function CaseListWithAllocation({
     }
   };
 
-  const handleUnallocate = () => {
-    if (selectedUnallocatableCases.length === 0) {
-      toast({
-        title: 'No Unallocatable Cases Selected',
-        description: 'Please select allocated cases to unallocate',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setIsUnallocationDialogOpen(true);
-  };
 
   const handleConfirmUnallocate = async () => {
-    if (selectedUnallocatableCases.length === 0) return;
 
     setIsUnallocating(true);
     try {
-      const results = await allocationService.unallocateCases(selectedUnallocatableCases, unallocationReason);
+      const results = await allocationService.unallocateCases([], unallocationReason);
 
       toast({
         title: 'Unallocation Complete',
@@ -644,21 +602,7 @@ export default function CaseListWithAllocation({
     );
   };
 
-  const selectableCases = [...allocatableCases, ...unallocatableCases];
-  const isAllSelected = selectableCases.length > 0 && selectedCases.size === selectableCases.length;
-  const isPartiallySelected = selectedCases.size > 0 && selectedCases.size < selectableCases.length;
-
-  // Determine what actions are available based on selected cases
-  const selectedCasesList = Array.from(selectedCases);
-  const selectedAllocatableCases = selectedCasesList.filter(id => 
-    allocatableCases.some(c => c.id === id)
-  );
-  const selectedUnallocatableCases = selectedCasesList.filter(id => 
-    unallocatableCases.some(c => c.id === id)
-  );
   
-  const canAllocate = selectedAllocatableCases.length > 0;
-  const canUnallocate = selectedUnallocatableCases.length > 0;
 
   if (isLoading) {
     return (
@@ -854,6 +798,19 @@ export default function CaseListWithAllocation({
                 })}
               </SelectContent>
             </Select>
+            
+            <Select value={tierFilter} onValueChange={setTierFilter}>
+              <SelectTrigger className="w-32">
+                <MapPin className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tiers</SelectItem>
+                <SelectItem value="tier_1">Tier 1</SelectItem>
+                <SelectItem value="tier_2">Tier 2</SelectItem>
+                <SelectItem value="tier_3">Tier 3</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -877,67 +834,6 @@ export default function CaseListWithAllocation({
           </div>
         )}
 
-        {/* Allocation Controls */}
-        {selectableCases.length > 0 && (
-          <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg mb-6">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="select-all"
-                  checked={isAllSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = isPartiallySelected;
-                  }}
-                  onCheckedChange={handleSelectAll}
-                />
-                <label htmlFor="select-all" className="text-sm font-medium">
-                  Select All ({selectableCases.length} available)
-                </label>
-              </div>
-              <span className="text-sm text-muted-foreground">
-                {selectedCases.size} selected
-              </span>
-            </div>
-            <div className="flex gap-2">
-              {canAllocate && (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => handleAllocationModeSelect('auto')}
-                    className="flex items-center gap-2"
-                  >
-                    <Zap className="h-4 w-4" />
-                    Auto Allocate ({selectedAllocatableCases.length})
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => handleAllocationModeSelect('manual')}
-                    className="flex items-center gap-2"
-                  >
-                    <Users className="h-4 w-4" />
-                    Manual Allocate ({selectedAllocatableCases.length})
-                  </Button>
-                </>
-              )}
-              {canUnallocate && (
-                <Button
-                  variant="outline"
-                  onClick={handleUnallocate}
-                  className="flex items-center gap-2 text-orange-600 hover:text-orange-700"
-                >
-                  <XCircle className="h-4 w-4" />
-                  Unallocate ({selectedUnallocatableCases.length})
-                </Button>
-              )}
-              {!canAllocate && !canUnallocate && selectedCases.size > 0 && (
-                <span className="text-sm text-muted-foreground flex items-center">
-                  <AlertCircle className="h-4 w-4 mr-2" />
-                  Selected cases cannot be allocated or unallocated
-                </span>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Cases Table */}
         {displayCases.length === 0 ? (
@@ -959,55 +855,6 @@ export default function CaseListWithAllocation({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Bulk Selection Header */}
-            {displayCases.length > 0 && (
-              <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={isAllSelected}
-                    ref={(el) => {
-                      if (el) el.indeterminate = isPartiallySelected;
-                    }}
-                    onCheckedChange={handleSelectAll}
-                  />
-                  <span className="text-sm font-medium">
-                    {selectedCases.size} of {displayCases.length} cases selected
-                  </span>
-                </div>
-                {selectedCases.size > 0 && (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleAllocationModeSelect('auto')}
-                      disabled={selectedAllocatableCases.length === 0}
-                    >
-                      <Zap className="h-4 w-4 mr-2" />
-                      Auto Allocate ({selectedAllocatableCases.length})
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleAllocationModeSelect('manual')}
-                      disabled={selectedAllocatableCases.length === 0}
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Manual Allocate ({selectedAllocatableCases.length})
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleUnallocate}
-                      disabled={selectedUnallocatableCases.length === 0}
-                      className="text-orange-600"
-                    >
-                      <XCircle className="h-4 w-4 mr-2" />
-                      Unallocate ({selectedUnallocatableCases.length})
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Case Cards */}
             {displayCases.length === 0 ? (
@@ -1024,24 +871,13 @@ export default function CaseListWithAllocation({
             ) : (
               <div className="grid gap-4">
                  {displayCases.map((caseItem) => {
-                   const isAllocatable = caseItem.status === 'created' && !caseItem.current_assignee;
-                   const isUnallocatable = (caseItem.status === 'auto_allocated' || caseItem.status === 'accepted' || caseItem.status === 'in_progress') && caseItem.current_assignee;
-                   const isSelectable = isAllocatable || isUnallocatable;
-                   const isSelected = selectedCases.has(caseItem.id);
-                  
                   return (
                     <div
                       key={caseItem.id}
-                      className={`border rounded-lg p-4 hover:bg-muted/50 transition-colors ${isSelected ? 'bg-blue-50 border-blue-200' : ''} ${!isSelectable ? 'opacity-60' : ''}`}
+                      className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={(checked) => handleSelectCase(caseItem.id, checked as boolean)}
-                            disabled={!isSelectable}
-                            className="mt-1"
-                          />
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
                               <h3 className="font-semibold text-lg">{caseItem.case_number}</h3>
@@ -1068,18 +904,6 @@ export default function CaseListWithAllocation({
                               <Edit className="h-4 w-4 mr-2" />
                               Edit
                             </DropdownMenuItem>
-                            {caseItem.current_assignee && (
-                              <DropdownMenuItem 
-                                onClick={() => {
-                                  setSelectedCases(new Set([caseItem.id]));
-                                  handleUnallocate();
-                                }}
-                                className="text-orange-600"
-                              >
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Unallocate
-                              </DropdownMenuItem>
-                            )}
                             <DropdownMenuItem 
                               onClick={() => onDeleteCase(caseItem.id)}
                               className="text-red-600"
@@ -1313,8 +1137,8 @@ export default function CaseListWithAllocation({
               </DialogTitle>
               <DialogDescription>
                 {allocationMode === 'auto' 
-                  ? `Allocate ${selectedCases.size} selected cases automatically using the allocation engine.`
-                  : `Manually assign ${selectedCases.size} selected cases to specific gig workers.`
+                  ? `Allocate cases automatically using the allocation engine.`
+                  : `Manually assign cases to specific gig workers.`
                 }
               </DialogDescription>
             </DialogHeader>
@@ -1389,7 +1213,7 @@ export default function CaseListWithAllocation({
             <DialogHeader>
               <DialogTitle>Unallocate Cases</DialogTitle>
               <DialogDescription>
-                This will remove assignments from {selectedUnallocatableCases.length} case{selectedUnallocatableCases.length !== 1 ? 's' : ''} and change their status to 'Created'.
+                This will remove assignments from cases and change their status to 'Created'.
                 The assigned workers will have their capacity freed up.
               </DialogDescription>
             </DialogHeader>
@@ -1437,7 +1261,7 @@ export default function CaseListWithAllocation({
                 ) : (
                   <>
                     <XCircle className="h-4 w-4 mr-2" />
-                    Unallocate {selectedUnallocatableCases.length} Case{selectedUnallocatableCases.length !== 1 ? 's' : ''}
+                    Unallocate Cases
                   </>
                 )}
               </Button>
@@ -1451,7 +1275,7 @@ export default function CaseListWithAllocation({
             <DialogHeader>
               <DialogTitle>Manual Allocation</DialogTitle>
               <DialogDescription>
-                Select allocation type and assignee to manually assign {selectedAllocatableCases.length} case{selectedAllocatableCases.length !== 1 ? 's' : ''}.
+                Select allocation type and assignee to manually assign cases.
               </DialogDescription>
             </DialogHeader>
             
