@@ -19,6 +19,7 @@ import {
   Play,
   Pause
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 import { allocationEngine } from '@/services/allocationEngine';
 import { useToast } from '@/hooks/use-toast';
 
