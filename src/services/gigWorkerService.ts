@@ -32,6 +32,24 @@ export interface CaseDraftRequest {
 
 export class GigWorkerService {
   /**
+   * Determine FI Type based on contract type
+   */
+  private determineFiType(contractType: string): 'business' | 'residence' | 'office' {
+    const contractTypeLower = contractType.toLowerCase();
+    
+    if (contractTypeLower.includes('business') || contractTypeLower.includes('verification')) {
+      return 'business';
+    } else if (contractTypeLower.includes('residence') || contractTypeLower.includes('residential')) {
+      return 'residence';
+    } else if (contractTypeLower.includes('office')) {
+      return 'office';
+    }
+    
+    // Default to business for unknown contract types
+    return 'business';
+  }
+
+  /**
    * Debug gig worker vendor association
    */
   async debugGigWorkerVendorAssociation(gigWorkerId: string): Promise<void> {
@@ -581,7 +599,8 @@ export class GigWorkerService {
           is_direct_gig: gigWorker?.is_direct_gig ?? true,
           vendor_id: gigWorker?.vendor_id,
           acceptance_deadline: log?.acceptance_deadline || caseItem.due_at,
-          actual_submitted_at: actualSubmittedAt
+          actual_submitted_at: actualSubmittedAt,
+          fi_type: this.determineFiType(caseItem.contract_type)
         };
       }) || [];
 

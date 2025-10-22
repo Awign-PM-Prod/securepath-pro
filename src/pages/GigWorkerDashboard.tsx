@@ -42,6 +42,7 @@ interface AllocatedCase {
   vendor_id?: string;
   actual_submitted_at?: string;
   QC_Response?: string;
+  fi_type?: 'business' | 'residence' | 'office';
   clients: {
     id: string;
     name: string;
@@ -655,7 +656,7 @@ export default function GigWorkerDashboard() {
         
         const transformedSubmissionData = {
           submission_data: submissionData,
-          files: submissionResult.submission.form_submission_files || []
+          files: (submissionResult.submission as any).form_submission_files || []
         };
         
         // Set the previous submission data as draft data for editing
@@ -2011,6 +2012,18 @@ export default function GigWorkerDashboard() {
                    draftData={draftData}
                    isAutoSaving={isSaving}
                    lastAutoSaveTime={lastSaveTime}
+                   caseData={{
+                     id: selectedCase.id,
+                     case_number: selectedCase.case_number,
+                     candidate_name: selectedCase.candidate_name,
+                     phone_primary: selectedCase.phone_primary,
+                     location: {
+                       address_line: selectedCase.locations?.address_line || selectedCase.address,
+                       city: selectedCase.locations?.city || selectedCase.city,
+                       pincode: selectedCase.locations?.pincode || selectedCase.pincode
+                     },
+                     fi_type: selectedCase.fi_type
+                   }}
                  />
                </>
              )}
@@ -2126,6 +2139,18 @@ export default function GigWorkerDashboard() {
                     draftData={draftData}
                     isAutoSaving={isSaving}
                     lastAutoSaveTime={lastSaveTime}
+                    caseData={{
+                      id: selectedSubmissionCase.id,
+                      case_number: selectedSubmissionCase.case_number,
+                      candidate_name: selectedSubmissionCase.candidate_name,
+                      phone_primary: selectedSubmissionCase.phone_primary,
+                      location: {
+                        address_line: selectedSubmissionCase.locations.address_line,
+                        city: selectedSubmissionCase.locations.city,
+                        pincode: selectedSubmissionCase.locations.pincode
+                      },
+                      fi_type: selectedSubmissionCase.fi_type
+                    }}
                   />
                 ) : (
                   // View Mode - Show submission details
