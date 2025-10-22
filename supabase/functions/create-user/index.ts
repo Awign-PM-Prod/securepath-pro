@@ -57,7 +57,7 @@ serve(async (req) => {
       )
     }
 
-    const { email, password, first_name, last_name, phone, role, vendor_data } = await req.json()
+    const { email, password, first_name, last_name, phone, role, vendor_data, gig_worker_data } = await req.json()
 
     // Verify permission to create user with this role
     const canCreate = checkPermissions(currentProfile.role, role)
@@ -135,16 +135,34 @@ serve(async (req) => {
 
     // If this is a gig worker, create gig_partners record
     if (role === 'gig_worker') {
-      const { error: gigPartnerError } = await supabaseAdmin
+      const gigPartnerInsert: any = {
+        user_id: authData.user.id,
+        profile_id: profileData.id,
+        is_active: true,
+        is_available: true,
+        created_by: currentUser.id,
+      }
+
+      // Add gig worker specific data if provided
+      if (gig_worker_data) {
+        gigPartnerInsert.address = gig_worker_data.address
+        gigPartnerInsert.city = gig_worker_data.city
+        gigPartnerInsert.state = gig_worker_data.state
+        gigPartnerInsert.pincode = gig_worker_data.pincode
+        gigPartnerInsert.alternate_phone = gig_worker_data.alternate_phone || null
+        gigPartnerInsert.country = gig_worker_data.country || 'India'
+        gigPartnerInsert.coverage_pincodes = gig_worker_data.coverage_pincodes || []
+        gigPartnerInsert.max_daily_capacity = gig_worker_data.max_daily_capacity || 1
+        gigPartnerInsert.capacity_available = gig_worker_data.max_daily_capacity || 1
+        gigPartnerInsert.vendor_id = gig_worker_data.vendor_id || null
+        gigPartnerInsert.is_direct_gig = gig_worker_data.is_direct_gig !== false
+      }
+
+      const { data: gigPartnerData, error: gigPartnerError } = await supabaseAdmin
         .from('gig_partners')
-        .insert({
-          user_id: authData.user.id,
-          profile_id: profileData.id,
-          phone: phone || '',
-          is_active: true,
-          is_available: true,
-          created_by: currentUser.id,
-        })
+        .insert(gigPartnerInsert)
+        .select('id')
+        .single()
 
       if (gigPartnerError) {
         console.error('Gig partner creation error:', gigPartnerError)
@@ -162,6 +180,26 @@ serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           }
         )
+      }
+
+      // Initialize capacity tracking for today
+      if (gigPartnerData && gig_worker_data) {
+        const maxCapacity = gig_worker_data.max_daily_capacity || 1
+        const { error: capacityError } = await supabaseAdmin
+          .from('capacity_tracking')
+          .insert({
+            gig_partner_id: gigPartnerData.id,
+            date: new Date().toISOString().split('T')[0],
+            max_daily_capacity: maxCapacity,
+            initial_capacity_available: maxCapacity,
+            current_capacity_available: maxCapacity,
+            is_active: true,
+          })
+
+        if (capacityError) {
+          console.error('Capacity tracking creation error:', capacityError)
+          // Non-fatal error, log but continue
+        }
       }
     }
 
@@ -233,8 +271,8 @@ function checkPermissions(currentRole: string, targetRole: string): boolean {
     return true
   }
   
-  // Ops team can manage clients and vendors
-  if (currentRole === 'ops_team' && ['client', 'vendor'].includes(targetRole)) {
+  // Ops team can manage clients, vendors, and gig workers
+  if (currentRole === 'ops_team' && ['client', 'vendor', 'gig_worker'].includes(targetRole)) {
     return true
   }
   
