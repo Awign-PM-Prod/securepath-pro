@@ -28,6 +28,18 @@ interface DynamicFormProps {
   draftData?: any;
   isAutoSaving?: boolean;
   lastAutoSaveTime?: Date | null;
+  caseData?: {
+    id: string;
+    case_number: string;
+    candidate_name: string;
+    phone_primary: string;
+    location: {
+      address_line: string;
+      city: string;
+      pincode: string;
+    };
+    fi_type?: 'business' | 'residence' | 'office';
+  };
 }
 
 export const DynamicForm: React.FC<DynamicFormProps> = ({
@@ -44,7 +56,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   onStartFresh,
   draftData,
   isAutoSaving = false,
-  lastAutoSaveTime
+  lastAutoSaveTime,
+  caseData
 }) => {
   const [template, setTemplate] = useState<FormTemplate | null>(null);
   const [formData, setFormData] = useState<FormData>({});
@@ -486,6 +499,45 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           files: []
         };
       });
+
+      // Auto-fill case data for specific fields
+      if (caseData) {
+        console.log('DynamicForm: Auto-filling case data:', caseData);
+        
+        // Define the mapping of case data to form fields
+        const autoFillMappings = {
+          'case_id': caseData.case_number,
+          'lead_id': caseData.case_number,
+          'applicant_name': caseData.candidate_name,
+          'contact_number': caseData.phone_primary,
+          'contact_no': caseData.phone_primary,
+          'city': caseData.location?.city,
+          'address': caseData.location?.address_line,
+          'address_line': caseData.location?.address_line,
+          'current_office_address': caseData.location?.address_line,
+          'current_residential_address': caseData.location?.address_line,
+          'pincode': caseData.location?.pincode,
+          'pin_code': caseData.location?.pincode,
+          'fi_type': caseData.fi_type
+        };
+
+        // Apply auto-fill mappings
+        Object.entries(autoFillMappings).forEach(([fieldKey, value]) => {
+          if (initialData[fieldKey] && value) {
+            console.log(`Auto-filling field ${fieldKey} with value:`, value);
+            initialData[fieldKey] = {
+              ...initialData[fieldKey],
+              value: value
+            };
+          } else if (initialData[fieldKey]) {
+            console.log(`Field ${fieldKey} exists but no value to fill:`, value);
+          } else {
+            console.log(`Field ${fieldKey} not found in form template`);
+          }
+        });
+        
+        console.log('Final initial data after auto-fill:', initialData);
+      }
       
       if (draftData && draftData.submission_data) {
         console.log('DynamicForm: Loading draft data:', draftData);
@@ -1233,6 +1285,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       
       const fieldError = errors[field.field_key];
       
+      // Determine if field should be read-only (auto-filled from case data)
+      const autoFillFields = ['case_id', 'lead_id', 'applicant_name', 'contact_number', 'contact_no', 'city', 'address', 'address_line', 'current_office_address', 'current_residential_address', 'pincode', 'pin_code', 'fi_type'];
+      const isReadOnly = caseData && autoFillFields.includes(field.field_key) && fieldData.value;
+      
       // Debug: Log field data for each field
       if (textFields.includes(field.field_key)) {
         console.log(`Rendering text field ${field.field_key} (${field.field_type}):`, {
@@ -1242,7 +1298,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           valueType: typeof fieldData.value,
           value: fieldData.value,
           isArray: Array.isArray(fieldData.value),
-          formDataKey: formData[field.field_key]
+          formDataKey: formData[field.field_key],
+          isReadOnly
         });
       }
 
@@ -1253,6 +1310,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label htmlFor={field.field_key}>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
+                {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
               </Label>
               <Input
                 id={field.field_key}
@@ -1260,6 +1318,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 onChange={(e) => handleFieldChange(field.field_key, e.target.value)}
                 placeholder={field.field_config.placeholder}
                 maxLength={field.field_config.maxLength}
+                disabled={isReadOnly}
+                className={isReadOnly ? 'bg-gray-100 cursor-not-allowed' : ''}
               />
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>
@@ -1274,6 +1334,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label htmlFor={field.field_key}>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
+                {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
               </Label>
               <Textarea
                 id={field.field_key}
@@ -1282,6 +1343,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 placeholder={field.field_config.placeholder}
                 maxLength={field.field_config.maxLength}
                 rows={4}
+                disabled={isReadOnly}
+                className={isReadOnly ? 'bg-gray-100 cursor-not-allowed' : ''}
               />
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>
@@ -1296,8 +1359,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
+                {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
               </Label>
-              <div className="space-y-2">
+              <div className={`space-y-2 ${isReadOnly ? 'opacity-60' : ''}`}>
                 {field.field_config.options?.map((option, index) => {
                   // Handle both string and object options
                   const optionValue = typeof option === 'string' ? option : option.value || option.label || String(option);
@@ -1310,13 +1374,16 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                         id={`${field.field_key}-${optionKey}`}
                         checked={(fieldData.value as string[])?.includes(optionValue) || false}
                         onCheckedChange={(checked) => {
-                          const currentValues = (fieldData.value as string[]) || [];
-                          if (checked) {
-                            handleFieldChange(field.field_key, [...currentValues, optionValue]);
-                          } else {
-                            handleFieldChange(field.field_key, currentValues.filter(v => v !== optionValue));
+                          if (!isReadOnly) {
+                            const currentValues = (fieldData.value as string[]) || [];
+                            if (checked) {
+                              handleFieldChange(field.field_key, [...currentValues, optionValue]);
+                            } else {
+                              handleFieldChange(field.field_key, currentValues.filter(v => v !== optionValue));
+                            }
                           }
                         }}
+                        disabled={isReadOnly}
                       />
                       <Label htmlFor={`${field.field_key}-${optionKey}`} className="text-sm">
                         {optionLabel}

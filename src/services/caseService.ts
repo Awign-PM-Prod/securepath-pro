@@ -52,6 +52,8 @@ export interface Case {
   // New fields for QC dashboard
   assigned_at?: string;
   submitted_at?: string;
+  // FI Type field for auto-fill
+  fi_type?: 'business' | 'residence' | 'office';
 }
 
 export interface CreateCaseData {
@@ -73,6 +75,24 @@ export interface CreateCaseData {
 }
 
 export class CaseService {
+  /**
+   * Determine FI Type based on contract type
+   */
+  private determineFiType(contractType: string): 'business' | 'residence' | 'office' {
+    const contractTypeLower = contractType.toLowerCase();
+    
+    if (contractTypeLower.includes('business') || contractTypeLower.includes('verification')) {
+      return 'business';
+    } else if (contractTypeLower.includes('residence') || contractTypeLower.includes('residential')) {
+      return 'residence';
+    } else if (contractTypeLower.includes('office')) {
+      return 'office';
+    }
+    
+    // Default to business for unknown contract types
+    return 'business';
+  }
+
   /**
    * Get all cases with related data
    */
@@ -282,6 +302,8 @@ export class CaseService {
             // New fields for QC dashboard
             assigned_at: assignedAt,
             submitted_at: submittedAt,
+            // FI Type determined from contract type
+            fi_type: this.determineFiType(caseItem.contract_type),
           };
         }) || []
       );
@@ -474,6 +496,8 @@ export class CaseService {
             // New fields for QC dashboard
             assigned_at: assignedAt,
             submitted_at: submittedAt,
+            // FI Type determined from contract type
+            fi_type: this.determineFiType(caseItem.contract_type),
           };
         }) || []
       );
@@ -496,10 +520,15 @@ export class CaseService {
           id,
           case_number,
           client_case_id,
+          contract_type,
+          candidate_name,
+          phone_primary,
+          phone_secondary,
           title,
           description,
           priority,
           status,
+          vendor_tat_start_date,
           due_at,
           base_rate_inr,
           total_rate_inr,
@@ -600,6 +629,10 @@ export class CaseService {
         id: data.id,
         case_number: data.case_number,
         client_case_id: data.client_case_id,
+        contract_type: data.contract_type || '', // Add contract_type field
+        candidate_name: data.candidate_name || '', // Add candidate_name field
+        phone_primary: data.phone_primary || '', // Add phone_primary field
+        phone_secondary: data.phone_secondary, // Add phone_secondary field
         title: data.title,
         description: data.description,
         priority: data.priority,
@@ -621,11 +654,13 @@ export class CaseService {
           lat: data.locations.lat,
           lng: data.locations.lng,
         },
+        vendor_tat_start_date: data.vendor_tat_start_date || data.created_at, // Add vendor_tat_start_date
         due_at: data.due_at,
         base_rate_inr: data.base_rate_inr,
-        total_rate_inr: data.total_rate_inr,
-        travel_allowance_inr: 0, // Will be extracted from rate_adjustments
         bonus_inr: 0, // Will be extracted from rate_adjustments
+        penalty_inr: 0, // Add penalty_inr field
+        total_payout_inr: data.total_rate_inr, // Map total_rate_inr to total_payout_inr
+        travel_allowance_inr: 0, // Will be extracted from rate_adjustments
         tat_hours: data.tat_hours,
         instructions: '', // Will be extracted from metadata
         created_at: data.created_at,
@@ -637,6 +672,8 @@ export class CaseService {
         // New fields for QC dashboard
         assigned_at: assignedAt,
         submitted_at: submittedAt,
+        // FI Type determined from contract type
+        fi_type: this.determineFiType(data.contract_type || ''),
       };
     } catch (error) {
       console.error('Failed to fetch case:', error);
