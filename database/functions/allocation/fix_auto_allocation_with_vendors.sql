@@ -244,7 +244,7 @@ BEGIN
             WHEN p_candidate_type = 'vendor' THEN p_candidate_id
             ELSE p_vendor_id
         END,
-        status = 'auto_allocated',
+        status = 'allocated',
         status_updated_at = now()
     WHERE id = p_case_id;
     

@@ -30,7 +30,7 @@ BEGIN
     FROM cases 
     WHERE id = p_case_id;
     
-    -- For QC rework cases, set status to 'auto_allocated' and add 30-minute timer
+    -- For QC rework cases, set status to 'allocated' and add 30-minute timer
     IF case_status = 'qc_rework' THEN
         rework_deadline := NOW() + INTERVAL '30 minutes';
         
@@ -39,7 +39,7 @@ BEGIN
             current_assignee_id = p_gig_worker_id,
             current_assignee_type = 'gig',
             current_vendor_id = p_vendor_id,
-            status = 'auto_allocated',
+            status = 'allocated',
             status_updated_at = NOW(),
             due_at = rework_deadline
         WHERE id = p_case_id;

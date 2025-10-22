@@ -177,6 +177,7 @@ export default function CaseListWithAllocation({
     rejected: 0,
     rework: 0
   });
+  const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   // Calculate QC stats when cases change
@@ -255,6 +256,13 @@ export default function CaseListWithAllocation({
     (caseItem.status === 'allocated' || caseItem.status === 'in_progress') && 
     caseItem.current_assignee
   );
+
+  // Get selected allocatable cases (only new status cases that are selected)
+  const selectedAllocatableCases = Array.from(selectedCases).filter(caseId => {
+    const caseItem = cases.find(c => c.id === caseId);
+    const isAllocatable = caseItem && caseItem.status === 'new' && !caseItem.current_assignee;
+    return isAllocatable;
+  });
 
   // Pagination logic
   const totalPages = Math.ceil(filteredCases.length / itemsPerPage);
@@ -407,6 +415,7 @@ export default function CaseListWithAllocation({
       return;
     }
 
+
     setIsAllocating(true);
     try {
       const results = {
@@ -416,7 +425,7 @@ export default function CaseListWithAllocation({
       };
 
       // Allocate each case to the chosen gig worker or vendor
-      for (const caseId of []) {
+      for (const caseId of selectedAllocatableCases) {
         try {
           const caseItem = cases.find(c => c.id === caseId);
           if (!caseItem) continue;
@@ -600,6 +609,50 @@ export default function CaseListWithAllocation({
         {config.label}
       </span>
     );
+  };
+
+  // Case selection handlers
+  const handleSelectCase = (caseId: string, checked: boolean) => {
+    const newSelectedCases = new Set(selectedCases);
+    if (checked) {
+      newSelectedCases.add(caseId);
+    } else {
+      newSelectedCases.delete(caseId);
+    }
+    setSelectedCases(newSelectedCases);
+  };
+
+  const handleSelectAllCases = (checked: boolean) => {
+    if (checked) {
+      // Select all allocatable cases on current page
+      const newSelectedCases = new Set(selectedCases);
+      displayCases.forEach(caseItem => {
+        if (caseItem.status === 'new' && !caseItem.current_assignee) {
+          newSelectedCases.add(caseItem.id);
+        }
+      });
+      setSelectedCases(newSelectedCases);
+    } else {
+      // Deselect all cases
+      setSelectedCases(new Set());
+    }
+  };
+
+  const isCaseSelected = (caseId: string) => selectedCases.has(caseId);
+
+  const isAllCasesSelected = () => {
+    const allocatableCasesOnPage = displayCases.filter(caseItem => 
+      caseItem.status === 'new' && !caseItem.current_assignee
+    );
+    return allocatableCasesOnPage.length > 0 && 
+           allocatableCasesOnPage.every(caseItem => selectedCases.has(caseItem.id));
+  };
+
+  const isSomeCasesSelected = () => {
+    const allocatableCasesOnPage = displayCases.filter(caseItem => 
+      caseItem.status === 'new' && !caseItem.current_assignee
+    );
+    return allocatableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
   };
 
   
@@ -814,6 +867,50 @@ export default function CaseListWithAllocation({
           </div>
         </div>
 
+        {/* Allocation Actions - Show when cases are selected */}
+        {selectedAllocatableCases.length > 0 && (
+          <div className="mb-6">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                <div className="flex items-center justify-between">
+                  <span>
+                    {selectedAllocatableCases.length} case{selectedAllocatableCases.length > 1 ? 's' : ''} selected for allocation
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => {
+                        setAllocationMode('auto');
+                        setIsAllocationDialogOpen(true);
+                      }}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Zap className="h-4 w-4 mr-2" />
+                      Auto Allocate
+                    </Button>
+                    <Button
+                      onClick={handleManualAllocate}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Manual Allocate
+                    </Button>
+                    <Button
+                      onClick={() => setSelectedCases(new Set())}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Clear Selection
+                    </Button>
+                  </div>
+                </div>
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+
         {/* Allocation Summary */}
         {showSummary && allocationSummary.length > 0 && (
           <div className="mb-6">
@@ -878,6 +975,14 @@ export default function CaseListWithAllocation({
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-start gap-3">
+                          {/* Checkbox for new status cases */}
+                          {caseItem.status === 'new' && !caseItem.current_assignee && (
+                            <Checkbox
+                              checked={isCaseSelected(caseItem.id)}
+                              onCheckedChange={(checked) => handleSelectCase(caseItem.id, checked as boolean)}
+                              className="mt-1"
+                            />
+                          )}
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
                               <h3 className="font-semibold text-lg">{caseItem.case_number}</h3>
@@ -1275,7 +1380,7 @@ export default function CaseListWithAllocation({
             <DialogHeader>
               <DialogTitle>Manual Allocation</DialogTitle>
               <DialogDescription>
-                Select allocation type and assignee to manually assign cases.
+                Select allocation type and assignee to manually assign {selectedAllocatableCases.length} selected case{selectedAllocatableCases.length !== 1 ? 's' : ''}.
               </DialogDescription>
             </DialogHeader>
             

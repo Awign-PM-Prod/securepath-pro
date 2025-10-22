@@ -176,7 +176,7 @@ BEGIN
         SET 
           current_vendor_id = candidate.candidate_id,
           current_assignee_type = 'vendor',
-          status = 'auto_allocated',
+          status = 'allocated',
           status_updated_at = now()
         WHERE id = case_id;
         

@@ -251,8 +251,8 @@ export class AllocationService {
         .from('allocation_logs')
         .insert({
           case_id: request.caseId,
-          gig_partner_id: request.gigWorkerId,
-          allocation_type: 'manual',
+          candidate_id: request.gigWorkerId,
+          candidate_type: 'gig',
           wave_number: 1,
           decision: 'allocated',
           decision_at: new Date().toISOString(),
@@ -390,8 +390,9 @@ export class AllocationService {
         .from('allocation_logs')
         .insert({
           case_id: request.caseId,
-          gig_partner_id: request.vendorId, // Use gig_partner_id for vendor allocation
-          allocation_type: 'manual',
+          candidate_id: request.vendorId,
+          candidate_type: 'vendor',
+          vendor_id: request.vendorId,
           wave_number: 1,
           decision: 'allocated',
           decision_at: new Date().toISOString(),

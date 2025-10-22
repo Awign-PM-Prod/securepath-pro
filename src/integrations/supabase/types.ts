@@ -868,7 +868,7 @@ export type Database = {
       app_role: "super_admin" | "ops_team" | "vendor_team" | "qc_team" | "vendor" | "gig_worker" | "client"
       assignee_type: "gig" | "vendor"
       case_priority: "low" | "medium" | "high" | "urgent"
-      case_status: "new" | "auto_allocated" | "allocated" | "pending_allocation" | "accepted" | "rejected" | "in_progress" | "submitted" | "qc_passed" | "qc_rejected" | "qc_rework" | "completed" | "reported" | "in_payment_cycle" | "payment_complete" | "cancelled"
+      case_status: "new" | "allocated" | "pending_allocation" | "accepted" | "rejected" | "in_progress" | "submitted" | "qc_passed" | "qc_rejected" | "qc_rework" | "completed" | "reported" | "in_payment_cycle" | "payment_complete" | "cancelled"
       completion_slab: "within_24h" | "within_48h" | "within_72h" | "within_1w"
       notification_channel: "email" | "sms" | "whatsapp" | "push"
       notification_status: "pending" | "sent" | "delivered" | "failed" | "bounced"

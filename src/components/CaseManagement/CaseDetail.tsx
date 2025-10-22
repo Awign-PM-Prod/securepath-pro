@@ -428,7 +428,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Bonuses can be added for cases in created, auto_allocated, or pending_acceptance status
+                      Bonuses can be added for cases in created, allocated, or pending_acceptance status
                     </p>
                   </div>
                 )}
@@ -708,7 +708,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
 
 // Helper function to check if bonus can be added
 function canAddBonus(status: string): boolean {
-  return ['created', 'auto_allocated', 'pending_acceptance'].includes(status);
+  return ['created', 'allocated', 'pending_acceptance'].includes(status);
 }
 
 // AddBonusDialog component

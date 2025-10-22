@@ -262,7 +262,7 @@ const VendorDashboard: React.FC = () => {
     }
 
     try {
-      // Fetch cases auto_allocated to this vendor
+      // Fetch cases allocated to this vendor
       const { data: allocatedData, error: allocatedError } = await supabase
         .from('cases')
         .select(`
@@ -364,7 +364,7 @@ const VendorDashboard: React.FC = () => {
         current_assignee_type: c.current_assignee_type
       })));
       
-      console.log('Pending cases (auto_allocated to vendor):', pending);
+      console.log('Pending cases (allocated to vendor):', pending);
       console.log('In progress cases:', inProgress);
       console.log('Unassigned cases (accepted, not assigned to gig worker):', unassigned);
       
@@ -382,7 +382,7 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
-  // Accept case (for auto_allocated cases)
+  // Accept case (for allocated cases)
   const handleAcceptCase = async (caseId: string) => {
     try {
       const { error } = await supabase
@@ -415,7 +415,7 @@ const VendorDashboard: React.FC = () => {
     }
   };
 
-  // Reject case (for auto_allocated cases)
+  // Reject case (for allocated cases)
   const handleRejectCase = async (caseId: string) => {
     try {
       const { error } = await supabase

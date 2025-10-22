@@ -500,7 +500,7 @@ export class GigWorkerService {
         `)
         .eq('current_assignee_id', gigWorkerId)
         .eq('current_assignee_type', 'gig')
-        .in('status', ['auto_allocated', 'pending_acceptance', 'accepted', 'in_progress', 'submitted']);
+        .in('status', ['allocated', 'pending_acceptance', 'accepted', 'in_progress', 'submitted']);
 
       if (error) throw error;
 
@@ -666,7 +666,7 @@ export class GigWorkerService {
         .eq('candidate_id', gigWorkerId)
         .eq('decision', 'allocated')
         .lt('acceptance_deadline', now)
-        .eq('cases.status', 'auto_allocated');
+        .eq('cases.status', 'allocated');
 
       if (casesError) throw casesError;
 

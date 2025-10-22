@@ -100,7 +100,7 @@ BEGIN
         SET 
           current_assignee_id = candidate_record.gig_partner_id,
           current_assignee_type = 'gig',
-          status = 'auto_allocated',
+          status = 'allocated',
           status_updated_at = now(),
           updated_at = now()
         WHERE id = case_record.id;

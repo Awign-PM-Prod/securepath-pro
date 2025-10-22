@@ -263,7 +263,7 @@ export default function GigWorkerDashboard() {
   const checkTimeouts = async () => {
     const now = new Date();
     const timeoutCases = allocatedCases.filter(caseItem => {
-      if (caseItem.status !== 'auto_allocated') return false;
+      if (caseItem.status !== 'allocated') return false;
       const deadline = new Date(caseItem.acceptance_deadline);
       return now > deadline;
     });

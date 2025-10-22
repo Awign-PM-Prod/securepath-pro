@@ -40,7 +40,7 @@ export class AllocationSummaryService {
             pincode_tier
           )
         `)
-        .eq('status', 'auto_allocated')
+        .eq('status', 'allocated')
         .not('current_assignee_id', 'is', null);
 
       if (caseIds && caseIds.length > 0) {
@@ -267,7 +267,7 @@ export class AllocationSummaryService {
             )
           )
         `)
-        .eq('status', 'auto_allocated')
+        .eq('status', 'allocated')
         .not('current_assignee_id', 'is', null)
         .gte('created_at', startDate)
         .lte('created_at', endDate);

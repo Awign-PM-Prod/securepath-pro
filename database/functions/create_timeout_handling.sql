@@ -23,7 +23,7 @@ BEGIN
         INNER JOIN public.cases c ON al.case_id = c.id
         WHERE al.decision = 'allocated'
         AND al.acceptance_deadline < NOW()
-        AND c.status = 'auto_allocated'
+        AND c.status = 'allocated'
         AND c.current_assignee_id = al.candidate_id
     LOOP
         -- Update case status to created and remove assignee
@@ -96,10 +96,10 @@ BEGIN
     INNER JOIN public.cases c ON al.case_id = c.id
     WHERE al.case_id = p_case_id
     AND al.decision = 'allocated'
-    AND c.status = 'auto_allocated';
+    AND c.status = 'allocated';
 
-    -- Return true if deadline has passed and case is still auto_allocated
-    RETURN deadline IS NOT NULL AND deadline < NOW() AND case_status = 'auto_allocated';
+    -- Return true if deadline has passed and case is still allocated
+    RETURN deadline IS NOT NULL AND deadline < NOW() AND case_status = 'allocated';
 END;
 $$;
 
@@ -142,7 +142,7 @@ WHERE decision = 'allocated';
 -- Create an index on cases for timeout status check
 CREATE INDEX IF NOT EXISTS idx_cases_timeout_status 
 ON public.cases (status, current_assignee_id) 
-WHERE status = 'auto_allocated';
+WHERE status = 'allocated';
 
 -- Create a view for gig workers to see their cases with timeout info
 CREATE OR REPLACE VIEW public.gig_worker_cases AS
@@ -172,8 +172,8 @@ SELECT
     public.get_case_acceptance_time_remaining(c.id) as time_remaining,
     public.is_case_timed_out(c.id) as is_timed_out,
     CASE 
-        WHEN c.status = 'auto_allocated' AND public.is_case_timed_out(c.id) THEN 'expired'
-        WHEN c.status = 'auto_allocated' THEN 'pending_acceptance'
+        WHEN c.status = 'allocated' AND public.is_case_timed_out(c.id) THEN 'expired'
+        WHEN c.status = 'allocated' THEN 'pending_acceptance'
         WHEN c.status = 'accepted' THEN 'accepted'
         WHEN c.status = 'in_progress' THEN 'in_progress'
         WHEN c.status = 'submitted' THEN 'submitted'

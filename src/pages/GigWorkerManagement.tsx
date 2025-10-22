@@ -391,7 +391,7 @@ export default function GigWorkerManagement() {
           .from('cases')
           .select('id', { count: 'exact' })
           .eq('current_assignee_id', editingWorker.id)
-          .in('status', ['auto_allocated', 'accepted', 'in_progress', 'submitted']);
+          .in('status', ['allocated', 'accepted', 'in_progress', 'submitted']);
 
         if (activeCasesError) {
           console.error('Error fetching active cases:', activeCasesError);
