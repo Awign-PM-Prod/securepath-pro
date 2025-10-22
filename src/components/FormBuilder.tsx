@@ -45,7 +45,7 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
       field_type: 'short_answer',
       validation_type: 'mandatory',
       field_config: {},
-      field_order: template.fields.length
+      field_order: (template.fields || []).length
     };
     setEditingField(newField);
     setShowFieldEditor(true);
@@ -79,7 +79,7 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
   const deleteField = (index: number) => {
     setTemplate(prev => ({
       ...prev,
-      fields: prev.fields.filter((_, i) => i !== index).map((field, i) => ({
+      fields: (prev.fields || []).filter((_, i) => i !== index).map((field, i) => ({
         ...field,
         field_order: i
       }))
@@ -289,7 +289,7 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
             <Droppable droppableId="fields">
               {(provided) => (
                 <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-2">
-                  {template.fields.map((field, index) => (
+                  {(template.fields || []).map((field, index) => (
                     <Draggable key={index} draggableId={index.toString()} index={index}>
                       {(provided) => (
                         <div

@@ -82,7 +82,22 @@ export default function FormManagement() {
   };
 
   const handleEditTemplate = (template: FormTemplate) => {
-    setEditingTemplate(template);
+    // Convert FormTemplate to FormBuilderTemplate format
+    const formBuilderTemplate = {
+      template_name: template.template_name,
+      contract_type_id: template.contract_type_id,
+      fields: template.form_fields?.map(field => ({
+        field_key: field.field_key,
+        field_title: field.field_title,
+        field_type: field.field_type,
+        validation_type: field.validation_type,
+        field_config: field.field_config,
+        field_order: field.field_order,
+        depends_on_field_id: field.depends_on_field_id,
+        depends_on_value: field.depends_on_value
+      })) || []
+    };
+    setEditingTemplate(formBuilderTemplate as any);
     setSelectedContractType(template.contract_type_id);
     setIsFormBuilderOpen(true);
   };
@@ -255,7 +270,7 @@ export default function FormManagement() {
                     </TableCell>
                     <TableCell>v{template.template_version}</TableCell>
                     <TableCell>
-                      {template.fields?.length || 0} fields
+                      {template.form_fields?.length || 0} fields
                     </TableCell>
                     <TableCell>
                       <Badge variant={template.is_active ? 'default' : 'secondary'}>
