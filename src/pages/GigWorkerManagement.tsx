@@ -279,52 +279,84 @@ export default function GigWorkerManagement() {
         return;
       }
 
-      // First create a user profile
+      // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
       // Handle vendor_id - convert "direct" or empty string to null
       const vendorId = (formData.vendor_id === 'direct' || formData.vendor_id === '' || !formData.vendor_id) ? null : formData.vendor_id;
 
-      // Use the database function to create gig worker (bypasses RLS)
-      const { data: gigPartnerId, error: functionError } = await supabase
-        .rpc('create_gig_worker_profile', {
-          p_first_name: formData.first_name,
-          p_last_name: formData.last_name,
-          p_email: formData.email,
-          p_phone: formData.phone,
-          p_address: formData.address,
-          p_city: formData.city,
-          p_state: formData.state,
-          p_pincode: formData.pincode,
-          p_alternate_phone: formData.alternate_phone || null,
-          p_country: formData.country,
-          p_coverage_pincodes: formData.coverage_pincodes,
-          p_max_daily_capacity: formData.max_daily_capacity,
-          p_vendor_id: vendorId,
-          p_is_direct_gig: formData.is_direct_gig,
-          p_is_active: formData.is_active,
-          p_is_available: formData.is_available,
-          p_created_by: user.id
-        });
+      // Generate a temporary password - user will set their own via email
+      const tempPassword = Math.random().toString(36).slice(-12) + 'Aa1!';
+
+      // Call the create-user edge function to create auth user and related records
+      const { data, error: functionError } = await supabase.functions.invoke('create-user', {
+        body: {
+          email: formData.email,
+          password: tempPassword,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          phone: formData.phone,
+          role: 'gig_worker',
+          gig_worker_data: {
+            address: formData.address,
+            city: formData.city,
+            state: formData.state,
+            pincode: formData.pincode,
+            alternate_phone: formData.alternate_phone || null,
+            country: formData.country,
+            coverage_pincodes: formData.coverage_pincodes,
+            max_daily_capacity: formData.max_daily_capacity,
+            vendor_id: vendorId,
+            is_direct_gig: formData.is_direct_gig,
+          }
+        }
+      });
 
       if (functionError) {
         console.error('Function error:', functionError);
-        
-        // Handle specific error cases
-        if (functionError.message.includes('unique constraint') || 
-            functionError.message.includes('duplicate key') ||
-            functionError.message.includes('unique_phone_number')) {
-          throw new Error('A gig worker with this phone number already exists. Please use a different phone number.');
-        }
-        
         throw new Error('Failed to create gig worker: ' + functionError.message);
       }
 
-      toast({
-        title: 'Success',
-        description: 'Gig worker created successfully',
-      });
+      if (data?.error) {
+        console.error('Edge function error:', data.error);
+        
+        // Handle specific error cases
+        if (data.error.includes('unique constraint') || 
+            data.error.includes('duplicate key') ||
+            data.error.includes('already exists')) {
+          throw new Error('A user with this email or phone number already exists.');
+        }
+        
+        throw new Error('Failed to create gig worker: ' + data.error);
+      }
+
+      // Send password reset email so gig worker can set their own password
+      try {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(formData.email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+
+        if (resetError) {
+          console.warn('Failed to send password reset email:', resetError);
+          toast({
+            title: 'User Created',
+            description: 'Gig worker created but failed to send setup email. Please send password reset manually.',
+            variant: 'default',
+          });
+        } else {
+          toast({
+            title: 'Success',
+            description: `${formData.first_name} ${formData.last_name} has been created. Setup email sent to ${formData.email}`,
+          });
+        }
+      } catch (emailError) {
+        console.warn('Error sending setup email:', emailError);
+        toast({
+          title: 'User Created',
+          description: 'Gig worker created successfully. Please send password reset email manually.',
+        });
+      }
 
       setIsCreateDialogOpen(false);
       resetForm();
@@ -754,53 +786,48 @@ export default function GigWorkerManagement() {
           // Debug logging
           console.log(`Row ${i + 2} - vendorId:`, vendorId, 'type:', typeof vendorId);
 
-          const { error: functionError } = await supabase.rpc('create_gig_worker_profile', {
-            p_first_name: rowData.first_name.trim(),
-            p_last_name: rowData.last_name.trim(),
-            p_email: rowData.email.trim(),
-            p_phone: rowData.phone.trim(),
-            p_address: rowData.address.trim(),
-            p_city: rowData.city.trim(),
-            p_state: rowData.state.trim(),
-            p_pincode: rowData.pincode.trim(),
-            p_alternate_phone: rowData.alternate_phone?.trim() || null,
-            p_country: rowData.country?.trim() || 'India',
-            p_coverage_pincodes: coveragePincodes,
-            p_max_daily_capacity: parseInt(rowData.max_daily_capacity) || 1,
-            p_vendor_id: vendorId,
-            p_is_direct_gig: rowData.is_direct_gig !== 'false',
-            p_is_active: rowData.is_active !== 'false',
-            p_is_available: rowData.is_available !== 'false',
-            p_created_by: user.id
+          // Generate a temporary password - user will set their own via email
+          const tempPassword = Math.random().toString(36).slice(-12) + 'Aa1!';
+
+          const { data, error: functionError } = await supabase.functions.invoke('create-user', {
+            body: {
+              email: rowData.email.trim(),
+              password: tempPassword,
+              first_name: rowData.first_name.trim(),
+              last_name: rowData.last_name.trim(),
+              phone: rowData.phone.trim(),
+              role: 'gig_worker',
+              gig_worker_data: {
+                address: rowData.address.trim(),
+                city: rowData.city.trim(),
+                state: rowData.state.trim(),
+                pincode: rowData.pincode.trim(),
+                alternate_phone: rowData.alternate_phone?.trim() || null,
+                country: rowData.country?.trim() || 'India',
+                coverage_pincodes: coveragePincodes,
+                max_daily_capacity: parseInt(rowData.max_daily_capacity) || 1,
+                vendor_id: vendorId,
+                is_direct_gig: rowData.is_direct_gig !== 'false',
+              }
+            }
           });
 
-          if (functionError) {
+          if (functionError || data?.error) {
             results.failed++;
-            let errorMessage = functionError.message;
+            const errorMessage = functionError?.message || data?.error || 'Unknown error';
             
             // Provide more specific error messages
-            if (functionError.message.includes('unique constraint') || functionError.message.includes('duplicate key')) {
-              errorMessage = `Phone number ${rowData.phone} already exists`;
-            } else if (functionError.message.includes('invalid input value for enum')) {
-              errorMessage = `Invalid enum value in row data`;
-            } else if (functionError.message.includes('null value in column')) {
-              errorMessage = `Missing required field: ${functionError.message.split('"')[1] || 'unknown field'}`;
-            } else if (functionError.message.includes('invalid input syntax for type uuid')) {
-              const invalidValue = functionError.message.match(/"([^"]+)"/)?.[1] || 'unknown value';
-              if (invalidValue === '') {
-                errorMessage = `Vendor ID cannot be empty string - leave the vendor_id column completely empty for direct gig workers`;
-              } else {
-                errorMessage = `Invalid vendor ID "${invalidValue}" - must be a valid UUID or leave empty for direct gig worker`;
-              }
-            } else if (functionError.message.includes('foreign key constraint')) {
-              errorMessage = `Invalid vendor ID - vendor does not exist in system`;
-            } else if (functionError.message.includes('check constraint')) {
-              errorMessage = `Invalid data format - check your input values`;
-            } else if (functionError.message.includes('value too long')) {
-              errorMessage = `Data too long for field - please shorten your input`;
+            if (errorMessage.includes('unique constraint') || errorMessage.includes('duplicate key') || errorMessage.includes('already exists')) {
+              results.errors.push(`Row ${i + 2}: Email or phone ${rowData.email} already exists`);
+            } else if (errorMessage.includes('invalid input value for enum')) {
+              results.errors.push(`Row ${i + 2}: Invalid enum value in row data`);
+            } else if (errorMessage.includes('null value in column')) {
+              results.errors.push(`Row ${i + 2}: Missing required field`);
+            } else if (errorMessage.includes('foreign key constraint')) {
+              results.errors.push(`Row ${i + 2}: Invalid vendor ID - vendor does not exist in system`);
+            } else {
+              results.errors.push(`Row ${i + 2}: ${errorMessage}`);
             }
-            
-            results.errors.push(`Row ${i + 2}: ${errorMessage}`);
           } else {
             results.success++;
           }
