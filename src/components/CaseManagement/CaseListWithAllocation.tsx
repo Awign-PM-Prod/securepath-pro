@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
+import { isRecreatedCase } from '@/utils/caseUtils';
 import { useToast } from '@/hooks/use-toast';
 import { allocationService } from '@/services/allocationService';
 import { allocationSummaryService, AllocationSummaryData } from '@/services/allocationSummaryService';
@@ -985,7 +986,14 @@ export default function CaseListWithAllocation({
                           )}
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
-                              <h3 className="font-semibold text-lg">{caseItem.case_number}</h3>
+                              <h3 className="font-semibold text-lg flex items-center gap-2">
+                                {caseItem.case_number}
+                                {isRecreatedCase(caseItem.case_number) && (
+                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                                    Recreated
+                                  </Badge>
+                                )}
+                              </h3>
                               {getStatusBadge(caseItem.status)}
                             </div>
                             <p className="text-sm text-muted-foreground mb-2">

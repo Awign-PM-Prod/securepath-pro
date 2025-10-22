@@ -15,6 +15,7 @@ import { format, differenceInMinutes } from 'date-fns';
 import { allocationService } from '@/services/allocationService';
 import VendorAssociationBadge from '@/components/VendorAssociationBadge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { isRecreatedCase } from '@/utils/caseUtils';
 import { 
   Users, 
   Briefcase, 
@@ -1344,6 +1345,11 @@ const VendorDashboard: React.FC = () => {
             <div className="flex-1 min-w-0 pr-2">
               <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
                 {caseItem.case_number}
+                {isRecreatedCase(caseItem.case_number) && (
+                  <Badge variant="outline" className="ml-2 text-xs border-orange-300 text-orange-700 bg-orange-50">
+                    Recreated
+                  </Badge>
+                )}
               </CardTitle>
               <CardDescription className="text-sm text-gray-600 mt-1">
                 {caseItem.title}

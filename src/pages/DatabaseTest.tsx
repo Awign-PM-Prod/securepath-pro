@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Database, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { caseService } from '@/services/caseService';
+import { isRecreatedCase } from '@/utils/caseUtils';
 
 interface ConnectionStatus {
   supabase: 'connected' | 'disconnected' | 'testing';
@@ -91,6 +92,83 @@ export default function DatabaseTest() {
       // Test clients
       const clientsData = await caseService.getClients();
       results.push(`✅ Client service working. Found ${clientsData.length} clients`);
+
+      // Test 4: Recreated case detection
+      results.push('Testing recreated case detection...');
+      const testCases = [
+        'CASE-001',
+        'CASE-002(1)',
+        'CASE-003',
+        'CASE-004(1)',
+        'CASE-005',
+        'CASE-006(1)'
+      ];
+      
+      let recreatedCount = 0;
+      testCases.forEach(caseNumber => {
+        const isRecreated = isRecreatedCase(caseNumber);
+        if (isRecreated) {
+          recreatedCount++;
+        }
+        results.push(`   ${caseNumber}: ${isRecreated ? '✅ Recreated' : '❌ Not recreated'}`);
+      });
+      
+      results.push(`✅ Recreated case detection working. Found ${recreatedCount} recreated cases out of ${testCases.length} test cases`);
+
+      // Test 4: Coordinate auto-fill functionality
+      results.push('Testing coordinate auto-fill functionality...');
+      try {
+        if (navigator.geolocation) {
+          const locationPromise = new Promise<{lat: number; lng: number; address?: string; pincode: string; accuracy?: number}>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+              async (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                
+                // Try to get address and pincode from coordinates
+                let address = '';
+                let pincode = '';
+                try {
+                  const response = await fetch(
+                    `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+                  );
+                  const data = await response.json();
+                  address = `${data.locality || ''} ${data.city || ''} ${data.principalSubdivision || ''}`.trim();
+                  pincode = data.postcode || '';
+                } catch (e) {
+                  console.warn('Could not get address and pincode from coordinates:', e);
+                }
+
+                resolve({
+                  lat: latitude,
+                  lng: longitude,
+                  address: address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+                  pincode: pincode || '',
+                  accuracy: accuracy
+                });
+              },
+              (error) => {
+                reject(new Error(`Location error: ${error.message}`));
+              },
+              {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 300000 // 5 minutes
+              }
+            );
+          });
+          
+          const location = await locationPromise;
+          const coordinatesValue = `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`;
+          results.push(`✅ Coordinate auto-fill working: ${coordinatesValue}`);
+          results.push(`   Address: ${location.address}`);
+          results.push(`   Pincode: ${location.pincode || 'Not available'}`);
+          results.push(`   Accuracy: ${location.accuracy ? `${Math.round(location.accuracy)}m` : 'Unknown'}`);
+        } else {
+          results.push('❌ Geolocation not supported in this browser');
+        }
+      } catch (error) {
+        results.push(`❌ Coordinate auto-fill test failed: ${error.message}`);
+      }
 
     } catch (error) {
       results.push(`❌ Unexpected error: ${error}`);

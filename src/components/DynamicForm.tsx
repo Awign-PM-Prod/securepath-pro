@@ -538,6 +538,39 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         console.log('Final initial data after auto-fill:', initialData);
       }
+
+      // Auto-fill latitude/longitude coordinates
+      try {
+        const location = await getCurrentLocation();
+        console.log('DynamicForm: Auto-filling coordinates:', location);
+        
+        // Define coordinate field mappings
+        const coordinateFields = [
+          'latitude_and_longitude',
+          'lat_lng',
+          'coordinates',
+          'location_coordinates'
+        ];
+        
+        // Format coordinates as "lat, lng"
+        const coordinatesValue = `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`;
+        
+        // Apply coordinate auto-fill to matching fields
+        coordinateFields.forEach(fieldKey => {
+          if (initialData[fieldKey]) {
+            console.log(`Auto-filling coordinate field ${fieldKey} with value:`, coordinatesValue);
+            initialData[fieldKey] = {
+              ...initialData[fieldKey],
+              value: coordinatesValue
+            };
+          }
+        });
+        
+        console.log('Coordinates auto-filled successfully');
+      } catch (error) {
+        console.warn('Could not auto-fill coordinates:', error);
+        // Don't show error to user as this is optional functionality
+      }
       
       if (draftData && draftData.submission_data) {
         console.log('DynamicForm: Loading draft data:', draftData);
@@ -628,6 +661,39 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         // Load files from draft data (now included in the draft)
         const updatedFormData = await loadDraftFilesFromDraft(draftData, initialData);
+        
+        // Auto-fill coordinates for draft data if not already present
+        try {
+          const location = await getCurrentLocation();
+          console.log('DynamicForm: Auto-filling coordinates for draft:', location);
+          
+          // Define coordinate field mappings
+          const coordinateFields = [
+            'latitude_and_longitude',
+            'lat_lng',
+            'coordinates',
+            'location_coordinates'
+          ];
+          
+          // Format coordinates as "lat, lng"
+          const coordinatesValue = `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`;
+          
+          // Apply coordinate auto-fill to matching fields (only if not already filled)
+          coordinateFields.forEach(fieldKey => {
+            if (updatedFormData[fieldKey] && (!updatedFormData[fieldKey].value || updatedFormData[fieldKey].value === '')) {
+              console.log(`Auto-filling coordinate field ${fieldKey} with value:`, coordinatesValue);
+              updatedFormData[fieldKey] = {
+                ...updatedFormData[fieldKey],
+                value: coordinatesValue
+              };
+            }
+          });
+          
+          console.log('Coordinates auto-filled for draft successfully');
+        } catch (error) {
+          console.warn('Could not auto-fill coordinates for draft:', error);
+          // Don't show error to user as this is optional functionality
+        }
         
         // Update form data with loaded files
         console.log('DynamicForm: Setting form data to:', updatedFormData);
@@ -1287,7 +1353,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       
       // Determine if field should be read-only (auto-filled from case data)
       const autoFillFields = ['case_id', 'lead_id', 'applicant_name', 'contact_number', 'contact_no', 'city', 'address', 'address_line', 'current_office_address', 'current_residential_address', 'pincode', 'pin_code', 'fi_type'];
+      const coordinateFields = ['latitude_and_longitude', 'lat_lng', 'coordinates', 'location_coordinates'];
       const isReadOnly = caseData && autoFillFields.includes(field.field_key) && fieldData.value;
+      const isCoordinateAutoFilled = coordinateFields.includes(field.field_key) && fieldData.value;
       
       // Debug: Log field data for each field
       if (textFields.includes(field.field_key)) {
@@ -1311,6 +1379,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
                 {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isCoordinateAutoFilled && <span className="text-green-600 ml-2 text-sm">(Auto-filled from GPS)</span>}
               </Label>
               <Input
                 id={field.field_key}
@@ -1318,8 +1387,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 onChange={(e) => handleFieldChange(field.field_key, e.target.value)}
                 placeholder={field.field_config.placeholder}
                 maxLength={field.field_config.maxLength}
-                disabled={isReadOnly}
-                className={isReadOnly ? 'bg-gray-100 cursor-not-allowed' : ''}
+                disabled={isReadOnly || isCoordinateAutoFilled}
+                className={isReadOnly || isCoordinateAutoFilled ? 'bg-gray-100 cursor-not-allowed' : ''}
               />
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>
@@ -1335,6 +1404,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
                 {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isCoordinateAutoFilled && <span className="text-green-600 ml-2 text-sm">(Auto-filled from GPS)</span>}
               </Label>
               <Textarea
                 id={field.field_key}
@@ -1343,8 +1413,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 placeholder={field.field_config.placeholder}
                 maxLength={field.field_config.maxLength}
                 rows={4}
-                disabled={isReadOnly}
-                className={isReadOnly ? 'bg-gray-100 cursor-not-allowed' : ''}
+                disabled={isReadOnly || isCoordinateAutoFilled}
+                className={isReadOnly || isCoordinateAutoFilled ? 'bg-gray-100 cursor-not-allowed' : ''}
               />
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>

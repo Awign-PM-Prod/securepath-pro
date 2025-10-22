@@ -17,6 +17,7 @@ import { FormData } from '@/types/form';
 import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
 import { getGigWorkerVendorInfo } from '@/utils/vendorGigWorkerUtils';
 import { NotificationPermission } from '@/components/NotificationPermission';
+import { isRecreatedCase } from '@/utils/caseUtils';
 
 interface AllocatedCase {
   id: string;
@@ -928,6 +929,11 @@ export default function GigWorkerDashboard() {
                     Rework
                   </Badge>
                 )}
+                {isRecreatedCase(caseItem.case_number) && (
+                  <Badge variant="outline" className="ml-2 text-xs border-orange-300 text-orange-700 bg-orange-50">
+                    Recreated
+                  </Badge>
+                )}
               </CardTitle>
               <CardDescription className="text-sm text-blue-700 font-medium mt-1">
                 Client: {caseItem.clients?.name}
@@ -1251,6 +1257,11 @@ export default function GigWorkerDashboard() {
                                     Rework
                                   </Badge>
                                 )}
+                                {isRecreatedCase(caseItem.case_number) && (
+                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                                    Recreated
+                                  </Badge>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell>{caseItem.clients?.name}</TableCell>
@@ -1488,6 +1499,11 @@ export default function GigWorkerDashboard() {
                                     Rework
                                   </Badge>
                                 )}
+                                {isRecreatedCase(caseItem.case_number) && (
+                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                                    Recreated
+                                  </Badge>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell>{caseItem.clients?.name || 'N/A'}</TableCell>
@@ -1633,6 +1649,11 @@ export default function GigWorkerDashboard() {
                                     Rework
                                   </Badge>
                                 )}
+                                {isRecreatedCase(caseItem.case_number) && (
+                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                                    Recreated
+                                  </Badge>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell>{caseItem.clients?.name}</TableCell>
@@ -1764,6 +1785,11 @@ export default function GigWorkerDashboard() {
                                 <Badge variant="destructive" className="text-xs">
                                   Rework
                                 </Badge>
+                                {isRecreatedCase(caseItem.case_number) && (
+                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                                    Recreated
+                                  </Badge>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell>{caseItem.clients?.name}</TableCell>

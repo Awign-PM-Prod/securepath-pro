@@ -17,6 +17,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isRecreatedCase } from '@/utils/caseUtils';
 
 interface MobileCase {
   id: string;
@@ -292,7 +293,14 @@ export default function GigWorkerMobile() {
           <Card className="border-2 border-primary">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{currentCase.case_number}</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2">
+                  {currentCase.case_number}
+                  {isRecreatedCase(currentCase.case_number) && (
+                    <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                      Recreated
+                    </Badge>
+                  )}
+                </CardTitle>
                 <Badge className={STATUS_COLORS[currentCase.status]}>
                   {currentCase.status.replace('_', ' ').toUpperCase()}
                 </Badge>

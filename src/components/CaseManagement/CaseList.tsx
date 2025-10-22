@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building } from 'lucide-react';
 import { format } from 'date-fns';
+import { isRecreatedCase } from '@/utils/caseUtils';
 
 interface Case {
   id: string;
@@ -260,7 +261,14 @@ export default function CaseList({
                   <TableRow key={caseItem.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
                       <div>
-                        <div className="font-semibold">{caseItem.case_number}</div>
+                        <div className="font-semibold flex items-center gap-2">
+                          {caseItem.case_number}
+                          {isRecreatedCase(caseItem.case_number) && (
+                            <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                              Recreated
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-sm text-muted-foreground">Client ID: {caseItem.client_case_id}</div>
                       </div>
                     </TableCell>
