@@ -139,6 +139,38 @@ export default function FormManagement() {
     setSelectedContractType('');
   };
 
+  const handleDeleteTemplate = async (templateId: string) => {
+    try {
+      console.log('Frontend: Attempting to delete template with ID:', templateId);
+      const result = await formService.deleteFormTemplate(templateId);
+      console.log('Frontend: Delete result:', result);
+      
+      if (result.success) {
+        console.log('Frontend: Delete successful, refreshing templates...');
+        toast({
+          title: 'Success',
+          description: 'Form template deleted successfully!',
+        });
+        await loadTemplates(); // Refresh the list
+        console.log('Frontend: Templates refreshed');
+      } else {
+        console.error('Frontend: Delete failed:', result.error);
+        toast({
+          title: 'Error',
+          description: result.error || 'Failed to delete form template',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Frontend: Error deleting template:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete form template',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handlePublishTemplate = async (templateId: string, contractTypeKey: string) => {
     try {
       const result = await formService.publishFormTemplate(templateId, contractTypeKey);
@@ -294,13 +326,23 @@ export default function FormManagement() {
                           <Edit className="h-4 w-4" />
                         </Button>
                         {!template.is_active ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handlePublishClick(template)}
-                          >
-                            Publish
-                          </Button>
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handlePublishClick(template)}
+                            >
+                              Publish
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteTemplate(template.id)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
                         ) : (
                           <Button
                             variant="outline"
@@ -336,6 +378,7 @@ export default function FormManagement() {
           </DialogHeader>
           <FormBuilder
             contractTypeId={selectedContractType}
+            contractTypes={contractTypes}
             onSave={handleSaveTemplate}
             onCancel={handleCancelFormBuilder}
             initialTemplate={editingTemplate}

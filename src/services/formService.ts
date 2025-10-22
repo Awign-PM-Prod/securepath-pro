@@ -589,57 +589,108 @@ export class FormService {
    */
   async createFormTemplate(templateData: FormBuilderTemplate): Promise<{ success: boolean; templateId?: string; error?: string }> {
     try {
-      // Check if there's already a template for this contract type
+      // Validate required fields
+      if (!templateData.contract_type_id || templateData.contract_type_id.trim() === '') {
+        throw new Error('Contract type ID is required');
+      }
+      
+      if (!templateData.template_name || templateData.template_name.trim() === '') {
+        throw new Error('Template name is required');
+      }
+
+      console.log('Creating form template with data:', {
+        contract_type_id: templateData.contract_type_id,
+        template_name: templateData.template_name,
+        fields_count: templateData.fields?.length || 0
+      });
+
+      // Check if there's already an active template for this contract type
       const { data: existingTemplates, error: checkError } = await supabase
         .from('form_templates')
         .select('template_version')
         .eq('contract_type_id', templateData.contract_type_id)
+        .eq('is_active', true)
         .order('template_version', { ascending: false })
         .limit(1);
 
       if (checkError) throw checkError;
 
       // Determine the next version number
+      // For new templates, we only consider active templates
+      // If there's an active template, increment its version
+      // If no active template exists, start from V1
       const nextVersion = existingTemplates && existingTemplates.length > 0 
         ? existingTemplates[0].template_version + 1 
         : 1;
 
+      // Get current user ID
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error('User not authenticated');
+      }
+
       // Create template with the provided contract_type_id and version
+      const templateInsertData = {
+        contract_type_id: templateData.contract_type_id,
+        template_name: templateData.template_name,
+        template_version: nextVersion,
+        is_active: false, // Start as draft
+        created_by: user.id
+      };
+
+      console.log('Creating template with data:', templateInsertData);
+
       const { data: template, error: templateError } = await supabase
         .from('form_templates')
-        .insert({
-          contract_type_id: templateData.contract_type_id,
-          template_name: templateData.template_name,
-          template_version: nextVersion,
-          is_active: false, // Start as draft
-          created_by: (await supabase.auth.getUser()).data.user?.id
-        })
+        .insert(templateInsertData)
         .select()
         .single();
 
-      if (templateError) throw templateError;
+      if (templateError) {
+        console.error('Template creation error:', templateError);
+        throw templateError;
+      }
 
       // Create fields
-      const fieldsToInsert = templateData.fields.map((field, index) => ({
-        template_id: template.id,
-        field_key: field.field_key,
-        field_title: field.field_title,
-        field_type: field.field_type,
-        validation_type: field.validation_type,
-        field_order: field.field_order || index,
-        field_config: field.field_config,
-        depends_on_field_id: field.depends_on_field_id,
-        depends_on_value: field.depends_on_value,
-        max_files: field.field_type === 'file_upload' ? field.field_config.maxFiles : undefined,
-        allowed_file_types: field.field_type === 'file_upload' ? field.field_config.allowedTypes : undefined,
-        max_file_size_mb: field.field_type === 'file_upload' ? field.field_config.maxSizeMB : undefined
-      }));
+      const fieldsToInsert = templateData.fields.map((field, index) => {
+        const processedField = {
+          template_id: template.id,
+          field_key: field.field_key,
+          field_title: field.field_title,
+          field_type: field.field_type,
+          validation_type: field.validation_type,
+          field_order: field.field_order || index,
+          field_config: field.field_config,
+          depends_on_field_id: field.depends_on_field_id && field.depends_on_field_id.trim() !== '' ? field.depends_on_field_id : null,
+          depends_on_value: field.depends_on_value && field.depends_on_value.trim() !== '' ? field.depends_on_value : null,
+          max_files: field.field_type === 'file_upload' ? field.field_config.maxFiles : undefined,
+          allowed_file_types: field.field_type === 'file_upload' ? field.field_config.allowedTypes : undefined,
+          max_file_size_mb: field.field_type === 'file_upload' ? field.field_config.maxSizeMB : undefined
+        };
+        
+        // Debug logging
+        console.log('Processing field:', {
+          field_key: field.field_key,
+          depends_on_field_id: field.depends_on_field_id,
+          processed_depends_on_field_id: processedField.depends_on_field_id,
+          depends_on_value: field.depends_on_value,
+          processed_depends_on_value: processedField.depends_on_value
+        });
+        
+        return processedField;
+      });
 
+      // Debug: Log the complete data being inserted
+      console.log('Fields to insert:', JSON.stringify(fieldsToInsert, null, 2));
+      
       const { error: fieldsError } = await supabase
         .from('form_fields')
         .insert(fieldsToInsert);
 
-      if (fieldsError) throw fieldsError;
+      if (fieldsError) {
+        console.error('Fields insertion error:', fieldsError);
+        throw fieldsError;
+      }
 
       return { success: true, templateId: template.id };
     } catch (error) {
@@ -713,6 +764,77 @@ export class FormService {
       return { success: true };
     } catch (error) {
       console.error('Error unpublishing form template:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
+   * Delete a form template (only if it's a draft)
+   */
+  async deleteFormTemplate(templateId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log('Attempting to delete template with ID:', templateId);
+      
+      // First check if the template exists and is a draft
+      const { data: template, error: templateError } = await supabase
+        .from('form_templates')
+        .select('id, is_active, template_name')
+        .eq('id', templateId)
+        .single();
+
+      if (templateError) {
+        console.error('Error fetching template:', templateError);
+        throw templateError;
+      }
+
+      console.log('Found template:', template);
+
+      // Only allow deletion of draft templates
+      if (template.is_active) {
+        throw new Error('Cannot delete published templates. Please unpublish first.');
+      }
+
+      console.log('Template is draft, proceeding with deletion...');
+
+      // Delete the template (this will cascade delete the fields due to foreign key constraint)
+      const { error: deleteError, count } = await supabase
+        .from('form_templates')
+        .delete()
+        .eq('id', templateId);
+
+      if (deleteError) {
+        console.error('Error deleting template:', deleteError);
+        throw deleteError;
+      }
+
+      console.log('Delete operation completed. Rows affected:', count);
+      
+      // If no rows were affected, it means the delete was blocked by RLS
+      if (count === 0) {
+        throw new Error('Delete operation blocked - no rows affected. This might be due to RLS policies or insufficient permissions.');
+      }
+
+      // Verify deletion by trying to fetch the template again
+      const { data: verifyTemplate, error: verifyError } = await supabase
+        .from('form_templates')
+        .select('id')
+        .eq('id', templateId)
+        .single();
+
+      if (verifyError && verifyError.code === 'PGRST116') {
+        console.log('Template successfully deleted (not found in verification)');
+        return { success: true };
+      } else if (verifyTemplate) {
+        console.error('Template still exists after deletion attempt');
+        throw new Error('Template deletion failed - template still exists');
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting form template:', error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 

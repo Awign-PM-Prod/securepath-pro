@@ -10,8 +10,15 @@ import { Label } from '@/components/ui/label';
 import { Plus, Trash2, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
+interface ContractType {
+  id: string;
+  type_key: string;
+  display_name: string;
+}
+
 interface FormBuilderProps {
-  contractTypeId: string;
+  contractTypeId?: string;
+  contractTypes?: ContractType[];
   onSave: (template: FormBuilderTemplate) => void;
   onCancel: () => void;
   initialTemplate?: FormBuilderTemplate;
@@ -19,6 +26,7 @@ interface FormBuilderProps {
 
 export const FormBuilder: React.FC<FormBuilderProps> = ({
   contractTypeId,
+  contractTypes = [],
   onSave,
   onCancel,
   initialTemplate
@@ -39,10 +47,12 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
   }, [initialTemplate]);
 
   useEffect(() => {
-    setTemplate(prev => ({
-      ...prev,
-      contract_type_id: contractTypeId
-    }));
+    if (contractTypeId) {
+      setTemplate(prev => ({
+        ...prev,
+        contract_type_id: contractTypeId
+      }));
+    }
   }, [contractTypeId]);
 
   const addField = () => {
@@ -283,6 +293,22 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
               onChange={(e) => setTemplate(prev => ({ ...prev, template_name: e.target.value }))}
               placeholder="e.g., Business Address Verification Form"
             />
+          </div>
+          <div>
+            <Label htmlFor="contract_type">Contract Type</Label>
+            <select
+              id="contract_type"
+              value={template.contract_type_id || ''}
+              onChange={(e) => setTemplate(prev => ({ ...prev, contract_type_id: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select Contract Type</option>
+              {contractTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.display_name}
+                </option>
+              ))}
+            </select>
           </div>
         </CardContent>
       </Card>
