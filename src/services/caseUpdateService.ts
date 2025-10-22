@@ -15,7 +15,10 @@ export interface UpdateCaseData {
   lat?: number;
   lng?: number;
   location_url?: string;
+  client_id: string;
   vendor_tat_start_date: Date;
+  tat_hours: number;
+  due_date: Date;
   instructions?: string;
 }
 
@@ -25,9 +28,53 @@ export class CaseUpdateService {
    */
   static async updateCase(caseId: string, caseData: UpdateCaseData): Promise<any> {
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      // Get current user with retry logic
+      let user = null;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (!user && retryCount < maxRetries) {
+        const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+        
+        if (userError) {
+          console.warn(`Authentication attempt ${retryCount + 1} failed:`, userError);
+          if (retryCount === maxRetries - 1) {
+            // Try to refresh the session before giving up
+            const { error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError) {
+              throw new Error(`User not authenticated after ${maxRetries} attempts and refresh failed: ${userError.message}`);
+            }
+            // Try one more time after refresh
+            const { data: { user: refreshedUser } } = await supabase.auth.getUser();
+            if (refreshedUser) {
+              user = refreshedUser;
+              break;
+            }
+            throw new Error(`User not authenticated after ${maxRetries} attempts and session refresh: ${userError.message}`);
+          }
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          retryCount++;
+          continue;
+        }
+        
+        if (!currentUser) {
+          console.warn(`No user found on attempt ${retryCount + 1}`);
+          if (retryCount === maxRetries - 1) {
+            throw new Error('User not authenticated');
+          }
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          retryCount++;
+          continue;
+        }
+        
+        user = currentUser;
+      }
+      
+      if (!user) {
+        throw new Error('User not authenticated after all retry attempts');
+      }
 
       // Get the current case to get client_id and location_id
       const { data: currentCase, error: caseError } = await supabase
@@ -101,7 +148,7 @@ export class CaseUpdateService {
         );
       }
 
-      // Prepare update data
+      // Prepare update data - explicitly avoid updating status to prevent enum issues
       const updateData: any = {
         client_case_id: caseData.client_case_id,
         contract_type: caseData.contract_type,
@@ -109,6 +156,8 @@ export class CaseUpdateService {
         phone_primary: caseData.phone_primary,
         phone_secondary: caseData.phone_secondary,
         location_id: locationId,
+        tat_hours: caseData.tat_hours,
+        due_at: caseData.due_date.toISOString(),
         vendor_tat_start_date: caseData.vendor_tat_start_date.toISOString(),
         last_updated_by: user.id,
         updated_at: new Date().toISOString(),
@@ -120,6 +169,9 @@ export class CaseUpdateService {
           contract_type: caseData.contract_type
         }
       };
+      
+      // Ensure we don't accidentally update status during case edit
+      // Status should only be changed through specific workflows, not during general case updates
 
       // Add payout data if recalculated
       if (payoutResult) {
@@ -128,6 +180,7 @@ export class CaseUpdateService {
       }
 
       // Update the case
+      console.log('Updating case with data:', updateData);
       const { data, error } = await supabase
         .from('cases')
         .update(updateData)
@@ -136,8 +189,11 @@ export class CaseUpdateService {
         .single();
 
       if (error) {
+        console.error('Case update error:', error);
         throw new Error(`Failed to update case: ${error.message}`);
       }
+      
+      console.log('Case updated successfully:', data);
 
       return data;
 
