@@ -331,10 +331,32 @@ export default function GigWorkerManagement() {
         throw new Error('Failed to create gig worker: ' + data.error);
       }
 
-      toast({
-        title: 'Success',
-        description: 'Gig worker created successfully',
-      });
+      // Send password reset email so gig worker can set their own password
+      try {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(formData.email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+
+        if (resetError) {
+          console.warn('Failed to send password reset email:', resetError);
+          toast({
+            title: 'User Created',
+            description: 'Gig worker created but failed to send setup email. Please send password reset manually.',
+            variant: 'default',
+          });
+        } else {
+          toast({
+            title: 'Success',
+            description: `${formData.first_name} ${formData.last_name} has been created. Setup email sent to ${formData.email}`,
+          });
+        }
+      } catch (emailError) {
+        console.warn('Error sending setup email:', emailError);
+        toast({
+          title: 'User Created',
+          description: 'Gig worker created successfully. Please send password reset email manually.',
+        });
+      }
 
       setIsCreateDialogOpen(false);
       resetForm();
