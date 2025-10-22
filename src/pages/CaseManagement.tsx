@@ -330,7 +330,11 @@ export default function CaseManagement() {
         country: caseData.country,
         lat: caseData.lat,
         lng: caseData.lng,
+        location_url: caseData.location_url,
+        client_id: caseData.client_id,
         vendor_tat_start_date: caseData.vendor_tat_start_date,
+        tat_hours: caseData.tat_hours,
+        due_date: caseData.due_date,
         instructions: caseData.instructions,
       });
 

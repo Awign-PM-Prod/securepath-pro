@@ -1,0 +1,4 @@
+client_name,contract_type,candidate_name,phone_primary,phone_secondary,address_line,city,state,pincode,country,priority,tat_hours,instructions,client_case_id
+Test Client,residential_address_check,John Doe,9876543210,9876543211,123 Main Street HSR Layout,Bangalore,Karnataka,560102,India,medium,24,Please verify the address thoroughly,CLIENT-001
+Test Client,business_address_check,Jane Smith,9876543212,,456 Business Park Sector 5,Mumbai,Maharashtra,400001,India,high,12,Urgent verification required,CLIENT-002
+Another Client,employment_verification,Bob Johnson,9876543213,9876543214,789 Corporate Tower MG Road,Delhi,Delhi,110001,India,low,48,Standard employment verification,CLIENT-003

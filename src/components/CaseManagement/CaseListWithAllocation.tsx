@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { useToast } from '@/hooks/use-toast';
@@ -20,6 +20,7 @@ import { allocationService } from '@/services/allocationService';
 import { allocationSummaryService, AllocationSummaryData } from '@/services/allocationSummaryService';
 import AllocationSummary from '@/components/Allocation/AllocationSummary';
 import CSVManagement from './CSVManagement';
+import BulkCaseUpload from '@/components/BulkCaseUpload';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Case {
@@ -179,6 +180,7 @@ export default function CaseListWithAllocation({
     rework: 0
   });
   const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const { toast } = useToast();
 
   // Calculate QC stats when cases change
@@ -684,10 +686,16 @@ export default function CaseListWithAllocation({
               Manage and allocate cases to gig workers
             </CardDescription>
           </div>
-          <Button onClick={onCreateCase}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create Case
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Bulk Upload
+            </Button>
+            <Button onClick={onCreateCase}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Case
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -1618,6 +1626,29 @@ export default function CaseListWithAllocation({
         {activeTab === 'csv' && (
           <CSVManagement onRefresh={onRefresh} />
         )}
+
+        {/* Bulk Upload Dialog */}
+        <Dialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Bulk Case Creation</DialogTitle>
+              <DialogDescription>
+                Upload a CSV file to create multiple cases at once. Download the template first to see the required format.
+              </DialogDescription>
+            </DialogHeader>
+            <BulkCaseUpload
+              onSuccess={(result) => {
+                toast({
+                  title: 'Bulk Creation Complete',
+                  description: `Successfully created ${result.created} cases.`,
+                });
+                onRefresh();
+                setIsBulkUploadOpen(false);
+              }}
+              onClose={() => setIsBulkUploadOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
