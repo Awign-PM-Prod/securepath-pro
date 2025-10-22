@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -122,6 +122,15 @@ export default function Login() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
+
+            <div className="text-center">
+              <Link
+                to="/forgot-password"
+                className="text-sm text-blue-600 hover:text-blue-500 hover:underline"
+              >
+                Forgot your password?
+              </Link>
+            </div>
           </form>
         </CardContent>
       </Card>

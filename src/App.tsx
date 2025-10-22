@@ -9,6 +9,9 @@ import { AppLayout } from "@/components/Layout/AppLayout";
 import { LoadingFallback, ErrorFallback } from "@/components/LoadingFallback";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import TestForgotPassword from "./pages/TestForgotPassword";
 import Unauthorized from "./pages/Unauthorized";
 import NotFound from "./pages/NotFound";
 
@@ -86,6 +89,10 @@ const App = () => {
               <Routes>
                 {/* Landing page - Login */}
                 <Route path="/" element={<Login />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/test-forgot-password" element={<TestForgotPassword />} />
                 <Route path="/original" element={<Index />} />
                 <Route path="/unauthorized" element={<Unauthorized />} />
                 <Route path="/db-test" element={<DatabaseTest />} />
