@@ -863,6 +863,142 @@ export class CaseService {
       return null;
     }
   }
+
+  /**
+   * Recreate a case after QC rejection
+   */
+  async recreateCase(originalCaseId: string, userId: string): Promise<{ success: boolean; error?: string; newCaseId?: string }> {
+    try {
+      // Get the original case data
+      const { data: originalCase, error: fetchError } = await supabase
+        .from('cases')
+        .select(`
+          *,
+          client:clients(*),
+          location:locations(*)
+        `)
+        .eq('id', originalCaseId)
+        .single();
+
+      if (fetchError || !originalCase) {
+        return { success: false, error: 'Original case not found' };
+      }
+
+      // Generate new case number with (1) suffix
+      // Handle cases where case_number might already have a suffix
+      let newCaseNumber = `${originalCase.case_number}(1)`;
+      
+      // If the original case_number already ends with a pattern like (1), (2), etc., increment it
+      const caseNumberMatch = originalCase.case_number.match(/^(.+)\((\d+)\)$/);
+      if (caseNumberMatch) {
+        const baseNumber = caseNumberMatch[1];
+        const currentNumber = parseInt(caseNumberMatch[2]);
+        newCaseNumber = `${baseNumber}(${currentNumber + 1})`;
+      }
+      
+      // Generate new client case ID with (1) suffix
+      // Handle cases where client_case_id might already have a suffix
+      let newClientCaseId = `${originalCase.client_case_id}(1)`;
+      
+      // If the original client_case_id already ends with a pattern like (1), (2), etc., increment it
+      const clientCaseIdMatch = originalCase.client_case_id.match(/^(.+)\((\d+)\)$/);
+      if (clientCaseIdMatch) {
+        const baseId = clientCaseIdMatch[1];
+        const currentNumber = parseInt(clientCaseIdMatch[2]);
+        newClientCaseId = `${baseId}(${currentNumber + 1})`;
+      }
+
+      // Check if a case with this number already exists
+      const { data: existingCases } = await supabase
+        .from('cases')
+        .select('id')
+        .eq('case_number', newCaseNumber);
+
+      if (existingCases && existingCases.length > 0) {
+        return { success: false, error: 'A case with this number already exists' };
+      }
+
+      // Check if a case with this client_case_id already exists for the same client
+      const { data: existingClientCases } = await supabase
+        .from('cases')
+        .select('id')
+        .eq('client_case_id', newClientCaseId)
+        .eq('client_id', originalCase.client_id);
+
+      if (existingClientCases && existingClientCases.length > 0) {
+        return { success: false, error: 'A case with this client case ID already exists for this client' };
+      }
+
+      // Create new case with same data but new case number and client case ID
+      const newCaseData = {
+        case_number: newCaseNumber,
+        title: originalCase.title || `${originalCase.candidate_name} - ${originalCase.contract_type?.replace('_', ' ').toUpperCase() || 'BACKGROUND VERIFICATION'}`,
+        description: originalCase.description || `Background verification for ${originalCase.candidate_name}`,
+        priority: originalCase.priority || 'medium',
+        source: originalCase.source || 'manual',
+        client_case_id: newClientCaseId,
+        contract_type: originalCase.contract_type,
+        candidate_name: originalCase.candidate_name,
+        phone_primary: originalCase.phone_primary,
+        phone_secondary: originalCase.phone_secondary,
+        client_id: originalCase.client_id,
+        location_id: originalCase.location_id,
+        base_rate_inr: originalCase.base_rate_inr || 0,
+        bonus_inr: originalCase.bonus_inr || 0,
+        penalty_inr: originalCase.penalty_inr || 0,
+        total_payout_inr: originalCase.total_payout_inr || 0,
+        tat_hours: originalCase.tat_hours,
+        instructions: originalCase.instructions,
+        status: 'new',
+        created_by: userId,
+        last_updated_by: userId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status_updated_at: new Date().toISOString(),
+        vendor_tat_start_date: new Date().toISOString(),
+        due_at: new Date(Date.now() + (originalCase.tat_hours || 24) * 60 * 60 * 1000).toISOString(),
+        QC_Response: 'New',
+        metadata: originalCase.metadata || {},
+        rate_adjustments: originalCase.rate_adjustments || {},
+        total_rate_inr: originalCase.total_rate_inr || originalCase.base_rate_inr || 0,
+        visible_to_gig: originalCase.visible_to_gig !== undefined ? originalCase.visible_to_gig : true
+      };
+
+      const { data: newCase, error: createError } = await supabase
+        .from('cases')
+        .insert(newCaseData)
+        .select('id, case_number')
+        .single();
+
+      if (createError) {
+        console.error('Error creating new case:', createError);
+        return { success: false, error: 'Failed to create new case' };
+      }
+
+      // Log the recreation in allocation_logs for audit trail
+      await supabase
+        .from('allocation_logs')
+        .insert({
+          case_id: newCase.id,
+          original_case_id: originalCaseId,
+          action: 'case_recreated',
+          created_at: new Date().toISOString(),
+          created_by: userId
+        });
+
+      return { 
+        success: true, 
+        newCaseId: newCase.id 
+      };
+
+    } catch (error) {
+      console.error('Error recreating case:', error);
+      return { 
+        success: false, 
+        error: 'An unexpected error occurred while recreating the case' 
+      };
+    }
+  }
 }
 
 // Export singleton instance

@@ -106,15 +106,19 @@ export class QCService {
         qcResponse
       });
 
-      // Only update case status for rework cases, otherwise just update QC_Response
+      // Update case status based on QC result
       let updateData: any = { 
-        "QC_Response": qcResponse // Always update QC_Response column
+        "QC_Response": qcResponse, // Always update QC_Response column
+        status_updated_at: new Date().toISOString()
       };
 
-      // Only change status for rework cases
-      if (request.result === 'rework') {
+      // Update status based on QC result
+      if (request.result === 'pass') {
+        updateData.status = 'qc_passed';
+      } else if (request.result === 'reject') {
+        updateData.status = 'qc_rejected';
+      } else if (request.result === 'rework') {
         updateData.status = 'qc_rework';
-        updateData.status_updated_at = new Date().toISOString();
         
         // For rework cases, set a 24-hour deadline
         const reworkDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -136,23 +140,24 @@ export class QCService {
         console.log('Case update successful - QC_Response should be set to:', qcResponse);
       }
 
-      // Update QC workflow if it exists (only for rework cases)
-      if (request.result === 'rework') {
-        const { error: workflowError } = await supabase
-          .from('qc_workflow')
-          .update({
-            current_stage: 'qc_rework',
-            completed_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            sla_deadline: updateData.due_at // Set 24-hour deadline for rework
-          })
-          .eq('case_id', request.caseId)
-          .eq('is_active', true);
+      // Update QC workflow for all QC results
+      const workflowStage = request.result === 'pass' ? 'passed' : 
+                           request.result === 'reject' ? 'rejected' : 'rework';
+      
+      const { error: workflowError } = await supabase
+        .from('qc_workflow')
+        .update({
+          current_stage: workflowStage,
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          sla_deadline: updateData.due_at || null // Set deadline for rework cases
+        })
+        .eq('case_id', request.caseId)
+        .eq('is_active', true);
 
-        if (workflowError) {
-          console.warn('QC workflow update failed:', workflowError);
-          // Don't fail the entire operation
-        }
+      if (workflowError) {
+        console.warn('QC workflow update failed:', workflowError);
+        // Don't fail the entire operation
       }
 
       return { 
