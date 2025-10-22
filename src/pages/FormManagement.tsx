@@ -106,16 +106,20 @@ export default function FormManagement() {
     try {
       const result = await formService.createFormTemplate(templateData);
       if (result.success) {
+        const message = editingTemplate 
+          ? 'Form template updated successfully!' 
+          : 'Form template created successfully!';
         toast({
           title: 'Success',
-          description: 'Form template created successfully!',
+          description: message,
         });
         setIsFormBuilderOpen(false);
+        setEditingTemplate(null);
         loadTemplates();
       } else {
         toast({
           title: 'Error',
-          description: result.error || 'Failed to create form template',
+          description: result.error || 'Failed to save form template',
           variant: 'destructive',
         });
       }

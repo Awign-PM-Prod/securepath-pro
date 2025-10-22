@@ -38,6 +38,13 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
     }
   }, [initialTemplate]);
 
+  useEffect(() => {
+    setTemplate(prev => ({
+      ...prev,
+      contract_type_id: contractTypeId
+    }));
+  }, [contractTypeId]);
+
   const addField = () => {
     const newField: FormBuilderField = {
       field_key: '',

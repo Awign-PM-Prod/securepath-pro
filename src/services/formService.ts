@@ -589,12 +589,28 @@ export class FormService {
    */
   async createFormTemplate(templateData: FormBuilderTemplate): Promise<{ success: boolean; templateId?: string; error?: string }> {
     try {
-      // Create template in draft mode (no contract_type_id yet)
+      // Check if there's already a template for this contract type
+      const { data: existingTemplates, error: checkError } = await supabase
+        .from('form_templates')
+        .select('template_version')
+        .eq('contract_type_id', templateData.contract_type_id)
+        .order('template_version', { ascending: false })
+        .limit(1);
+
+      if (checkError) throw checkError;
+
+      // Determine the next version number
+      const nextVersion = existingTemplates && existingTemplates.length > 0 
+        ? existingTemplates[0].template_version + 1 
+        : 1;
+
+      // Create template with the provided contract_type_id and version
       const { data: template, error: templateError } = await supabase
         .from('form_templates')
         .insert({
-          contract_type_id: null, // Will be set when published
+          contract_type_id: templateData.contract_type_id,
           template_name: templateData.template_name,
+          template_version: nextVersion,
           is_active: false, // Start as draft
           created_by: (await supabase.auth.getUser()).data.user?.id
         })
