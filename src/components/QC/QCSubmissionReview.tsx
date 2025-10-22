@@ -17,6 +17,8 @@ import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmis
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { qcService, QCReviewRequest } from '@/services/qcService';
+import { caseService } from '@/services/caseService';
+import CaseRecreationConfirmation from './CaseRecreationConfirmation';
 
 interface QCSubmissionReviewProps {
   caseId: string;
@@ -56,6 +58,8 @@ export default function QCSubmissionReview({
   const [comments, setComments] = useState('');
   const [reasonCodes, setReasonCodes] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showRecreationPopup, setShowRecreationPopup] = useState(false);
+  const [isRecreating, setIsRecreating] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -123,8 +127,14 @@ export default function QCSubmissionReview({
         throw new Error(result.error || 'Failed to submit QC review');
       }
 
-      const actionText = selectedAction === 'approve' ? 'approved' : 
-                        selectedAction === 'reject' ? 'rejected' : 'marked for rework';
+      // If rejected, show recreation popup
+      if (selectedAction === 'reject') {
+        setIsProcessing(false);
+        setShowRecreationPopup(true);
+        return;
+      }
+
+      const actionText = selectedAction === 'approve' ? 'approved' : 'marked for rework';
 
       toast({
         title: 'QC Action Submitted',
@@ -152,12 +162,77 @@ export default function QCSubmissionReview({
   };
 
   const handleClose = () => {
-    if (isProcessing) return;
+    if (isProcessing || isRecreating) return;
     
     setSelectedAction(null);
     setComments('');
     setReasonCodes([]);
+    setShowRecreationPopup(false);
     onClose();
+  };
+
+  const handleRecreationConfirm = async () => {
+    if (!user?.id) {
+      toast({
+        title: 'Authentication Error',
+        description: 'User not authenticated. Please log in again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsRecreating(true);
+    try {
+      // Recreate the case
+      const result = await caseService.recreateCase(caseId, user.id);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to recreate case');
+      }
+
+      toast({
+        title: 'Case Recreated Successfully',
+        description: `New case ${caseNumber}(1) has been created and is ready for allocation.`,
+      });
+
+      // Reset form and close dialogs
+      setSelectedAction(null);
+      setComments('');
+      setReasonCodes([]);
+      setShowRecreationPopup(false);
+      
+      // Close dialog and notify parent
+      onClose();
+      onActionComplete?.();
+    } catch (error) {
+      console.error('Failed to recreate case:', error);
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to recreate case. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRecreating(false);
+    }
+  };
+
+  const handleRecreationReject = () => {
+    // Just close the recreation popup and complete the rejection
+    setShowRecreationPopup(false);
+    
+    toast({
+      title: 'Case Rejected',
+      description: `Case ${caseNumber} has been rejected and moved to rejected tab.`,
+    });
+
+    // Reset form and close dialogs
+    setSelectedAction(null);
+    setComments('');
+    setReasonCodes([]);
+    
+    // Close dialog and notify parent
+    onClose();
+    onActionComplete?.();
   };
 
   const getActionButtonVariant = (action: string) => {
@@ -343,6 +418,17 @@ export default function QCSubmissionReview({
           </div>
         </div>
       </DialogContent>
+
+      {/* Case Recreation Confirmation Dialog */}
+      <CaseRecreationConfirmation
+        isOpen={showRecreationPopup}
+        onClose={() => setShowRecreationPopup(false)}
+        onConfirm={handleRecreationConfirm}
+        onReject={handleRecreationReject}
+        caseId={caseId}
+        caseNumber={caseNumber}
+        isProcessing={isRecreating}
+      />
     </Dialog>
   );
 }
