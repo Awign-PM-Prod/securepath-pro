@@ -208,6 +208,7 @@ serve(async (req) => {
       const { error: vendorError } = await supabaseAdmin
         .from('vendors')
         .insert({
+          profile_id: profileData.id, // Link to the profile that was just created
           name: vendor_data.name,
           email: email,
           phone: phone || '',

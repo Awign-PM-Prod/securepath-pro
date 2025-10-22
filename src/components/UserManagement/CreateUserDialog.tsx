@@ -102,15 +102,27 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
     setError('');
 
     try {
-      // Call the simple database function to create user
-      const { data: result, error } = await supabase.rpc('create_user_simple', {
-        user_email: data.email,
-        user_first_name: data.first_name,
-        user_last_name: data.last_name,
-        user_phone: data.phone,
-        user_role: data.role,
-        created_by_user_id: user?.id, // Pass the current user ID
-        vendor_data: null
+      // Call the Edge Function to create user with auth
+      const { data: result, error } = await supabase.functions.invoke('create-user', {
+        body: {
+          email: data.email,
+          password: data.password,
+          first_name: data.first_name,
+          last_name: data.last_name,
+          phone: data.phone,
+          role: data.role,
+          vendor_data: data.role === 'vendor' ? {
+            name: `${data.first_name} ${data.last_name}`,
+            contact_person: `${data.first_name} ${data.last_name}`,
+            address: '',
+            city: '',
+            state: '',
+            pincode: '',
+            country: 'India',
+            coverage_pincodes: []
+          } : null,
+          gig_worker_data: null
+        }
       });
 
       if (error) {
@@ -122,12 +134,12 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
       }
 
       // If this is a gig worker, generate a setup token and send email
-      if (data.role === 'gig_worker' && result.user_id) {
+      if (data.role === 'gig_worker' && result.user?.id) {
         try {
           // Generate setup token
           const { data: tokenData, error: tokenError } = await supabase
             .rpc('generate_password_setup_token', {
-              p_user_id: result.user_id,
+              p_user_id: result.user.id,
               p_email: data.email,
               p_created_by: user?.id
             });

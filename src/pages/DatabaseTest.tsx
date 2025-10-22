@@ -46,6 +46,33 @@ export default function DatabaseTest() {
         setStatus(prev => ({ ...prev, supabase: 'connected' }));
       }
 
+      // Test 1.5: Edge Function availability
+      results.push('Testing Edge Function availability...');
+      try {
+        const { data: functionTest, error: functionError } = await supabase.functions.invoke('create-user', {
+          body: {
+            email: 'test@example.com',
+            password: 'TestPassword123!',
+            first_name: 'Test',
+            last_name: 'User',
+            phone: '+1234567890',
+            role: 'client',
+            vendor_data: null,
+            gig_worker_data: null
+          }
+        });
+        
+        if (functionError) {
+          results.push(`❌ Edge Function error: ${functionError.message}`);
+        } else if (functionTest?.error) {
+          results.push(`⚠️ Edge Function returned error (expected for test): ${functionTest.error}`);
+        } else {
+          results.push(`✅ Edge Function is accessible and responding`);
+        }
+      } catch (err: any) {
+        results.push(`❌ Edge Function test failed: ${err.message}`);
+      }
+
       // Test 2: Table accessibility
       results.push('Testing table accessibility...');
       setStatus(prev => ({ ...prev, tables: 'testing' }));
