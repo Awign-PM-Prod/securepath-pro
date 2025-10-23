@@ -808,12 +808,20 @@ export class CaseService {
    */
   async deleteCase(id: string): Promise<boolean> {
     try {
-      const { error } = await supabase
+      console.log('Attempting to delete case with ID:', id);
+      
+      // Simple delete from cases table
+      const { error: deleteError } = await supabase
         .from('cases')
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (deleteError) {
+        console.error('Error deleting case:', deleteError);
+        return false;
+      }
+
+      console.log('Case deleted successfully');
       return true;
     } catch (error) {
       console.error('Failed to delete case:', error);

@@ -293,13 +293,16 @@ export default function CaseManagement() {
     if (window.confirm('Are you sure you want to delete this case?')) {
       setIsLoading(true);
       try {
-        // In real app, this would be an API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        setCases(prev => prev.filter(c => c.id !== caseId));
-        toast({
-          title: 'Case Deleted',
-          description: 'The case has been successfully deleted.',
-        });
+        const success = await caseService.deleteCase(caseId);
+        if (success) {
+          setCases(prev => prev.filter(c => c.id !== caseId));
+          toast({
+            title: 'Case Deleted',
+            description: 'The case has been successfully deleted.',
+          });
+        } else {
+          throw new Error('Failed to delete case');
+        }
       } catch (error) {
         toast({
           title: 'Error',

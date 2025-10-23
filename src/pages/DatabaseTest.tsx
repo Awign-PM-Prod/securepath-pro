@@ -6,6 +6,9 @@ import { Database, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { caseService } from '@/services/caseService';
 import { isRecreatedCase } from '@/utils/caseUtils';
+import { BulkCaseService } from '@/services/bulkCaseService';
+import { CSVParserService } from '@/services/csvParserService';
+import { caseFormService } from '@/services/caseFormService';
 
 interface ConnectionStatus {
   supabase: 'connected' | 'disconnected' | 'testing';
@@ -142,7 +145,51 @@ export default function DatabaseTest() {
       
       results.push(`✅ Recreated case detection working. Found ${recreatedCount} recreated cases out of ${testCases.length} test cases`);
 
-      // Test 4: Coordinate auto-fill functionality
+      // Test 5: Bulk upload payout calculation
+      results.push('Testing bulk upload payout calculation...');
+      try {
+        // Create a test CSV content
+        const testCSVContent = `client_name,contract_type,candidate_name,phone_primary,address_line,city,state,pincode,country,priority,tat_hours,client_case_id
+Test Client,employment,John Doe,9876543210,123 Test Street,Test City,Test State,110001,India,medium,24,TEST-001`;
+        
+        // Parse the CSV
+        const parseResult = await CSVParserService.parseCSV(testCSVContent);
+        if (parseResult.success && parseResult.data.length > 0) {
+          results.push(`✅ CSV parsing successful. Parsed ${parseResult.data.length} cases`);
+          
+          // Test pincode tier lookup
+          const testCase = parseResult.data[0];
+          results.push(`   Testing pincode ${testCase.pincode} tier lookup...`);
+          
+          // Get case defaults to test tier lookup
+          const caseDefaults = await caseFormService.getCaseDefaults(testCase.client_id, testCase.contract_type, testCase.pincode, testCase.tat_hours);
+          if (caseDefaults) {
+            results.push(`   ✅ Pincode tier lookup successful: ${caseDefaults.tier}`);
+            
+            // Test rate card lookup
+            const completionSlab = caseFormService.getCompletionSlab(testCase.tat_hours);
+            const rateCard = await caseFormService.getRateCardForClientTier(testCase.client_id, caseDefaults.tier, completionSlab);
+            if (rateCard) {
+              const totalPayout = rateCard.base_rate_inr + rateCard.travel_allowance_inr + rateCard.bonus_inr;
+              results.push(`   ✅ Rate card lookup successful:`);
+              results.push(`      Base Rate: ₹${rateCard.base_rate_inr}`);
+              results.push(`      Travel Allowance: ₹${rateCard.travel_allowance_inr}`);
+              results.push(`      Bonus: ₹${rateCard.bonus_inr}`);
+              results.push(`      Total Payout: ₹${totalPayout}`);
+            } else {
+              results.push(`   ⚠️ Rate card lookup failed - using default values`);
+            }
+          } else {
+            results.push(`   ⚠️ Case defaults lookup failed - using fallback values`);
+          }
+        } else {
+          results.push(`❌ CSV parsing failed: ${parseResult.errors.join(', ')}`);
+        }
+      } catch (error) {
+        results.push(`❌ Bulk upload test error: ${error}`);
+      }
+
+      // Test 6: Coordinate auto-fill functionality
       results.push('Testing coordinate auto-fill functionality...');
       try {
         if (navigator.geolocation) {

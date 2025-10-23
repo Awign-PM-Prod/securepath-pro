@@ -76,6 +76,20 @@ export class BulkCaseService {
     createdBy: string
   ): Promise<{ success: boolean; caseNumber?: string; error?: string }> {
     try {
+      // Check if a case with this client_case_id already exists for the same client
+      const { data: existingCases } = await supabase
+        .from('cases')
+        .select('id, case_number')
+        .eq('client_case_id', caseData.client_case_id)
+        .eq('client_id', caseData.client_id);
+
+      if (existingCases && existingCases.length > 0) {
+        return { 
+          success: false, 
+          error: `A case with client case ID '${caseData.client_case_id}' already exists for this client. Existing case: ${existingCases[0].case_number}` 
+        };
+      }
+
       // First, create or get location
       const locationResult = await this.createOrGetLocation(caseData);
       if (!locationResult.success) {
@@ -94,17 +108,61 @@ export class BulkCaseService {
         return { success: false, error: 'Failed to get case defaults from client contract' };
       }
 
-      // Get rate card for the client and tier
-      const completionSlab = caseFormService.getCompletionSlab(caseData.tat_hours);
-      const rateCard = await caseFormService.getRateCardForClientTier(
-        caseData.client_id,
-        caseDefaults.tier,
-        completionSlab
-      );
+      // Get client contract for pricing
+      console.log('Bulk upload debug:', {
+        clientId: caseData.client_id,
+        tier: caseDefaults.tier,
+        pincode: caseData.pincode
+      });
+      
+      // Get client contract for pricing - this is required for proper payout calculation
+      const { data: clientContract, error: contractError } = await supabase
+        .from('client_contracts')
+        .select('*')
+        .eq('client_id', caseData.client_id)
+        .eq('is_active', true)
+        .single();
 
-      if (!rateCard) {
-        return { success: false, error: 'Failed to get rate card for client and tier' };
+      console.log('Client contract result:', clientContract);
+      console.log('Contract error:', contractError);
+
+      if (contractError || !clientContract) {
+        return { 
+          success: false, 
+          error: `No active client contract found for client ID: ${caseData.client_id}. Please set up a client contract with tier-based pricing before creating cases.` 
+        };
       }
+
+      // Calculate rates based on tier from contract
+      let baseRate = 0;
+      let travelAllowance = 0;
+      let bonus = 0;
+
+      switch (caseDefaults.tier) {
+        case 'tier1':
+          baseRate = clientContract.tier1_base_payout_inr || 0;
+          break;
+        case 'tier2':
+          baseRate = clientContract.tier2_base_payout_inr || 0;
+          break;
+        case 'tier3':
+          baseRate = clientContract.tier3_base_payout_inr || 0;
+          break;
+        default:
+          baseRate = clientContract.tier3_base_payout_inr || 0;
+      }
+
+      // Don't calculate bonuses for bulk upload - only show base payout
+      bonus = 0;
+      travelAllowance = 0;
+
+      const rateCard = {
+        base_rate_inr: baseRate,
+        travel_allowance_inr: travelAllowance,
+        bonus_inr: bonus
+      };
+
+      console.log('Calculated rates from contract:', rateCard);
 
       // Generate case number
       const caseNumber = await this.generateCaseNumber();
@@ -115,43 +173,67 @@ export class BulkCaseService {
 
       // Calculate total payout
       const totalPayout = rateCard.base_rate_inr + rateCard.travel_allowance_inr + rateCard.bonus_inr;
+      console.log('Payout calculation:', {
+        baseRate: rateCard.base_rate_inr,
+        travelAllowance: rateCard.travel_allowance_inr,
+        bonus: rateCard.bonus_inr,
+        totalPayout
+      });
+
+      // Validate that we have valid rates
+      if (rateCard.base_rate_inr === 0 && rateCard.travel_allowance_inr === 0 && rateCard.bonus_inr === 0) {
+        return { 
+          success: false, 
+          error: `Client contract found but all rates are zero. Please check the contract pricing for tier: ${caseDefaults.tier}` 
+        };
+      }
 
       // Create case
-      const { data: caseRecord, error: caseError } = await supabase
-        .from('cases')
-        .insert({
-          case_number: caseNumber,
-          title: `${caseData.candidate_name} - ${caseData.contract_type}`,
-          description: `Background verification for ${caseData.candidate_name}`,
-          priority: caseData.priority,
-          source: 'manual',
-          client_id: caseData.client_id,
-          location_id: locationResult.locationId,
-          tat_hours: caseData.tat_hours,
-          due_at: dueAt.toISOString(),
-          status: 'new',
-          base_rate_inr: rateCard.base_rate_inr,
-          total_rate_inr: totalPayout,
-          visible_to_gig: true,
-          created_by: createdBy,
-          metadata: {
-            instructions: caseData.instructions || '',
-            contract_type: caseData.contract_type,
-            phone_primary: caseData.phone_primary,
-            phone_secondary: caseData.phone_secondary || '',
-            candidate_name: caseData.candidate_name
-          },
-          client_case_id: caseData.client_case_id,
-          travel_allowance_inr: rateCard.travel_allowance_inr,
-          bonus_inr: rateCard.bonus_inr,
-          penalty_inr: 0,
-          total_payout_inr: totalPayout,
+      const caseDataToInsert = {
+        case_number: caseNumber,
+        title: `${caseData.candidate_name} - ${caseData.contract_type}`,
+        description: `Background verification for ${caseData.candidate_name}`,
+        priority: caseData.priority,
+        source: 'manual',
+        client_id: caseData.client_id,
+        location_id: locationResult.locationId,
+        tat_hours: caseData.tat_hours,
+        due_at: dueAt.toISOString(),
+        status: 'new',
+        base_rate_inr: rateCard.base_rate_inr,
+        total_rate_inr: totalPayout,
+        visible_to_gig: true,
+        created_by: createdBy,
+        metadata: {
+          instructions: caseData.instructions || '',
           contract_type: caseData.contract_type,
-          candidate_name: caseData.candidate_name,
           phone_primary: caseData.phone_primary,
           phone_secondary: caseData.phone_secondary || '',
-          vendor_tat_start_date: dueAt.toISOString()
-        })
+          candidate_name: caseData.candidate_name
+        },
+        client_case_id: caseData.client_case_id,
+        travel_allowance_inr: rateCard.travel_allowance_inr,
+        bonus_inr: rateCard.bonus_inr,
+        penalty_inr: 0,
+        total_payout_inr: totalPayout,
+        contract_type: caseData.contract_type,
+        candidate_name: caseData.candidate_name,
+        phone_primary: caseData.phone_primary,
+        phone_secondary: caseData.phone_secondary || '',
+        vendor_tat_start_date: dueAt.toISOString()
+      };
+
+      console.log('Case data being inserted:', {
+        base_rate_inr: caseDataToInsert.base_rate_inr,
+        travel_allowance_inr: caseDataToInsert.travel_allowance_inr,
+        bonus_inr: caseDataToInsert.bonus_inr,
+        total_payout_inr: caseDataToInsert.total_payout_inr,
+        total_rate_inr: caseDataToInsert.total_rate_inr
+      });
+
+      const { data: caseRecord, error: caseError } = await supabase
+        .from('cases')
+        .insert(caseDataToInsert)
         .select('id, case_number')
         .single();
 
@@ -185,6 +267,9 @@ export class BulkCaseService {
         return { success: true, locationId: existingLocation.id };
       }
 
+      // Get pincode tier from database
+      const pincodeTier = await this.getPincodeTier(caseData.pincode);
+
       // Create new location
       const { data: location, error: locationError } = await supabase
         .from('locations')
@@ -194,7 +279,7 @@ export class BulkCaseService {
           state: caseData.state,
           country: caseData.country,
           pincode: caseData.pincode,
-          pincode_tier: this.getPincodeTier(caseData.pincode),
+          pincode_tier: pincodeTier,
           is_verified: false
         })
         .select('id')
@@ -232,18 +317,27 @@ export class BulkCaseService {
 
 
   /**
-   * Get pincode tier based on pincode
+   * Get pincode tier based on pincode from database
    */
-  private static getPincodeTier(pincode: string): string {
-    // Simple tier assignment based on pincode ranges
-    const firstDigit = pincode.charAt(0);
-    
-    if (['1', '2', '3', '4', '5'].includes(firstDigit)) {
-      return 'tier_1'; // Metro cities
-    } else if (['6', '7'].includes(firstDigit)) {
-      return 'tier_2'; // Tier 2 cities
-    } else {
-      return 'tier_3'; // Rural areas
+  private static async getPincodeTier(pincode: string): Promise<string> {
+    try {
+      const { data, error } = await supabase
+        .from('pincode_tiers')
+        .select('tier')
+        .eq('pincode', pincode)
+        .eq('is_active', true)
+        .single();
+
+      if (error || !data) {
+        console.warn(`No tier found for pincode ${pincode}, using tier3 as default`);
+        return 'tier3';
+      }
+
+      // Database already uses tier1, tier2, tier3 format
+      return data.tier;
+    } catch (error) {
+      console.error('Error fetching pincode tier:', error);
+      return 'tier3'; // Default to tier3 on error
     }
   }
 
