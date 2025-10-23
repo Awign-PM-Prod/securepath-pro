@@ -1058,6 +1058,7 @@ export default function CaseListWithAllocation({
                           <MapPin className="h-4 w-4 text-muted-foreground" />
                           <div>
                             <p className="text-muted-foreground">Location</p>
+                            {console.log('Location URL for case:', caseItem.id, caseItem.location.location_url)}
                             {caseItem.location.location_url ? (
                               <a
                                 href={caseItem.location.location_url}

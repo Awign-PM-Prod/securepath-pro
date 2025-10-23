@@ -17,6 +17,7 @@ export interface CSVTemplateData {
   tat_hours: number;
   instructions?: string;
   client_case_id: string;
+  location_url?: string;
 }
 
 export class CSVTemplateService {
@@ -38,7 +39,8 @@ export class CSVTemplateService {
       'priority',
       'tat_hours',
       'instructions',
-      'client_case_id'
+      'client_case_id',
+      'location_url'
     ];
 
     const sampleData: CSVTemplateData[] = [
@@ -56,7 +58,8 @@ export class CSVTemplateService {
         priority: 'medium',
         tat_hours: 24,
         instructions: 'Please verify the address thoroughly',
-        client_case_id: 'CLIENT-001'
+        client_case_id: 'CLIENT-001',
+        location_url: 'https://maps.google.com/?q=123+Main+Street+HSR+Layout+Bangalore'
       },
       {
         client_name: 'Test Client',
@@ -72,7 +75,8 @@ export class CSVTemplateService {
         priority: 'high',
         tat_hours: 12,
         instructions: 'Urgent verification required',
-        client_case_id: 'CLIENT-002'
+        client_case_id: 'CLIENT-002',
+        location_url: 'https://maps.google.com/?q=456+Business+Park+Sector+5+Mumbai'
       },
       {
         client_name: 'Another Client',
@@ -88,7 +92,8 @@ export class CSVTemplateService {
         priority: 'low',
         tat_hours: 48,
         instructions: 'Standard employment verification',
-        client_case_id: 'CLIENT-003'
+        client_case_id: 'CLIENT-003',
+        location_url: ''
       }
     ];
 
@@ -148,6 +153,7 @@ export class CSVTemplateService {
       tat_hours: 'Turnaround time in hours (number)',
       instructions: 'Special instructions for the case (optional)',
       client_case_id: 'Client\'s internal case ID (unique identifier)',
+      location_url: 'Google Maps or other location URL (optional)',
       note: 'Financial fields (base_rate_inr, travel_allowance_inr, bonus_inr, penalty_inr) are automatically calculated from client contract'
     };
   }

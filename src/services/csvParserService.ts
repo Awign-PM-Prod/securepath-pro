@@ -20,6 +20,7 @@ export interface ParsedCaseData {
   tat_hours: number;
   instructions?: string;
   client_case_id: string;
+  location_url?: string;
 }
 
 export interface ParsingResult {
@@ -209,7 +210,8 @@ export class CSVParserService {
       priority: rowData.priority.toLowerCase() as 'low' | 'medium' | 'high',
       tat_hours: Number(rowData.tat_hours),
       instructions: rowData.instructions || undefined,
-      client_case_id: rowData.client_case_id
+      client_case_id: rowData.client_case_id,
+      location_url: rowData.location_url || undefined
     };
 
     return { success: true, data: parsedData, errors: [] };

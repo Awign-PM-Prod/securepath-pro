@@ -255,15 +255,26 @@ export class BulkCaseService {
     caseData: ParsedCaseData
   ): Promise<{ success: boolean; locationId?: string; error?: string }> {
     try {
-      // Check if location already exists
+      // Check if location already exists (with same address and pincode)
       const { data: existingLocation } = await supabase
         .from('locations')
-        .select('id')
+        .select('id, location_url')
         .eq('pincode', caseData.pincode)
         .eq('address_line', caseData.address_line)
         .single();
 
       if (existingLocation) {
+        // If location exists but has no URL and we have one, update it
+        if (caseData.location_url && !existingLocation.location_url) {
+          const { error: updateError } = await supabase
+            .from('locations')
+            .update({ location_url: caseData.location_url })
+            .eq('id', existingLocation.id);
+          
+          if (updateError) {
+            console.warn('Failed to update location URL:', updateError);
+          }
+        }
         return { success: true, locationId: existingLocation.id };
       }
 
@@ -271,6 +282,7 @@ export class BulkCaseService {
       const pincodeTier = await this.getPincodeTier(caseData.pincode);
 
       // Create new location
+      console.log('Creating location with URL:', caseData.location_url);
       const { data: location, error: locationError } = await supabase
         .from('locations')
         .insert({
@@ -280,15 +292,17 @@ export class BulkCaseService {
           country: caseData.country,
           pincode: caseData.pincode,
           pincode_tier: pincodeTier,
-          is_verified: false
+          is_verified: false,
+          location_url: caseData.location_url || null
         })
-        .select('id')
+        .select('id, location_url')
         .single();
 
       if (locationError) {
         return { success: false, error: `Location creation failed: ${locationError.message}` };
       }
 
+      console.log('Location created with URL:', location.location_url);
       return { success: true, locationId: location.id };
 
     } catch (error) {
