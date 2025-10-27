@@ -2,11 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserCheck, FileText, Clock, XCircle, Eye, MapPin, User, Phone, Calendar, CheckCircle, XCircle as XCircleIcon, RotateCcw } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { UserCheck, FileText, Clock, XCircle, Eye, MapPin, User, Phone, Calendar as CalendarIcon, CheckCircle, XCircle as XCircleIcon, RotateCcw, Search, Filter, Building } from 'lucide-react';
 import { caseService, Case } from '@/services/caseService';
 import { useToast } from '@/hooks/use-toast';
 import QCSubmissionReview from '@/components/QC/QCSubmissionReview';
+import { format } from 'date-fns';
 
 // CasesList component to render the list of cases
 const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (caseItem: Case) => void }) => {
@@ -185,10 +190,37 @@ const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (case
   );
 };
 
+const STATUS_COLORS = {
+  submitted: 'bg-yellow-100 text-yellow-800',
+  qc_passed: 'bg-green-100 text-green-800',
+  qc_rejected: 'bg-red-100 text-red-800',
+  qc_rework: 'bg-orange-100 text-orange-800',
+  reported: 'bg-green-100 text-green-800',
+  in_payment_cycle: 'bg-blue-100 text-blue-800',
+  payment_complete: 'bg-green-100 text-green-800',
+  cancelled: 'bg-gray-100 text-gray-800',
+};
+
+const STATUS_LABELS = {
+  submitted: 'Submitted',
+  qc_passed: 'QC Passed',
+  qc_rejected: 'QC Rejected',
+  qc_rework: 'QC Rework',
+  reported: 'Reported',
+  in_payment_cycle: 'In Payment Cycle',
+  payment_complete: 'Payment Complete',
+  cancelled: 'Cancelled',
+};
+
 export default function QCDashboard() {
   const [allCases, setAllCases] = useState<Case[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [clientFilter, setClientFilter] = useState('all');
+  const [contractTypeFilter, setContractTypeFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState<Date | null>(null);
   const [stats, setStats] = useState({
     all: 0,
     approved: 0,
@@ -238,18 +270,63 @@ export default function QCDashboard() {
     }
   };
 
-  // Filter cases based on active tab
+  // Filter cases based on active tab and filters
   const getFilteredCases = () => {
+    let filtered = [...allCases];
+
+    // Apply tab filter
     switch (activeTab) {
       case 'approved':
-        return allCases.filter(c => c.QC_Response === 'Approved');
+        filtered = filtered.filter(c => c.QC_Response === 'Approved');
+        break;
       case 'rejected':
-        return allCases.filter(c => c.QC_Response === 'Rejected');
+        filtered = filtered.filter(c => c.QC_Response === 'Rejected');
+        break;
       case 'rework':
-        return allCases.filter(c => c.QC_Response === 'Rework');
+        filtered = filtered.filter(c => c.QC_Response === 'Rework');
+        break;
       default:
-        return allCases;
+        break;
     }
+
+    // Apply search filter
+    if (searchTerm) {
+      filtered = filtered.filter(c => 
+        c.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.client_case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.location.city.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(c => c.status === statusFilter);
+    }
+
+    // Apply client filter
+    if (clientFilter !== 'all') {
+      filtered = filtered.filter(c => c.client.id === clientFilter);
+    }
+
+    // Apply contract type filter
+    if (contractTypeFilter !== 'all') {
+      filtered = filtered.filter(c => c.contract_type === contractTypeFilter);
+    }
+
+    // Apply date filter
+    if (dateFilter) {
+      filtered = filtered.filter(c => {
+        const caseDate = new Date(c.submitted_at || c.created_at);
+        const selectedDate = new Date(dateFilter);
+        const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
+        const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+        return caseDateOnly.getTime() === selectedDateOnly.getTime();
+      });
+    }
+
+    return filtered;
   };
 
 
@@ -358,6 +435,103 @@ export default function QCDashboard() {
             </TabsList>
 
             <TabsContent value="all" className="mt-6">
+              {/* Search and Filter Controls */}
+              <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="flex-1 max-w-md">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="Search cases..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-40">
+                      <Filter className="h-4 w-4 mr-2" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-48 justify-start text-left font-normal"
+                      >
+                        <CalendarIcon className="h-4 w-4 mr-2" />
+                        {dateFilter ? format(dateFilter, "PPP") : "Submission Date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={dateFilter || undefined}
+                        onSelect={(date) => setDateFilter(date || null)}
+                        disabled={(date) => {
+                          const today = new Date();
+                          const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                          const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                          return dateOnly > todayDateOnly;
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {dateFilter && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setDateFilter(null)}
+                      className="w-10 h-10"
+                    >
+                      <XCircle className="h-4 w-4" />
+                    </Button>
+                  )}
+
+                  <Select value={clientFilter} onValueChange={setClientFilter}>
+                    <SelectTrigger className="w-48">
+                      <Building className="h-4 w-4 mr-2" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Clients</SelectItem>
+                      {Array.from(new Set(allCases.map(c => c.client.id))).map(clientId => {
+                        const client = allCases.find(c => c.client.id === clientId)?.client;
+                        return (
+                          <SelectItem key={clientId} value={clientId}>
+                            {client?.name || 'Unknown Client'}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={contractTypeFilter} onValueChange={setContractTypeFilter}>
+                    <SelectTrigger className="w-48">
+                      <FileText className="h-4 w-4 mr-2" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="residential_address_check">Residential</SelectItem>
+                      <SelectItem value="business_address_check">Business</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
             </TabsContent>
 
