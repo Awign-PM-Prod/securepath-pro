@@ -138,7 +138,7 @@ export class CSVService {
           return 'No files uploaded';
         }
         
-        return fieldFiles.map(file => file.file_url).join('; ');
+        return fieldFiles.map(file => file.file_url).join(', ');
 
       case 'date':
         try {
