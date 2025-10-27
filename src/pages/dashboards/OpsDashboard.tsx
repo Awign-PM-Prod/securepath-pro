@@ -1,11 +1,35 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileText, Users, Clock, CheckCircle, ArrowRight, Target } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { DashboardStatsService, DashboardStats } from '@/services/dashboardStatsService';
 
 export default function OpsDashboard() {
   const navigate = useNavigate();
+  const [stats, setStats] = useState<DashboardStats>({
+    totalCases: 0,
+    activeClients: 0,
+    pendingCases: 0,
+    completedCases: 0,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      setIsLoading(true);
+      try {
+        const dashboardStats = await DashboardStatsService.getOpsDashboardStats();
+        setStats(dashboardStats);
+      } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -18,7 +42,9 @@ export default function OpsDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">0</div>
+            <div className="text-2xl font-bold text-primary">
+              {isLoading ? '-' : stats.totalCases.toLocaleString()}
+            </div>
             <p className="text-xs text-muted-foreground">All verification cases</p>
           </CardContent>
         </Card>
@@ -31,7 +57,9 @@ export default function OpsDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">0</div>
+            <div className="text-2xl font-bold text-primary">
+              {isLoading ? '-' : stats.activeClients.toLocaleString()}
+            </div>
             <p className="text-xs text-muted-foreground">Registered clients</p>
           </CardContent>
         </Card>
@@ -44,7 +72,9 @@ export default function OpsDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">0</div>
+            <div className="text-2xl font-bold text-primary">
+              {isLoading ? '-' : stats.pendingCases.toLocaleString()}
+            </div>
             <p className="text-xs text-muted-foreground">Awaiting assignment</p>
           </CardContent>
         </Card>
@@ -57,8 +87,10 @@ export default function OpsDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">0</div>
-            <p className="text-xs text-muted-foreground">This month</p>
+            <div className="text-2xl font-bold text-primary">
+              {isLoading ? '-' : stats.completedCases.toLocaleString()}
+            </div>
+            <p className="text-xs text-muted-foreground">Completed cases</p>
           </CardContent>
         </Card>
       </div>
@@ -103,12 +135,15 @@ export default function OpsDashboard() {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
-            <div className="space-y-3 p-4 rounded-lg bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200">
+            <div 
+              className="space-y-3 p-4 rounded-lg bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 cursor-pointer hover:shadow-lg transition-shadow"
+              onClick={() => navigate('/ops/client-contracts')}
+            >
               <h3 className="text-lg font-semibold text-orange-900">Rate Cards & Contracts</h3>
               <p className="text-sm text-orange-700">
                 Manage pricing and client contracts
               </p>
-              <Button variant="outline" className="w-full btn-secondary" onClick={() => navigate('/ops/rate-cards')}>
+              <Button variant="outline" className="w-full btn-secondary" onClick={() => navigate('/ops/client-contracts')}>
                 Manage Rate Cards
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
