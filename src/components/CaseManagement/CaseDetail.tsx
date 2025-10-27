@@ -11,6 +11,9 @@ import { BonusService } from '@/services/bonusService';
 import { toast } from 'sonner';
 import DynamicFormSubmission from './DynamicFormSubmission';
 import { CSVService, FormSubmissionData } from '@/services/csvService';
+import { PDFService } from '@/services/pdfService';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { 
   MapPin, 
   Clock, 
@@ -27,7 +30,8 @@ import {
   Mail,
   Navigation,
   Download,
-  ExternalLink
+  ExternalLink,
+  FileDown
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -154,6 +158,7 @@ const STATUS_LABELS = {
 
 export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProps) {
   const [formSubmissions, setFormSubmissions] = useState<FormSubmissionData[]>([]);
+  const [isGeneratingAPIPDF, setIsGeneratingAPIPDF] = useState(false);
 
   const isOverdue = (dueAt: string) => {
     return new Date(dueAt) < new Date();
@@ -197,6 +202,159 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
     } catch (error) {
       console.error('Error generating CSV:', error);
       toast.error('Failed to generate CSV file');
+    }
+  };
+
+  const handlePDFDownload = async () => {
+    if (formSubmissions.length === 0) {
+      toast.error('No form submissions available to download');
+      return;
+    }
+
+    try {
+      await PDFService.convertFormSubmissionsToPDF(formSubmissions, caseData.case_number);
+      toast.success('PDF file downloaded successfully');
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast.error('Failed to generate PDF file');
+    }
+  };
+
+  const handleAPIPDF = async () => {
+    if (formSubmissions.length === 0) {
+      toast.error('No form submissions available');
+      return;
+    }
+
+    setIsGeneratingAPIPDF(true);
+    try {
+      // Generate CSV content
+      const csvContent = CSVService.convertFormSubmissionsToCSV(formSubmissions);
+      
+      if (!csvContent) {
+        toast.error('Failed to generate CSV content');
+        return;
+      }
+
+      // Call the PDF API directly
+      const API_URL = 'https://stipkqfnfogxuegxgdba.supabase.co/functions/v1/generate-pdf';
+      const API_KEY = 'qcpk_a1dcaccc6ac0433bb353528b1f25f828';
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/csv',
+          'x-api-key': API_KEY
+        },
+        body: csvContent
+      });
+
+      // Check if response is ok
+      if (!response.ok) {
+        const errorText = await response.text();
+        const errorData = errorText.trim().startsWith('{') ? JSON.parse(errorText) : { error: errorText };
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // Get response as text to check if it's HTML
+      const contentType = response.headers.get('content-type') || '';
+      const responseText = await response.text();
+
+      let htmlContent = responseText;
+      
+      // Check if response is JSON with a pdf_url
+      if (contentType.includes('application/json') || responseText.trim().startsWith('{')) {
+        const jsonData = JSON.parse(responseText);
+        
+        if (jsonData.pdf_url) {
+          toast.loading('Fetching PDF content...', { id: 'pdf-download' });
+          // Fetch the HTML content from the URL
+          const htmlResponse = await fetch(jsonData.pdf_url);
+          htmlContent = await htmlResponse.text();
+        } else {
+          toast.error('No PDF URL in API response');
+          return;
+        }
+      }
+      
+      // Convert HTML to PDF
+      if (htmlContent.length > 0) {
+        toast.loading('Converting to PDF...', { id: 'pdf-download' });
+        
+        // Create temporary container for HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = htmlContent;
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px';
+        tempDiv.style.top = '0';
+        tempDiv.style.width = '210mm'; // A4 width
+        tempDiv.style.backgroundColor = 'white';
+        tempDiv.style.padding = '20px';
+        document.body.appendChild(tempDiv);
+
+        // Wait a bit for images and styles to load
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Convert HTML to canvas
+        const htmlCanvas = await html2canvas(tempDiv, {
+          scale: 2, // Higher quality
+          useCORS: true,
+          allowTaint: false,
+          logging: false,
+          backgroundColor: '#ffffff'
+        });
+        
+        // Clean up temporary div
+        document.body.removeChild(tempDiv);
+
+        // Create PDF
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        
+        // Calculate dimensions to fit the page
+        const imgWidth = pdfWidth;
+        const imgHeight = (htmlCanvas.height * pdfWidth) / htmlCanvas.width;
+        
+        // Add image to PDF (handle multiple pages if needed)
+        let position = 0;
+        let heightLeft = imgHeight;
+
+        pdf.addImage(htmlCanvas.toDataURL('image/png'), 'PNG', 0, position, imgWidth, imgHeight);
+        
+        // Handle multi-page PDF
+        while (heightLeft > pdfHeight) {
+          position = heightLeft - pdfHeight;
+          pdf.addPage();
+          pdf.addImage(htmlCanvas.toDataURL('image/png'), 'PNG', 0, -position, imgWidth, imgHeight);
+          heightLeft -= pdfHeight;
+        }
+
+        // Download PDF
+        const filename = `case-${caseData.case_number}-api-${new Date().toISOString().split('T')[0]}.pdf`;
+        pdf.save(filename);
+        toast.dismiss('pdf-download');
+        toast.success('PDF downloaded successfully');
+      } else {
+        toast.dismiss('pdf-download');
+        toast.error('Empty HTML content from API');
+      }
+    } catch (error) {
+      console.error('Error calling PDF API:', error);
+      toast.dismiss('pdf-download');
+      
+      // Provide specific error message for CORS issues
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        toast.error('CORS Error: PDF API server needs to allow "x-api-key" header. Please contact the API owner.', {
+          duration: 8000,
+        });
+      } else if (error instanceof Error) {
+        toast.error(`Error: ${error.message}`);
+      } else {
+        toast.error('Failed to generate PDF via API');
+      }
+    } finally {
+      setIsGeneratingAPIPDF(false);
     }
   };
 
@@ -615,15 +773,26 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
         <TabsContent value="dynamic-forms" className="space-y-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Form Submissions</h3>
-            <Button 
-              onClick={handleCSVDownload}
-              disabled={formSubmissions.length === 0}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Download className="h-4 w-4" />
-              Download CSV
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                onClick={handlePDFDownload}
+                disabled={formSubmissions.length === 0}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download PDF
+              </Button>
+              <Button 
+                onClick={handleCSVDownload}
+                disabled={formSubmissions.length === 0}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download CSV
+              </Button>
+            </div>
           </div>
           <DynamicFormSubmission 
             caseId={caseData.id} 
