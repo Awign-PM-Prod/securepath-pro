@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/Layout/AppLayout";
+import { NoSidebarLayout } from "@/components/Layout/NoSidebarLayout";
 import { LoadingFallback, ErrorFallback } from "@/components/LoadingFallback";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -145,7 +146,7 @@ const App = () => {
 
                 <Route path="/vendor" element={
                   <ProtectedRoute allowedRoles={['vendor']}>
-                    <AppLayout />
+                    <NoSidebarLayout />
                   </ProtectedRoute>
                 }>
                   <Route index element={<VendorDashboard />} />
@@ -153,7 +154,7 @@ const App = () => {
 
                 <Route path="/gig" element={
                   <ProtectedRoute allowedRoles={['gig_worker']}>
-                    <AppLayout />
+                    <NoSidebarLayout />
                   </ProtectedRoute>
                 }>
                   <Route index element={<GigWorkerDashboard />} />
