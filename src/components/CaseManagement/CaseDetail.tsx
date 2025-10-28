@@ -159,6 +159,9 @@ const STATUS_LABELS = {
 export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProps) {
   const [formSubmissions, setFormSubmissions] = useState<FormSubmissionData[]>([]);
   const [isGeneratingAPIPDF, setIsGeneratingAPIPDF] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadType, setDownloadType] = useState<'csv' | 'pdf' | null>(null);
 
   const isOverdue = (dueAt: string) => {
     return new Date(dueAt) < new Date();
@@ -188,19 +191,36 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
     }
   };
 
-  const handleCSVDownload = () => {
+  const handleCSVDownload = async () => {
     if (formSubmissions.length === 0) {
       toast.error('No form submissions available to download');
       return;
     }
 
     try {
+      setIsDownloading(true);
+      setDownloadType('csv');
+      setDownloadProgress(30);
+
       const csvContent = CSVService.convertFormSubmissionsToCSV(formSubmissions);
+      setDownloadProgress(70);
+
       const filename = `case-${caseData.case_number}-responses-${new Date().toISOString().split('T')[0]}.csv`;
       CSVService.downloadCSV(csvContent, filename);
+      
+      setDownloadProgress(100);
       toast.success('CSV file downloaded successfully');
+
+      setTimeout(() => {
+        setIsDownloading(false);
+        setDownloadType(null);
+        setDownloadProgress(0);
+      }, 500);
     } catch (error) {
       console.error('Error generating CSV:', error);
+      setIsDownloading(false);
+      setDownloadType(null);
+      setDownloadProgress(0);
       toast.error('Failed to generate CSV file');
     }
   };
@@ -212,10 +232,26 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
     }
 
     try {
+      setIsDownloading(true);
+      setDownloadType('pdf');
+      setDownloadProgress(10);
+
+      setDownloadProgress(40);
       await PDFService.convertFormSubmissionsToPDF(formSubmissions, caseData.case_number);
+      
+      setDownloadProgress(100);
       toast.success('PDF file downloaded successfully');
+
+      setTimeout(() => {
+        setIsDownloading(false);
+        setDownloadType(null);
+        setDownloadProgress(0);
+      }, 500);
     } catch (error) {
       console.error('Error generating PDF:', error);
+      setIsDownloading(false);
+      setDownloadType(null);
+      setDownloadProgress(0);
       toast.error('Failed to generate PDF file');
     }
   };
@@ -359,7 +395,31 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6 pb-6">
+      {/* Progress Card */}
+      {isDownloading && (
+        <div className="fixed bottom-4 right-4 z-50 w-80">
+          <Card className="shadow-lg border-blue-200">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium mb-1">
+                    Downloading {downloadType?.toUpperCase()} for {caseData.case_number}...
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${downloadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Header */}
       <Card>
         <CardHeader>

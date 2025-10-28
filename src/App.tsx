@@ -27,6 +27,7 @@ import GigWorkerAuth from "./pages/GigWorkerAuth";
 import GigWorkerResetPassword from "./pages/GigWorkerResetPassword";
 import Notifications from "./pages/Notifications";
 import ClientDashboard from "./pages/dashboards/ClientDashboard";
+import Reports from "./pages/dashboards/Reports";
 import CaseManagement from "./pages/CaseManagement";
 import AllocationManagement from "./pages/AllocationManagement";
 import ClientManagement from "./pages/ClientManagement";
@@ -125,6 +126,7 @@ const App = () => {
                   <Route path="gig-workers" element={<GigWorkerManagement />} />
                   <Route path="vendors" element={<VendorManagement />} />
                   <Route path="forms" element={<FormManagement />} />
+                  <Route path="reports" element={<Reports />} />
                   <Route path="test-select" element={<TestSelect />} />
                 </Route>
 
