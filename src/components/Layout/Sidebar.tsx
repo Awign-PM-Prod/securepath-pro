@@ -53,7 +53,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           { icon: Building2, label: 'Vendors', href: '/ops/vendors' },
           { icon: ClipboardList, label: 'Form Management', href: '/ops/forms' },
           { icon: BarChart3, label: 'Reports', href: '/ops/reports' },
-          { icon: MapPin, label: 'Assignments', href: '/ops/assignments' },
         ];
       
       case 'vendor_team':
