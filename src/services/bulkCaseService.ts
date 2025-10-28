@@ -116,10 +116,12 @@ export class BulkCaseService {
       });
       
       // Get client contract for pricing - this is required for proper payout calculation
+      // Filter by contract_type to get the specific contract for the case type
       const { data: clientContract, error: contractError } = await supabase
         .from('client_contracts')
         .select('*')
         .eq('client_id', caseData.client_id)
+        .eq('contract_type', caseData.contract_type)
         .eq('is_active', true)
         .single();
 

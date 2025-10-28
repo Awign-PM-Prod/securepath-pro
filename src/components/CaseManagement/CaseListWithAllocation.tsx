@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -173,108 +173,111 @@ export default function CaseListWithAllocation({
   const [isLoadingVendors, setIsLoadingVendors] = useState(false);
   const [activeTab, setActiveTab] = useState<'cases' | 'csv'>('cases');
   const [qcResponseTab, setQcResponseTab] = useState('all');
-  const [qcStats, setQcStats] = useState({
-    all: 0,
-    approved: 0,
-    rejected: 0,
-    rework: 0
-  });
   const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const { toast } = useToast();
 
-  // Calculate QC stats when cases change
-  React.useEffect(() => {
-    const stats = {
+  // Calculate QC stats when cases change - memoized for performance
+  const qcStats = useMemo(() => {
+    return {
       all: cases.length,
       approved: cases.filter(c => c.QC_Response === 'Approved').length,
       rejected: cases.filter(c => c.QC_Response === 'Rejected').length,
       rework: cases.filter(c => c.QC_Response === 'Rework').length
     };
-    setQcStats(stats);
   }, [cases]);
 
   // Reset to page 1 when filters change
-  React.  useEffect(() => {
+  React.useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab]);
 
-  const filteredCases = cases.filter(caseItem => {
-    const matchesSearch = 
-      caseItem.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.client_case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.location.city.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || caseItem.status === statusFilter;
-    
-    // Filter by QC_Response tab
-    const matchesQcResponse = qcResponseTab === 'all' || caseItem.QC_Response === qcResponseTab;
-    
-    // Filter by creation date
-    const matchesDate = (() => {
-      if (!dateFilter) return true;
+  // Memoized filtered cases for better performance
+  const filteredCases = useMemo(() => {
+    return cases.filter(caseItem => {
+      const matchesSearch = 
+        caseItem.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        caseItem.client_case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        caseItem.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        caseItem.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        caseItem.location.city.toLowerCase().includes(searchTerm.toLowerCase());
       
-      const caseDate = new Date(caseItem.created_at);
-      const selectedDate = new Date(dateFilter);
+      const matchesStatus = statusFilter === 'all' || caseItem.status === statusFilter;
       
-      // Compare only the date part (year, month, day) ignoring time
-      const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
-      const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      // Filter by QC_Response tab
+      const matchesQcResponse = qcResponseTab === 'all' || caseItem.QC_Response === qcResponseTab;
       
-      return caseDateOnly.getTime() === selectedDateOnly.getTime();
-    })();
-    
-    // Filter by TAT expiry date
-    const matchesTatExpiry = (() => {
-      if (!tatExpiryFilter) return true;
+      // Filter by creation date
+      const matchesDate = (() => {
+        if (!dateFilter) return true;
+        
+        const caseDate = new Date(caseItem.created_at);
+        const selectedDate = new Date(dateFilter);
+        
+        // Compare only the date part (year, month, day) ignoring time
+        const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
+        const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+        
+        return caseDateOnly.getTime() === selectedDateOnly.getTime();
+      })();
       
-      const caseDueDate = new Date(caseItem.due_at);
-      const selectedDate = new Date(tatExpiryFilter);
+      // Filter by TAT expiry date
+      const matchesTatExpiry = (() => {
+        if (!tatExpiryFilter) return true;
+        
+        const caseDueDate = new Date(caseItem.due_at);
+        const selectedDate = new Date(tatExpiryFilter);
+        
+        // Compare only the date part (year, month, day) ignoring time
+        const caseDueDateOnly = new Date(caseDueDate.getFullYear(), caseDueDate.getMonth(), caseDueDate.getDate());
+        const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+        
+        return caseDueDateOnly.getTime() === selectedDateOnly.getTime();
+      })();
       
-      // Compare only the date part (year, month, day) ignoring time
-      const caseDueDateOnly = new Date(caseDueDate.getFullYear(), caseDueDate.getMonth(), caseDueDate.getDate());
-      const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      // Filter by client
+      const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
       
-      return caseDueDateOnly.getTime() === selectedDateOnly.getTime();
-    })();
-    
-    // Filter by client
-    const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
-    
-    // Filter by tier
-    const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
-    
-    return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesTatExpiry && matchesClient && matchesTier;
-  }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      // Filter by tier
+      const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
+      
+      return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesTatExpiry && matchesClient && matchesTier;
+    }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [cases, searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab]);
 
-  // Filter cases that can be allocated (new status, no assignee)
-  const allocatableCases = filteredCases.filter(caseItem => 
-    caseItem.status === 'new' && !caseItem.current_assignee
+  // Memoized derived data for better performance
+  const allocatableCases = useMemo(() => 
+    filteredCases.filter(caseItem => 
+      caseItem.status === 'new' && !caseItem.current_assignee
+    ), [filteredCases]
   );
 
-  // Filter cases that can be unallocated (allocated status, has assignee)
-  const unallocatableCases = filteredCases.filter(caseItem => 
-    (caseItem.status === 'allocated' || caseItem.status === 'in_progress') && 
-    caseItem.current_assignee
+  const unallocatableCases = useMemo(() => 
+    filteredCases.filter(caseItem => 
+      (caseItem.status === 'allocated' || caseItem.status === 'in_progress') && 
+      caseItem.current_assignee
+    ), [filteredCases]
   );
 
-  // Get selected allocatable cases (only new status cases that are selected)
-  const selectedAllocatableCases = Array.from(selectedCases).filter(caseId => {
-    const caseItem = cases.find(c => c.id === caseId);
-    const isAllocatable = caseItem && caseItem.status === 'new' && !caseItem.current_assignee;
-    return isAllocatable;
-  });
+  const selectedAllocatableCases = useMemo(() => 
+    Array.from(selectedCases).filter(caseId => {
+      const caseItem = cases.find(c => c.id === caseId);
+      const isAllocatable = caseItem && caseItem.status === 'new' && !caseItem.current_assignee;
+      return isAllocatable;
+    }), [selectedCases, cases]
+  );
 
-  // Pagination logic
-  const totalPages = Math.ceil(filteredCases.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedCases = filteredCases.slice(startIndex, endIndex);
+  // Pagination logic - memoized
+  const paginationData = useMemo(() => {
+    const totalPages = Math.ceil(filteredCases.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedCases = filteredCases.slice(startIndex, endIndex);
+    
+    return { totalPages, startIndex, endIndex, paginatedCases };
+  }, [filteredCases, currentPage, itemsPerPage]);
 
-  // Show paginated cases for selection, but highlight different types
-  const displayCases = paginatedCases;
+  const { totalPages, startIndex, endIndex, paginatedCases: displayCases } = paginationData;
 
 
 
@@ -614,49 +617,53 @@ export default function CaseListWithAllocation({
     );
   };
 
-  // Case selection handlers
-  const handleSelectCase = (caseId: string, checked: boolean) => {
-    const newSelectedCases = new Set(selectedCases);
-    if (checked) {
-      newSelectedCases.add(caseId);
-    } else {
-      newSelectedCases.delete(caseId);
-    }
-    setSelectedCases(newSelectedCases);
-  };
+  // Case selection handlers - memoized with useCallback
+  const handleSelectCase = useCallback((caseId: string, checked: boolean) => {
+    setSelectedCases(prev => {
+      const newSelectedCases = new Set(prev);
+      if (checked) {
+        newSelectedCases.add(caseId);
+      } else {
+        newSelectedCases.delete(caseId);
+      }
+      return newSelectedCases;
+    });
+  }, []);
 
-  const handleSelectAllCases = (checked: boolean) => {
+  const handleSelectAllCases = useCallback((checked: boolean) => {
     if (checked) {
       // Select all allocatable cases on current page
-      const newSelectedCases = new Set(selectedCases);
-      displayCases.forEach(caseItem => {
-        if (caseItem.status === 'new' && !caseItem.current_assignee) {
-          newSelectedCases.add(caseItem.id);
-        }
+      setSelectedCases(prev => {
+        const newSelectedCases = new Set(prev);
+        displayCases.forEach(caseItem => {
+          if (caseItem.status === 'new' && !caseItem.current_assignee) {
+            newSelectedCases.add(caseItem.id);
+          }
+        });
+        return newSelectedCases;
       });
-      setSelectedCases(newSelectedCases);
     } else {
       // Deselect all cases
       setSelectedCases(new Set());
     }
-  };
+  }, [displayCases]);
 
-  const isCaseSelected = (caseId: string) => selectedCases.has(caseId);
+  const isCaseSelected = useCallback((caseId: string) => selectedCases.has(caseId), [selectedCases]);
 
-  const isAllCasesSelected = () => {
+  const isAllCasesSelected = useMemo(() => {
     const allocatableCasesOnPage = displayCases.filter(caseItem => 
       caseItem.status === 'new' && !caseItem.current_assignee
     );
     return allocatableCasesOnPage.length > 0 && 
            allocatableCasesOnPage.every(caseItem => selectedCases.has(caseItem.id));
-  };
+  }, [displayCases, selectedCases]);
 
-  const isSomeCasesSelected = () => {
+  const isSomeCasesSelected = useMemo(() => {
     const allocatableCasesOnPage = displayCases.filter(caseItem => 
       caseItem.status === 'new' && !caseItem.current_assignee
     );
     return allocatableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
-  };
+  }, [displayCases, selectedCases]);
 
   
 
@@ -1058,7 +1065,6 @@ export default function CaseListWithAllocation({
                           <MapPin className="h-4 w-4 text-muted-foreground" />
                           <div>
                             <p className="text-muted-foreground">Location</p>
-                            {console.log('Location URL for case:', caseItem.id, caseItem.location.location_url)}
                             {caseItem.location.location_url ? (
                               <a
                                 href={caseItem.location.location_url}

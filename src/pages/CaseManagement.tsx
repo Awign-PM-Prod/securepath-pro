@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -216,7 +216,7 @@ export default function CaseManagement() {
     }
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [casesData, clientsData, contractTypesData] = await Promise.all([
@@ -237,7 +237,7 @@ export default function CaseManagement() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
 
   const loadContractTypes = async () => {
     try {
@@ -275,7 +275,10 @@ export default function CaseManagement() {
     }
   };
 
-  const selectedCase = selectedCaseId ? cases.find(c => c.id === selectedCaseId) : null;
+  const selectedCase = useMemo(() => 
+    selectedCaseId ? cases.find(c => c.id === selectedCaseId) : null, 
+    [selectedCaseId, cases]
+  );
 
   const handleCreateCase = () => {
     navigate('/ops/cases/create');

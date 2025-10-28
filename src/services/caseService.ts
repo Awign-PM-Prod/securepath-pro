@@ -10,7 +10,7 @@ export interface Case {
   candidate_name: string;
   phone_primary: string;
   phone_secondary?: string;
-  status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
+  status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled' | 'auto_allocated' | 'completed';
   client: {
     id: string;
     name: string;
@@ -94,11 +94,12 @@ export class CaseService {
   }
 
   /**
-   * Get all cases with related data
+   * Get all cases with related data - OPTIMIZED VERSION
    */
   async getCases(): Promise<Case[]> {
     try {
-      const { data, error } = await supabase
+      // First, get all cases with basic data
+      const { data: casesData, error: casesError } = await supabase
         .from('cases')
         .select(`
           id,
@@ -146,167 +147,193 @@ export class CaseService {
         `)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (casesError) throw casesError;
+      if (!casesData || casesData.length === 0) return [];
 
+      const caseIds = casesData.map(c => c.id);
+      const assigneeIds = casesData
+        .filter(c => c.current_assignee_id)
+        .map(c => c.current_assignee_id);
 
-      // Get assignee information separately for both gig workers and vendors
-      const casesWithAssignees = await Promise.all(
-        data?.map(async (caseItem) => {
-          let assigneeInfo = null;
-          let assignedAt = null;
-          let submittedAt = null;
+      // Batch fetch all assignee information
+      const [gigWorkersData, vendorsData, allocationLogsData, submissionsData, formSubmissionsData] = await Promise.all([
+        // Get all gig workers in one query
+        assigneeIds.length > 0 ? supabase
+          .from('gig_partners')
+          .select(`
+            id,
+            profiles!inner (
+              first_name,
+              last_name,
+              email,
+              phone
+            )
+          `)
+          .in('id', assigneeIds) : Promise.resolve({ data: [] }),
+        
+        // Get all vendors in one query
+        assigneeIds.length > 0 ? supabase
+          .from('vendors')
+          .select('id, name')
+          .in('id', assigneeIds) : Promise.resolve({ data: [] }),
+        
+        // Get all allocation logs in one query
+        supabase
+          .from('allocation_logs')
+          .select('case_id, candidate_id, allocated_at, accepted_at, decision')
+          .in('case_id', caseIds)
+          .order('accepted_at', { ascending: false }),
+        
+        // Get all submissions in one query
+        supabase
+          .from('submissions')
+          .select('case_id, submitted_at')
+          .in('case_id', caseIds)
+          .order('submitted_at', { ascending: false }),
+        
+        // Get all form submissions in one query
+        supabase
+          .from('form_submissions')
+          .select('case_id, submitted_at')
+          .in('case_id', caseIds)
+          .order('submitted_at', { ascending: false })
+      ]);
 
-          if (caseItem.current_assignee_id && caseItem.current_assignee_type) {
-            if (caseItem.current_assignee_type === 'gig') {
-              // Get gig worker info
-              const { data: gigWorker } = await supabase
-                .from('gig_partners')
-                .select(`
-                  id,
-                  profiles!inner (
-                    first_name,
-                    last_name,
-                    email,
-                    phone
-                  )
-                `)
-                .eq('id', caseItem.current_assignee_id)
-                .single();
+      // Create lookup maps for efficient data access
+      const gigWorkersMap = new Map();
+      (gigWorkersData.data || []).forEach(worker => {
+        gigWorkersMap.set(worker.id, {
+          id: worker.id,
+          name: `${worker.profiles?.first_name || ''} ${worker.profiles?.last_name || ''}`.trim() || 'Unknown',
+          type: 'gig' as const,
+        });
+      });
 
-              if (gigWorker) {
-                assigneeInfo = {
-                  id: gigWorker.id,
-                  name: `${gigWorker.profiles?.first_name || ''} ${gigWorker.profiles?.last_name || ''}`.trim() || 'Unknown',
-                  type: 'gig' as const,
-                };
-              }
-            } else if (caseItem.current_assignee_type === 'vendor') {
-              // Get vendor info
-              const { data: vendor } = await supabase
-                .from('vendors')
-                .select('id, name')
-                .eq('id', caseItem.current_assignee_id)
-                .single();
+      const vendorsMap = new Map();
+      (vendorsData.data || []).forEach(vendor => {
+        vendorsMap.set(vendor.id, {
+          id: vendor.id,
+          name: vendor.name || 'Unknown Vendor',
+          type: 'vendor' as const,
+        });
+      });
 
-              if (vendor) {
-                assigneeInfo = {
-                  id: vendor.id,
-                  name: vendor.name || 'Unknown Vendor',
-                  type: 'vendor' as const,
-                };
-              }
-            }
+      // Group allocation logs by case_id
+      const allocationLogsMap = new Map();
+      (allocationLogsData.data || []).forEach(log => {
+        if (!allocationLogsMap.has(log.case_id)) {
+          allocationLogsMap.set(log.case_id, []);
+        }
+        allocationLogsMap.get(log.case_id).push(log);
+      });
+
+      // Group submissions by case_id
+      const submissionsMap = new Map();
+      (submissionsData.data || []).forEach(submission => {
+        if (!submissionsMap.has(submission.case_id)) {
+          submissionsMap.set(submission.case_id, submission.submitted_at);
+        }
+      });
+
+      // Group form submissions by case_id
+      const formSubmissionsMap = new Map();
+      (formSubmissionsData.data || []).forEach(submission => {
+        if (!formSubmissionsMap.has(submission.case_id)) {
+          formSubmissionsMap.set(submission.case_id, submission.submitted_at);
+        }
+      });
+
+      // Process cases with lookup data
+      const casesWithAssignees = casesData.map(caseItem => {
+        let assigneeInfo = null;
+        let assignedAt = null;
+        let submittedAt = null;
+
+        // Get assignee info from lookup maps
+        if (caseItem.current_assignee_id && caseItem.current_assignee_type) {
+          if (caseItem.current_assignee_type === 'gig') {
+            assigneeInfo = gigWorkersMap.get(caseItem.current_assignee_id);
+          } else if (caseItem.current_assignee_type === 'vendor') {
+            assigneeInfo = vendorsMap.get(caseItem.current_assignee_id);
           }
+        }
 
-          // Get allocation logs to find when case was assigned
-          // First try to get accepted allocation logs
-          if (caseItem.current_assignee_id) {
-            const { data: allocationLogs } = await supabase
-              .from('allocation_logs')
-              .select('allocated_at, accepted_at, decision')
-              .eq('case_id', caseItem.id)
-              .eq('candidate_id', caseItem.current_assignee_id)
-              .eq('decision', 'accepted')
-              .order('accepted_at', { ascending: false })
-              .limit(1);
-
-            if (allocationLogs && allocationLogs.length > 0) {
-              assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
-            }
-          }
-
-          // If no assignment found with current assignee, try to find any allocation logs for this case
-          if (!assignedAt) {
-            const { data: anyAllocationLogs } = await supabase
-              .from('allocation_logs')
-              .select('allocated_at, accepted_at, decision')
-              .eq('case_id', caseItem.id)
-              .order('accepted_at', { ascending: false })
-              .limit(1);
-
-            if (anyAllocationLogs && anyAllocationLogs.length > 0) {
-              assignedAt = anyAllocationLogs[0].accepted_at || anyAllocationLogs[0].allocated_at;
-            }
-          }
-
-          // Get submission date from either submissions or form_submissions
-          const { data: submissions } = await supabase
-            .from('submissions')
-            .select('submitted_at')
-            .eq('case_id', caseItem.id)
-            .order('submitted_at', { ascending: false })
-            .limit(1);
-
-          if (submissions && submissions.length > 0) {
-            submittedAt = submissions[0].submitted_at;
+        // Get assignment date from allocation logs
+        const caseAllocationLogs = allocationLogsMap.get(caseItem.id) || [];
+        if (caseAllocationLogs.length > 0) {
+          // First try to find accepted allocation with current assignee
+          const acceptedLog = caseAllocationLogs.find(log => 
+            log.candidate_id === caseItem.current_assignee_id && log.decision === 'accepted'
+          );
+          
+          if (acceptedLog) {
+            assignedAt = acceptedLog.accepted_at || acceptedLog.allocated_at;
           } else {
-            const { data: formSubmissions } = await supabase
-              .from('form_submissions')
-              .select('submitted_at')
-              .eq('case_id', caseItem.id)
-              .order('submitted_at', { ascending: false })
-              .limit(1);
-
-            if (formSubmissions && formSubmissions.length > 0) {
-              submittedAt = formSubmissions[0].submitted_at;
+            // Fallback to any accepted allocation
+            const anyAcceptedLog = caseAllocationLogs.find(log => log.decision === 'accepted');
+            if (anyAcceptedLog) {
+              assignedAt = anyAcceptedLog.accepted_at || anyAcceptedLog.allocated_at;
             }
           }
+        }
 
-          // If still no assignment found, but case has submissions, use case creation time as fallback
-          if (!assignedAt && submittedAt) {
-            assignedAt = caseItem.created_at;
-          }
+        // Get submission date
+        submittedAt = submissionsMap.get(caseItem.id) || formSubmissionsMap.get(caseItem.id);
 
-          return {
-            id: caseItem.id,
-            case_number: caseItem.case_number,
-            client_case_id: caseItem.client_case_id,
-            contract_type: caseItem.contract_type,
-            candidate_name: caseItem.candidate_name,
-            phone_primary: caseItem.phone_primary,
-            phone_secondary: caseItem.phone_secondary,
-            status: caseItem.status,
-            client: {
-              id: caseItem.clients.id,
-              name: caseItem.clients.name,
-              contact_person: caseItem.clients.contact_person,
-              phone: caseItem.clients.phone,
-              email: caseItem.clients.email,
-            },
-            location: {
-              id: caseItem.locations.id,
-              address_line: caseItem.locations.address_line,
-              city: caseItem.locations.city,
-              state: caseItem.locations.state,
-              pincode: caseItem.locations.pincode,
-              pincode_tier: caseItem.locations.pincode_tier,
-              lat: caseItem.locations.lat,
-              lng: caseItem.locations.lng,
-              location_url: caseItem.locations.location_url,
-            },
-            current_assignee: assigneeInfo,
-            vendor_tat_start_date: caseItem.vendor_tat_start_date,
-            due_at: caseItem.due_at,
-            base_rate_inr: caseItem.base_rate_inr,
-            bonus_inr: caseItem.bonus_inr,
-            penalty_inr: caseItem.penalty_inr,
-            total_payout_inr: caseItem.total_payout_inr,
-            tat_hours: caseItem.tat_hours,
-            instructions: '', // Will be extracted from metadata
-            created_at: caseItem.created_at,
-            updated_at: caseItem.updated_at,
-            created_by: caseItem.created_by,
-            last_updated_by: caseItem.last_updated_by,
-            status_updated_at: caseItem.status_updated_at,
-            QC_Response: caseItem.QC_Response,
-            // New fields for QC dashboard
-            assigned_at: assignedAt,
-            submitted_at: submittedAt,
-            // FI Type determined from contract type
-            fi_type: this.determineFiType(caseItem.contract_type),
-          };
-        }) || []
-      );
+        // If still no assignment found, but case has submissions, use case creation time as fallback
+        if (!assignedAt && submittedAt) {
+          assignedAt = caseItem.created_at;
+        }
+
+        return {
+          id: caseItem.id,
+          case_number: caseItem.case_number,
+          client_case_id: caseItem.client_case_id,
+          contract_type: caseItem.contract_type,
+          candidate_name: caseItem.candidate_name,
+          phone_primary: caseItem.phone_primary,
+          phone_secondary: caseItem.phone_secondary,
+          status: caseItem.status,
+          client: {
+            id: caseItem.clients.id,
+            name: caseItem.clients.name,
+            contact_person: caseItem.clients.contact_person,
+            phone: caseItem.clients.phone,
+            email: caseItem.clients.email,
+          },
+          location: {
+            id: caseItem.locations.id,
+            address_line: caseItem.locations.address_line,
+            city: caseItem.locations.city,
+            state: caseItem.locations.state,
+            pincode: caseItem.locations.pincode,
+            pincode_tier: caseItem.locations.pincode_tier,
+            lat: caseItem.locations.lat,
+            lng: caseItem.locations.lng,
+            location_url: (caseItem.locations as any).location_url,
+          },
+          current_assignee: assigneeInfo,
+          vendor_tat_start_date: caseItem.vendor_tat_start_date,
+          due_at: caseItem.due_at,
+          base_rate_inr: caseItem.base_rate_inr,
+          bonus_inr: caseItem.bonus_inr,
+          penalty_inr: caseItem.penalty_inr,
+          total_payout_inr: caseItem.total_payout_inr,
+          tat_hours: caseItem.tat_hours,
+          instructions: '', // Will be extracted from metadata
+          created_at: caseItem.created_at,
+          updated_at: caseItem.updated_at,
+          created_by: caseItem.created_by,
+          last_updated_by: caseItem.last_updated_by,
+          status_updated_at: caseItem.status_updated_at,
+          QC_Response: caseItem.QC_Response,
+          // New fields for QC dashboard
+          assigned_at: assignedAt,
+          submitted_at: submittedAt,
+          // FI Type determined from contract type
+          fi_type: this.determineFiType(caseItem.contract_type),
+        };
+      });
 
       return casesWithAssignees;
     } catch (error) {
@@ -375,7 +402,7 @@ export class CaseService {
             created_at
           )
         `)
-        .eq('status', status)
+        .eq('status', status as any)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -446,9 +473,9 @@ export class CaseService {
           }
 
           // Get submission date from either submissions or form_submissions
-          if (caseItem.submissions && caseItem.submissions.length > 0) {
+          if (caseItem.submissions && Array.isArray(caseItem.submissions) && caseItem.submissions.length > 0) {
             submittedAt = caseItem.submissions[0].submitted_at;
-          } else if (caseItem.form_submissions && caseItem.form_submissions.length > 0) {
+          } else if (caseItem.form_submissions && Array.isArray(caseItem.form_submissions) && caseItem.form_submissions.length > 0) {
             submittedAt = caseItem.form_submissions[0].submitted_at;
           }
 
@@ -477,7 +504,7 @@ export class CaseService {
               pincode_tier: caseItem.locations.pincode_tier,
               lat: caseItem.locations.lat,
               lng: caseItem.locations.lng,
-              location_url: caseItem.locations.location_url,
+              location_url: (caseItem.locations as any).location_url,
             },
             current_assignee: assigneeInfo,
             vendor_tat_start_date: caseItem.vendor_tat_start_date,
@@ -568,12 +595,12 @@ export class CaseService {
 
       // Get allocation logs to find when case was assigned
       // First try to get accepted allocation logs
-      if (data.current_assignee_id) {
+      if ((data as any).current_assignee_id) {
         const { data: allocationLogs } = await supabase
           .from('allocation_logs')
           .select('allocated_at, accepted_at, decision')
           .eq('case_id', data.id)
-          .eq('candidate_id', data.current_assignee_id)
+          .eq('candidate_id', (data as any).current_assignee_id)
           .eq('decision', 'accepted')
           .order('accepted_at', { ascending: false })
           .limit(1);
@@ -633,10 +660,10 @@ export class CaseService {
         candidate_name: data.candidate_name || '', // Add candidate_name field
         phone_primary: data.phone_primary || '', // Add phone_primary field
         phone_secondary: data.phone_secondary, // Add phone_secondary field
-        title: data.title,
-        description: data.description,
-        priority: data.priority,
-        status: data.status,
+        // title: data.title,
+        // description: data.description,
+        // priority: data.priority,
+        status: data.status as any,
         client: {
           id: data.clients.id,
           name: data.clients.name,
@@ -660,7 +687,6 @@ export class CaseService {
         bonus_inr: 0, // Will be extracted from rate_adjustments
         penalty_inr: 0, // Add penalty_inr field
         total_payout_inr: data.total_rate_inr, // Map total_rate_inr to total_payout_inr
-        travel_allowance_inr: 0, // Will be extracted from rate_adjustments
         tat_hours: data.tat_hours,
         instructions: '', // Will be extracted from metadata
         created_at: data.created_at,
@@ -767,17 +793,16 @@ export class CaseService {
       };
 
       // If rate fields are being updated, recalculate total_rate_inr
-      if (updates.base_rate_inr !== undefined || updates.travel_allowance_inr !== undefined || updates.bonus_inr !== undefined) {
+      if (updates.base_rate_inr !== undefined || updates.bonus_inr !== undefined) {
         const currentCase = await this.getCaseById(id);
         if (currentCase) {
           const baseRate = updates.base_rate_inr ?? currentCase.base_rate_inr;
-          const travelAllowance = updates.travel_allowance_inr ?? 0;
           const bonus = updates.bonus_inr ?? 0;
-          updateData.total_rate_inr = baseRate + travelAllowance + bonus;
+          updateData.total_payout_inr = baseRate + bonus;
           
           // Update rate_adjustments
-          updateData.rate_adjustments = {
-            travel_allowance_inr: travelAllowance,
+          updateData.metadata = {
+            ...(currentCase as any).metadata,
             bonus_inr: bonus
           };
         }
@@ -1002,7 +1027,7 @@ export class CaseService {
         status_updated_at: new Date().toISOString(),
         vendor_tat_start_date: new Date().toISOString(),
         due_at: new Date(Date.now() + (originalCase.tat_hours || 24) * 60 * 60 * 1000).toISOString(),
-        QC_Response: 'New',
+        QC_Response: 'New' as any,
         metadata: originalCase.metadata || {},
         rate_adjustments: originalCase.rate_adjustments || {},
         total_rate_inr: originalCase.total_rate_inr || originalCase.base_rate_inr || 0,
@@ -1011,7 +1036,7 @@ export class CaseService {
 
       const { data: newCase, error: createError } = await supabase
         .from('cases')
-        .insert(newCaseData)
+        .insert(newCaseData as any)
         .select('id, case_number')
         .single();
 
@@ -1025,11 +1050,12 @@ export class CaseService {
         .from('allocation_logs')
         .insert({
           case_id: newCase.id,
-          original_case_id: originalCaseId,
+          candidate_id: userId,
+          candidate_type: 'gig',
           action: 'case_recreated',
           created_at: new Date().toISOString(),
           created_by: userId
-        });
+        } as any);
 
       return { 
         success: true, 
