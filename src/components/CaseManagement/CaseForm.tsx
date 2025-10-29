@@ -257,7 +257,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Client Case ID */}
           <div className="space-y-2">
-            <Label htmlFor="client_case_id">Client Case ID *</Label>
+            <Label htmlFor="client_case_id">Client Case ID <span className="text-red-500">*</span></Label>
             <div className="relative">
               <Hash className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -274,7 +274,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
           {/* Client and Contract Type Selection */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="client">Client *</Label>
+              <Label htmlFor="client">Client <span className="text-red-500">*</span></Label>
               <Select value={selectedClient} onValueChange={handleClientChange}>
                 <SelectTrigger className={errors.client_id ? 'border-red-500' : ''}>
                   <SelectValue placeholder="Select a client" />
@@ -293,7 +293,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="contract_type">Contract Type *</Label>
+              <Label htmlFor="contract_type">Contract Type <span className="text-red-500">*</span></Label>
               <Select value={selectedContractType} onValueChange={handleContractTypeChange}>
                 <SelectTrigger className={errors.contract_type ? 'border-red-500' : ''}>
                   <SelectValue placeholder="Select contract type" />
@@ -321,7 +321,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
           <div className="space-y-4">
             <h3 className="text-lg font-medium flex items-center"><User className="mr-2 h-4 w-4" /> Candidate Information</h3>
             <div className="space-y-2">
-              <Label htmlFor="candidate_name">Candidate Name *</Label>
+              <Label htmlFor="candidate_name">Candidate Name <span className="text-red-500">*</span></Label>
               <Input
                 id="candidate_name"
                 value={formData.candidate_name}
@@ -333,7 +333,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="phone_primary">Primary Phone *</Label>
+                <Label htmlFor="phone_primary">Primary Phone <span className="text-red-500">*</span></Label>
                 <Input
                   id="phone_primary"
                   value={formData.phone_primary}
@@ -359,7 +359,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
           <div className="space-y-4">
             <h3 className="text-lg font-medium flex items-center"><MapPin className="mr-2 h-4 w-4" /> Location Details</h3>
             <div className="space-y-2">
-              <Label htmlFor="address_line">Address *</Label>
+              <Label htmlFor="address_line">Address <span className="text-red-500">*</span></Label>
               <Input
                 id="address_line"
                 value={formData.address_line}
@@ -371,7 +371,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="city">City *</Label>
+                <Label htmlFor="city">City <span className="text-red-500">*</span></Label>
                 <Input
                   id="city"
                   value={formData.city}
@@ -390,7 +390,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                 {autoFilled.has('city') && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="state">State *</Label>
+                <Label htmlFor="state">State <span className="text-red-500">*</span></Label>
                 <Input
                   id="state"
                   value={formData.state}
@@ -409,7 +409,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                 {autoFilled.has('state') && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="pincode">Pincode *</Label>
+                <Label htmlFor="pincode">Pincode <span className="text-red-500">*</span></Label>
                 <Input
                   id="pincode"
                   value={formData.pincode}
@@ -440,7 +440,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
             <h3 className="text-lg font-medium flex items-center"><Clock className="mr-2 h-4 w-4" /> Vendor TAT</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="vendor_tat_start_date">Vendor TAT Start Date *</Label>
+                <Label htmlFor="vendor_tat_start_date">Vendor TAT Start Date <span className="text-red-500">*</span></Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -478,7 +478,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                 {errors.vendor_tat_start_date && <p className="text-sm text-red-500">{errors.vendor_tat_start_date}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="vendor_tat_start_time">Start Time *</Label>
+                <Label htmlFor="vendor_tat_start_time">Start Time <span className="text-red-500">*</span></Label>
                 <Input
                   id="vendor_tat_start_time"
                   type="time"

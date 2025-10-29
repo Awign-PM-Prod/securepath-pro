@@ -18,6 +18,7 @@ import {
   Tag,
   UserCog,
   ClipboardList,
+  Target,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -45,6 +46,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         return [
           { icon: LayoutDashboard, label: 'Dashboard', href: '/ops' },
           { icon: FileText, label: 'Cases', href: '/ops/cases' },
+          { icon: Target, label: 'Allocation', href: '/ops/allocation' },
           { icon: Users, label: 'Clients', href: '/ops/clients' },
           { icon: FileTextIcon, label: 'Client Contracts', href: '/ops/client-contracts' },
           { icon: Tag, label: 'Contract Types', href: '/ops/contract-types' },

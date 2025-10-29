@@ -109,7 +109,7 @@ export default function OpsDashboard() {
               <p className="text-sm text-blue-700">
                 Create, manage, and track background verification cases
               </p>
-              <Button onClick={() => navigate('/ops/cases')} className="w-full btn-primary">
+              <Button onClick={() => navigate('/ops/cases')} variant="outline" className="w-full bg-white hover:bg-blue-600 hover:text-white hover:border-blue-600">
                 Manage Cases
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -119,7 +119,7 @@ export default function OpsDashboard() {
               <p className="text-sm text-purple-700">
                 Manage case allocation and gig worker capacity
               </p>
-              <Button onClick={() => navigate('/ops/allocation')} className="w-full btn-primary">
+              <Button onClick={() => navigate('/ops/allocation')} variant="outline" className="w-full bg-white hover:bg-blue-600 hover:text-white hover:border-blue-600">
                 <Target className="mr-2 h-4 w-4" />
                 Manage Allocation
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -130,7 +130,7 @@ export default function OpsDashboard() {
               <p className="text-sm text-green-700">
                 Manage client accounts and settings
               </p>
-              <Button variant="outline" className="w-full btn-secondary" onClick={() => navigate('/ops/clients')}>
+              <Button variant="outline" className="w-full bg-white hover:bg-blue-600 hover:text-white hover:border-blue-600" onClick={() => navigate('/ops/clients')}>
                 Manage Clients
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -143,8 +143,8 @@ export default function OpsDashboard() {
               <p className="text-sm text-orange-700">
                 Manage pricing and client contracts
               </p>
-              <Button variant="outline" className="w-full btn-secondary" onClick={() => navigate('/ops/client-contracts')}>
-                Manage Rate Cards
+              <Button variant="outline" className="w-full bg-white hover:bg-blue-600 hover:text-white hover:border-blue-600" onClick={() => navigate('/ops/client-contracts')}>
+                Manage Contracts
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>

@@ -279,7 +279,29 @@ export default function CaseListWithAllocation({
 
   const { totalPages, startIndex, endIndex, paginatedCases: displayCases } = paginationData;
 
+  // Check if any filter is active (not default)
+  const hasActiveFilters = useMemo(() => {
+    return (
+      statusFilter !== 'all' ||
+      clientFilter !== 'all' ||
+      tierFilter !== 'all' ||
+      dateFilter !== null ||
+      tatExpiryFilter !== null ||
+      searchTerm !== ''
+    );
+  }, [statusFilter, clientFilter, tierFilter, dateFilter, tatExpiryFilter, searchTerm]);
 
+  // Clear all filters
+  const clearAllFilters = () => {
+    setStatusFilter('all');
+    setClientFilter('all');
+    setTierFilter('all');
+    setDateFilter(null);
+    setTatExpiryFilter(null);
+    setSearchTerm('');
+    setQcResponseTab('all');
+    setCurrentPage(1);
+  };
 
   const handleAutoAllocate = async () => {
 
@@ -745,16 +767,16 @@ export default function CaseListWithAllocation({
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
-                placeholder="Search cases..."
+                placeholder="Case ID/Case Number"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
+                className={`pl-10 ${searchTerm ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
               />
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40">
+              <SelectTrigger className={`w-40 ${statusFilter !== 'all' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}>
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue />
               </SelectTrigger>
@@ -773,7 +795,7 @@ export default function CaseListWithAllocation({
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className="w-48 justify-start text-left font-normal"
+                    className={`w-48 justify-start text-left font-normal ${dateFilter ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
                   >
                     <CalendarIcon className="h-4 w-4 mr-2" />
                     {dateFilter ? format(dateFilter, "PPP") : "Case Creation Date"}
@@ -811,7 +833,7 @@ export default function CaseListWithAllocation({
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className="w-48 justify-start text-left font-normal"
+                    className={`w-48 justify-start text-left font-normal ${tatExpiryFilter ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
                   >
                     <CalendarIcon className="h-4 w-4 mr-2" />
                     {tatExpiryFilter ? format(tatExpiryFilter, "PPP") : "TAT Expiry Date"}
@@ -839,7 +861,7 @@ export default function CaseListWithAllocation({
             </div>
             
             <Select value={clientFilter} onValueChange={setClientFilter}>
-              <SelectTrigger className="w-48">
+              <SelectTrigger className={`w-48 ${clientFilter !== 'all' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}>
                 <Building className="h-4 w-4 mr-2" />
                 <SelectValue />
               </SelectTrigger>
@@ -857,7 +879,7 @@ export default function CaseListWithAllocation({
             </Select>
             
             <Select value={tierFilter} onValueChange={setTierFilter}>
-              <SelectTrigger className="w-32">
+              <SelectTrigger className={`w-32 ${tierFilter !== 'all' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}>
                 <MapPin className="h-4 w-4 mr-2" />
                 <SelectValue />
               </SelectTrigger>
@@ -870,6 +892,20 @@ export default function CaseListWithAllocation({
             </Select>
           </div>
         </div>
+        
+        {/* Clear Filters Button - Below search bar */}
+        {hasActiveFilters && (
+          <div className="mb-6">
+            <Button
+              variant="outline"
+              onClick={clearAllFilters}
+              className="flex items-center gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Clear Filters
+            </Button>
+          </div>
+        )}
 
         {/* Allocation Actions - Show when cases are selected */}
         {selectedAllocatableCases.length > 0 && (
