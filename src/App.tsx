@@ -140,7 +140,7 @@ const App = () => {
 
                 <Route path="/qc" element={
                   <ProtectedRoute allowedRoles={['qc_team']}>
-                    <AppLayout />
+                    <NoSidebarLayout />
                   </ProtectedRoute>
                 }>
                   <Route index element={<QCDashboard />} />

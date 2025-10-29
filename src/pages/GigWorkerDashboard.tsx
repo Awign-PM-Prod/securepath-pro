@@ -885,7 +885,14 @@ export default function GigWorkerDashboard() {
       QC_Response: c.QC_Response
     }))
   });
-  const reworkCases = allocatedCases.filter(c => c.QC_Response === 'Rework');
+  const reworkCases = allocatedCases
+    .filter(c => c.QC_Response === 'Rework')
+    .sort((a, b) => {
+      // Sort by submitted_at field in descending order (most recent first)
+      const aSubmittedAt = a.actual_submitted_at || a.due_at;
+      const bSubmittedAt = b.actual_submitted_at || b.due_at;
+      return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
+    });
   const submittedCases = allocatedCases
     .filter(c => c.status === 'submitted')
     .sort((a, b) => {

@@ -285,7 +285,9 @@ const VendorDashboard: React.FC = () => {
           base_rate_inr,
           total_rate_inr,
           created_by,
-          updated_at
+          updated_at,
+          clients(id, name, contact_person, phone, email),
+          locations(id, address_line, city, state, pincode)
         `)
         .eq('current_vendor_id', vendorId)
         .eq('status', 'allocated' as any);
@@ -317,7 +319,9 @@ const VendorDashboard: React.FC = () => {
           base_rate_inr,
           total_rate_inr,
           created_by,
-          updated_at
+          updated_at,
+          clients(id, name, contact_person, phone, email),
+          locations(id, address_line, city, state, pincode)
         `)
         .eq('current_vendor_id', vendorId)
         .eq('status', 'accepted');
@@ -329,20 +333,60 @@ const VendorDashboard: React.FC = () => {
       
       // Combine both datasets
       const allCases = [...(allocatedData || []), ...(acceptedData || [])];
+
+      // Filter out cases created before today (hide all cases created till yesterday)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const filteredCases = allCases.filter(caseItem => {
+        const caseCreatedDate = new Date(caseItem.created_at);
+        return caseCreatedDate >= today;
+      });
+      
+      console.log(`Filtered vendor cases: ${filteredCases.length} out of ${allCases.length} total cases (hiding all cases created till yesterday)`);
+
+      // Resolve client names using client_id in case relational payload is missing
+      const uniqueClientIds = Array.from(new Set(filteredCases.map((c: any) => c.client_id).filter(Boolean)));
+      console.log('Unique client IDs to fetch:', uniqueClientIds);
+      let clientIdToName: Record<string, string> = {};
+      if (uniqueClientIds.length > 0) {
+        const { data: clientRows, error: clientError } = await supabase
+          .from('clients')
+          .select('id, name')
+          .in('id', uniqueClientIds);
+        
+        if (clientError) {
+          console.error('Error fetching clients:', clientError);
+        } else {
+          console.log('Client rows fetched from database:', clientRows);
+          (clientRows || []).forEach((row: any) => {
+            clientIdToName[row.id] = row.name;
+          });
+          console.log('Mapped client IDs to names:', clientIdToName);
+        }
+      } else {
+        console.warn('No unique client IDs found to fetch');
+      }
       
       console.log('Raw allocated cases data:', allocatedData);
       console.log('Raw accepted cases data:', acceptedData);
-      console.log('Total cases:', allCases.length);
+      console.log('Total cases:', filteredCases.length);
       
-      const cases = allCases.map(c => ({
-        ...c,
-        address_line: '',
-        city: '',
-        state: '',
-        pincode: '',
-        client_name: '',
-        client_email: ''
-      }));
+      const cases = filteredCases.map(c => {
+        const clientName = c.clients?.name || clientIdToName[c.client_id] || '';
+        if (!clientName && c.client_id) {
+          console.warn(`Client name not found for client_id: ${c.client_id}, available clients:`, clientIdToName);
+        }
+        return {
+          ...c,
+          address_line: c.locations?.address_line || '',
+          city: c.locations?.city || '',
+          state: c.locations?.state || '',
+          pincode: c.locations?.pincode || '',
+          client_name: clientName,
+          client_email: c.clients?.email || ''
+        };
+      });
       
       console.log('Processed all cases:', cases);
       setAssignedCases(cases);
@@ -913,9 +957,13 @@ const VendorDashboard: React.FC = () => {
 
     try {
       // Query for cases with QC_Response = 'Rework' for this vendor (rework cases)
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('cases')
-        .select('*')
+        .select(`
+          *,
+          clients(id, name, contact_person, phone, email),
+          locations(id, address_line, city, state, pincode)
+        `)
         .eq('current_vendor_id', vendorId)
         .eq('QC_Response', 'Rework')
         .order('created_at', { ascending: false });
@@ -929,7 +977,11 @@ const VendorDashboard: React.FC = () => {
           // Try to get cases that might be rework cases by status
           const { data: altData, error: altError } = await supabase
             .from('cases')
-            .select('*')
+            .select(`
+              *,
+              clients(id, name, contact_person, phone, email),
+              locations(id, address_line, city, state, pincode)
+            `)
             .eq('current_vendor_id', vendorId)
             .in('status', ['qc_passed', 'qc_rejected', 'qc_rework'])
             .order('created_at', { ascending: false });
@@ -940,7 +992,32 @@ const VendorDashboard: React.FC = () => {
           }
 
           console.log('Alternative rework cases data:', altData);
-          const cases = (altData || []).map((c: any) => ({
+
+          // Resolve client names for altData as well
+          const altClientIds = Array.from(new Set((altData || []).map((c: any) => c.client_id).filter(Boolean)));
+          let altClientIdToName: Record<string, string> = {};
+          if (altClientIds.length > 0) {
+            const { data: altClientRows, error: altClientError } = await supabase
+              .from('clients')
+              .select('id, name')
+              .in('id', altClientIds);
+            
+            if (altClientError) {
+              console.error('Error fetching clients for alternative rework cases:', altClientError);
+            } else {
+              (altClientRows || []).forEach((row: any) => {
+                altClientIdToName[row.id] = row.name;
+              });
+              console.log('Fetched client names for alternative rework cases:', altClientIdToName);
+            }
+          }
+
+          const cases = (altData || []).map((c: any) => {
+            const clientName = c.clients?.name || altClientIdToName[c.client_id] || '';
+            if (!clientName && c.client_id) {
+              console.warn(`Alt rework case: Client name not found for client_id: ${c.client_id}, available clients:`, altClientIdToName);
+            }
+            return {
             id: c.id || '',
             case_number: c.case_number || '',
             title: c.title || '',
@@ -961,13 +1038,14 @@ const VendorDashboard: React.FC = () => {
             QC_Response: 'Rework', // Assume these are rework cases
             acceptance_deadline: c.metadata?.acceptance_deadline || '',
             metadata: c.metadata || {},
-            address_line: '',
-            city: '',
-            state: '',
-            pincode: '',
-            client_name: '',
-            client_email: ''
-          }));
+            address_line: c.locations?.address_line || '',
+            city: c.locations?.city || '',
+            state: c.locations?.state || '',
+            pincode: c.locations?.pincode || '',
+            client_name: clientName,
+            client_email: c.clients?.email || ''
+            };
+          });
 
           console.log('Processed alternative rework cases:', cases);
           setReworkCases(cases);
@@ -979,34 +1057,59 @@ const VendorDashboard: React.FC = () => {
       console.log('Raw rework cases data (QC_Response = Rework):', data);
       console.log('Number of rework cases (QC_Response = Rework):', data?.length || 0);
 
-      const cases = (data || []).map((c: any) => ({
-        id: c.id || '',
-        case_number: c.case_number || '',
-        title: c.title || '',
-        description: c.description || '',
-        priority: c.priority || 'medium',
-        client_id: c.client_id || '',
-        location_id: c.location_id || '',
-        tat_hours: c.tat_hours || 0,
-        due_at: c.due_at || '',
-        created_at: c.created_at || '',
-        status: c.status || 'draft',
-        status_updated_at: c.status_updated_at || '',
-        base_rate_inr: c.base_rate_inr || 0,
-        total_rate_inr: c.total_rate_inr || 0,
-        created_by: c.created_by || '',
-        updated_at: c.updated_at || '',
-        current_vendor_id: c.current_vendor_id || '',
-        QC_Response: c.QC_Response || 'New',
-        acceptance_deadline: c.metadata?.acceptance_deadline || '',
-        metadata: c.metadata || {},
-        address_line: '',
-        city: '',
-        state: '',
-        pincode: '',
-        client_name: '',
-        client_email: ''
-      }));
+      // Resolve client names using client_id in case relational payload is missing
+      const reworkClientIds = Array.from(new Set((data || []).map((c: any) => c.client_id).filter(Boolean)));
+      let reworkClientIdToName: Record<string, string> = {};
+      if (reworkClientIds.length > 0) {
+        const { data: clientRows, error: reworkClientError } = await supabase
+          .from('clients')
+          .select('id, name')
+          .in('id', reworkClientIds);
+        
+        if (reworkClientError) {
+          console.error('Error fetching clients for rework cases:', reworkClientError);
+        } else {
+          (clientRows || []).forEach((row: any) => {
+            reworkClientIdToName[row.id] = row.name;
+          });
+          console.log('Fetched client names for rework cases:', reworkClientIdToName);
+        }
+      }
+
+      const cases = (data || []).map((c: any) => {
+        const clientName = c.clients?.name || reworkClientIdToName[c.client_id] || '';
+        if (!clientName && c.client_id) {
+          console.warn(`Rework case: Client name not found for client_id: ${c.client_id}, available clients:`, reworkClientIdToName);
+        }
+        return {
+          id: c.id || '',
+          case_number: c.case_number || '',
+          title: c.title || '',
+          description: c.description || '',
+          priority: c.priority || 'medium',
+          client_id: c.client_id || '',
+          location_id: c.location_id || '',
+          tat_hours: c.tat_hours || 0,
+          due_at: c.due_at || '',
+          created_at: c.created_at || '',
+          status: c.status || 'draft',
+          status_updated_at: c.status_updated_at || '',
+          base_rate_inr: c.base_rate_inr || 0,
+          total_rate_inr: c.total_rate_inr || 0,
+          created_by: c.created_by || '',
+          updated_at: c.updated_at || '',
+          current_vendor_id: c.current_vendor_id || '',
+          QC_Response: c.QC_Response || 'New',
+          acceptance_deadline: c.metadata?.acceptance_deadline || '',
+          metadata: c.metadata || {},
+          address_line: c.locations?.address_line || '',
+          city: c.locations?.city || '',
+          state: c.locations?.state || '',
+          pincode: c.locations?.pincode || '',
+          client_name: clientName,
+          client_email: c.clients?.email || ''
+        };
+      });
 
       console.log('Processed rework cases:', cases);
       setReworkCases(cases);
@@ -1740,7 +1843,6 @@ const VendorDashboard: React.FC = () => {
                     <TableRow>
                       <TableHead>Case Number</TableHead>
                       <TableHead>Title</TableHead>
-                      <TableHead>Client</TableHead>
                       <TableHead>Location</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Due Date</TableHead>
@@ -1782,9 +1884,15 @@ const VendorDashboard: React.FC = () => {
                         <TableRow key={caseItem.id} className={isExpired ? 'bg-red-50' : ''}>
                           <TableCell className="font-mono">{caseItem.case_number}</TableCell>
                           <TableCell>{caseItem.title}</TableCell>
-                          <TableCell>{caseItem.client_name}</TableCell>
                           <TableCell>
-                            {caseItem.city}, {caseItem.state}
+                            <div className="space-y-1">
+                              <div className="text-sm font-medium text-gray-900">
+                                {caseItem.address_line}
+                              </div>
+                              <div className="text-xs text-gray-600">
+                                {caseItem.city}, {caseItem.state} - {caseItem.pincode}
+                              </div>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Badge variant={
@@ -1920,7 +2028,6 @@ const VendorDashboard: React.FC = () => {
                     <TableRow>
                       <TableHead>Case Number</TableHead>
                       <TableHead>Title</TableHead>
-                      <TableHead>Client</TableHead>
                       <TableHead>Location</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Assigned To</TableHead>
@@ -1938,7 +2045,6 @@ const VendorDashboard: React.FC = () => {
                           <TableRow key={caseItem.id}>
                           <TableCell className="font-mono">{caseItem.case_number}</TableCell>
                           <TableCell>{caseItem.title}</TableCell>
-                          <TableCell>{caseItem.client_name}</TableCell>
                           <TableCell>
                             {caseItem.city}, {caseItem.state}
                           </TableCell>
@@ -2078,7 +2184,6 @@ const VendorDashboard: React.FC = () => {
                     <TableRow>
                       <TableHead>Case Number</TableHead>
                       <TableHead>Title</TableHead>
-                      <TableHead>Client</TableHead>
                       <TableHead>Location</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Due Date</TableHead>
@@ -2090,7 +2195,6 @@ const VendorDashboard: React.FC = () => {
                       <TableRow key={caseItem.id}>
                         <TableCell className="font-mono">{caseItem.case_number}</TableCell>
                         <TableCell>{caseItem.title}</TableCell>
-                        <TableCell>{caseItem.client_name}</TableCell>
                         <TableCell>
                           {caseItem.city}, {caseItem.state}
                         </TableCell>
@@ -2359,7 +2463,6 @@ const VendorDashboard: React.FC = () => {
                         <TableRow>
                           <TableHead>Case Number</TableHead>
                           <TableHead>Title</TableHead>
-                          <TableHead>Client</TableHead>
                           <TableHead>Location</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Assigned To</TableHead>
@@ -2460,7 +2563,14 @@ const VendorDashboard: React.FC = () => {
                               <TableCell>{caseItem.title}</TableCell>
                               <TableCell>{caseItem.client_name}</TableCell>
                               <TableCell>
-                                {caseItem.city}, {caseItem.state}
+                                <div className="space-y-1">
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {caseItem.address_line}
+                                  </div>
+                                  <div className="text-xs text-gray-600">
+                                    {caseItem.city}, {caseItem.state} - {caseItem.pincode}
+                                  </div>
+                                </div>
                               </TableCell>
                               <TableCell>
                                 <Badge variant="destructive">

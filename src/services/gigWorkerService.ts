@@ -604,7 +604,18 @@ export class GigWorkerService {
         };
       }) || [];
 
-      return { success: true, cases: casesWithDeadlines };
+      // Filter out cases created before today (hide all cases created till yesterday)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const filteredCases = casesWithDeadlines.filter(caseItem => {
+        const caseCreatedDate = new Date(caseItem.created_at);
+        return caseCreatedDate >= today;
+      });
+      
+      console.log(`Gig Worker filtered cases: ${filteredCases.length} out of ${casesWithDeadlines.length} total cases (hiding all cases created till yesterday)`);
+
+      return { success: true, cases: filteredCases };
     } catch (error) {
       console.error('Error getting allocated cases:', error);
       return { 

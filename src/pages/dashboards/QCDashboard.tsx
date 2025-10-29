@@ -240,8 +240,19 @@ export default function QCDashboard() {
       setIsLoading(true);
       const cases = await caseService.getCases();
       
+      // Filter out cases created before today (hide all cases created till yesterday)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const filteredCases = cases.filter(caseItem => {
+        const caseCreatedDate = new Date(caseItem.created_at);
+        return caseCreatedDate >= today;
+      });
+      
+      console.log(`QC filtered cases: ${filteredCases.length} out of ${cases.length} total cases (hiding all cases created till yesterday)`);
+      
       // Sort cases by submitted_at field (most recent first)
-      const sortedCases = cases.sort((a, b) => {
+      const sortedCases = filteredCases.sort((a, b) => {
         const aSubmittedAt = a.submitted_at || a.created_at;
         const bSubmittedAt = b.submitted_at || b.created_at;
         return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();

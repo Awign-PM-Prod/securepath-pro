@@ -224,7 +224,19 @@ export default function CaseManagement() {
         caseService.getClients(),
         loadContractTypes()
       ]);
-      setCases(casesData);
+      
+      // Filter out cases created before today (hide all cases created till yesterday)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const filteredCases = casesData.filter(caseItem => {
+        const caseCreatedDate = new Date(caseItem.created_at);
+        return caseCreatedDate >= today;
+      });
+      
+      console.log(`Filtered cases: ${filteredCases.length} out of ${casesData.length} total cases (hiding all cases created till yesterday)`);
+      
+      setCases(filteredCases);
       setClients(clientsData);
       setContractTypes(contractTypesData);
     } catch (error) {

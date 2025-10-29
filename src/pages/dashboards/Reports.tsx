@@ -136,7 +136,18 @@ export default function Reports() {
         submitted_at: caseItem.submitted_at
       })) || [];
 
-      setCases(formattedCases);
+      // Filter out cases created before today (hide all cases created till yesterday)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const filteredCases = formattedCases.filter(caseItem => {
+        const caseCreatedDate = new Date(caseItem.created_at);
+        return caseCreatedDate >= today;
+      });
+      
+      console.log(`Reports filtered cases: ${filteredCases.length} out of ${formattedCases.length} total cases (hiding all cases created till yesterday)`);
+
+      setCases(filteredCases);
     } catch (error) {
       console.error('Error loading submitted cases:', error);
       toast({
