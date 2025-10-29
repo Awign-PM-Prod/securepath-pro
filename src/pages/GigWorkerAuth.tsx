@@ -99,7 +99,8 @@ export default function GigWorkerAuth() {
 
     } catch (error) {
       console.error('Error setting up password:', error);
-      setError(error instanceof Error ? error.message : 'Failed to setup password');
+      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
+      setError(getErrorAlertMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -135,7 +136,8 @@ export default function GigWorkerAuth() {
 
     } catch (error) {
       console.error('Error sending reset email:', error);
-      setError(error instanceof Error ? error.message : 'Failed to send reset email');
+      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
+      setError(getErrorAlertMessage(error));
     } finally {
       setIsLoading(false);
     }

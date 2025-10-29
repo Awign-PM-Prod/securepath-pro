@@ -532,11 +532,8 @@ export default function GigWorkerManagement() {
       loadData();
     } catch (error) {
       console.error('Failed to update gig worker:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to update gig worker',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -559,11 +556,8 @@ export default function GigWorkerManagement() {
       loadData();
     } catch (error) {
       console.error('Failed to delete gig worker:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to delete gig worker',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 

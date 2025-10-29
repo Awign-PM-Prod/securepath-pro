@@ -54,7 +54,8 @@ export default function ForgotPassword() {
         description: 'Please check your email for password reset instructions.',
       });
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset email');
+      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
+      setError(getErrorAlertMessage(err));
     } finally {
       setIsLoading(false);
     }

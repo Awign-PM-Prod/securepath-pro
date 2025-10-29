@@ -52,19 +52,14 @@ export default function AllocationActions({
         });
         onAllocationUpdate();
       } else {
-        toast({
-          title: 'Allocation Failed',
-          description: result.error || 'Failed to allocate case',
-          variant: 'destructive',
-        });
+        const error = new Error(result.error || 'Failed to allocate case');
+        const { getErrorToast } = await import('@/utils/errorMessages');
+        toast(getErrorToast(error));
       }
     } catch (error) {
       console.error('Allocation error:', error);
-      toast({
-        title: 'Error',
-        description: 'An error occurred during allocation',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsAllocating(false);
     }
@@ -82,19 +77,14 @@ export default function AllocationActions({
         });
         onAllocationUpdate();
       } else {
-        toast({
-          title: 'Reallocation Failed',
-          description: result.error || 'Failed to reallocate case',
-          variant: 'destructive',
-        });
+        const error = new Error(result.error || 'Failed to reallocate case');
+        const { getErrorToast } = await import('@/utils/errorMessages');
+        toast(getErrorToast(error));
       }
     } catch (error) {
       console.error('Reallocation error:', error);
-      toast({
-        title: 'Error',
-        description: 'An error occurred during reallocation',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsReallocating(false);
     }
@@ -107,11 +97,8 @@ export default function AllocationActions({
       setAllocationStatus(status);
     } catch (error) {
       console.error('Failed to load allocation status:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load allocation status',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsLoadingStatus(false);
     }

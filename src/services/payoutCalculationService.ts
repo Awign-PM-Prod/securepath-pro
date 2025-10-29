@@ -30,21 +30,16 @@ export class PayoutCalculationService {
         .maybeSingle();
 
       if (contractError) {
-        throw new Error(`Failed to fetch client contract: ${contractError.message}`);
+        const contractFetchError = new Error(`Unable to retrieve contract information. Please ensure the contract is set up correctly.`);
+        contractFetchError.name = 'ContractFetchError';
+        throw contractFetchError;
       }
 
-      // If no contract found, use default values
+      // If no contract found, throw error instead of using defaults
       if (!contract) {
-        console.warn(`No contract found for client ${clientId} and contract type ${contractType}, using default values`);
-        // Return default payout values
-        return {
-          base_rate_inr: 500, // Default base rate
-          bonus_inr: bonusInr,
-          penalty_inr: penaltyInr,
-          total_payout_inr: 500 + bonusInr - penaltyInr,
-          tier: 'tier3', // Default tier
-          contract_id: null
-        };
+        const contractNotFoundError = new Error(`No contract found for this client and contract type combination. Please set up a contract first before creating cases.`);
+        contractNotFoundError.name = 'ContractNotFoundError';
+        throw contractNotFoundError;
       }
 
       // 2. Get the location to find pincode
@@ -66,12 +61,10 @@ export class PayoutCalculationService {
         .eq('is_active', true)
         .single();
 
-      if (tierError) {
-        throw new Error(`Failed to fetch pincode tier: ${tierError.message}`);
-      }
-
-      if (!pincodeTier) {
-        throw new Error(`No tier found for pincode ${location.pincode}`);
+      if (tierError || !pincodeTier) {
+        const pincodeError = new Error(`The pincode ${location.pincode} is not registered in our system. Please ensure the pincode is correct or contact support to register this pincode.`);
+        pincodeError.name = 'PincodeNotRegisteredError';
+        throw pincodeError;
       }
 
       // 4. Calculate base rate based on tier

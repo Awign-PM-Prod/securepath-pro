@@ -354,12 +354,9 @@ export default function ClientContractForm({
           variant: 'destructive',
         });
       } else {
-        // Generic error
-        toast({
-          title: 'Error',
-          description: error?.message || 'Failed to save contract',
-          variant: 'destructive',
-        });
+        // Use enhanced error messages
+        const { getErrorToast } = await import('@/utils/errorMessages');
+        toast(getErrorToast(error));
       }
     } finally {
       setIsLoading(false);

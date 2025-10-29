@@ -319,11 +319,8 @@ export default function CaseListWithAllocation({
 
     } catch (error) {
       console.error('Allocation failed:', error);
-      toast({
-        title: 'Allocation Failed',
-        description: 'An error occurred during allocation',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsAllocating(false);
     }
@@ -391,11 +388,8 @@ export default function CaseListWithAllocation({
       setIsAllocationDialogOpen(false);
     } catch (error) {
       console.error('Failed to load allocation options:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load available allocation options',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsLoadingGigWorkers(false);
       setIsLoadingVendors(false);
@@ -483,11 +477,8 @@ export default function CaseListWithAllocation({
       onRefresh?.();
     } catch (error) {
       console.error('Manual allocation failed:', error);
-      toast({
-        title: 'Allocation Failed',
-        description: 'Failed to complete manual allocation',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsAllocating(false);
     }
@@ -519,11 +510,8 @@ export default function CaseListWithAllocation({
 
     } catch (error) {
       console.error('Unallocation failed:', error);
-      toast({
-        title: 'Unallocation Failed',
-        description: 'An error occurred during unallocation',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsUnallocating(false);
     }

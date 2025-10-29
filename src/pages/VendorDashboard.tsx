@@ -244,11 +244,8 @@ const VendorDashboard: React.FC = () => {
       setGigWorkers(gigWorkers);
     } catch (error) {
       console.error('Error fetching gig workers:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch gig workers',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -419,11 +416,8 @@ const VendorDashboard: React.FC = () => {
       
     } catch (error) {
       console.error('Error fetching cases:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch cases',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -452,11 +446,8 @@ const VendorDashboard: React.FC = () => {
       fetchAssignedCases();
     } catch (error) {
       console.error('Error accepting case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to accept case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -488,11 +479,8 @@ const VendorDashboard: React.FC = () => {
       fetchAssignedCases();
     } catch (error) {
       console.error('Error rejecting case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to reject case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -526,11 +514,8 @@ const VendorDashboard: React.FC = () => {
       fetchAssignedCases();
     } catch (error) {
       console.error('Error picking up case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to pick up case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -617,11 +602,8 @@ const VendorDashboard: React.FC = () => {
       }, 500);
     } catch (error) {
       console.error('Error assigning cases:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to assign cases. Please try again.',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -682,11 +664,8 @@ const VendorDashboard: React.FC = () => {
       fetchGigWorkers(); // Refresh capacity
     } catch (error) {
       console.error('Error assigning case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to assign case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -869,11 +848,8 @@ const VendorDashboard: React.FC = () => {
       fetchGigWorkers(); // Refresh capacity
     } catch (error) {
       console.error('Error reassigning case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to reassign case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -937,11 +913,8 @@ const VendorDashboard: React.FC = () => {
       setUnassignedCases(cases);
     } catch (error) {
       console.error('Error fetching unassigned cases:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch unassigned cases',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -1116,11 +1089,8 @@ const VendorDashboard: React.FC = () => {
       
     } catch (error) {
       console.error('Error fetching rework cases:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch rework cases',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
       setReworkCases([]);
     }
   };

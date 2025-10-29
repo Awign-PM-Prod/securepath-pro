@@ -68,7 +68,8 @@ export default function Login() {
     const { error } = await signIn(data.email, data.password);
 
     if (error) {
-      setError(error.message || 'An error occurred during login');
+      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
+      setError(getErrorAlertMessage(error));
     }
 
     setIsLoading(false);

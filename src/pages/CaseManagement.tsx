@@ -208,11 +208,8 @@ export default function CaseManagement() {
       setEditingCase(caseData);
     } catch (error) {
       console.error('Failed to load case for edit:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load case for editing',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -319,11 +316,8 @@ export default function CaseManagement() {
           throw new Error('Failed to delete case');
         }
       } catch (error) {
-        toast({
-          title: 'Error',
-          description: 'Failed to delete the case. Please try again.',
-          variant: 'destructive',
-        });
+        const { getErrorToast } = await import('@/utils/errorMessages');
+        toast(getErrorToast(error));
       } finally {
         setIsLoading(false);
       }
@@ -368,11 +362,8 @@ export default function CaseManagement() {
       });
     } catch (error) {
       console.error('Failed to update case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to update case. Please try again.',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsLoading(false);
     }
@@ -393,7 +384,9 @@ export default function CaseManagement() {
       });
 
       if (!locationId) {
-        throw new Error('Failed to create location');
+        const locationError = new Error('Unable to save location. Please verify the address details.');
+        locationError.name = 'LocationError';
+        throw locationError;
       }
 
       // Create case with new structure
@@ -427,11 +420,8 @@ export default function CaseManagement() {
       }
     } catch (error) {
       console.error('Failed to create case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to create the case. Please try again.',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsLoading(false);
     }

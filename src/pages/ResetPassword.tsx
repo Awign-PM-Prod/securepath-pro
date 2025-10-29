@@ -78,7 +78,8 @@ export default function ResetPassword() {
         navigate('/login');
       }, 3000);
     } catch (err: any) {
-      setError(err.message || 'Failed to update password');
+      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
+      setError(getErrorAlertMessage(err));
     } finally {
       setIsLoading(false);
     }

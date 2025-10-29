@@ -720,13 +720,27 @@ export class CaseService {
       if (!user) throw new Error('User not authenticated');
 
       // Calculate payout based on client contract and pincode tier
-      const payoutResult = await PayoutCalculationService.calculatePayout(
-        caseData.client_id,
-        caseData.contract_type,
-        caseData.location_id,
-        caseData.bonus_inr || 0,
-        caseData.penalty_inr || 0
-      );
+      let payoutResult;
+      try {
+        payoutResult = await PayoutCalculationService.calculatePayout(
+          caseData.client_id,
+          caseData.contract_type,
+          caseData.location_id,
+          caseData.bonus_inr || 0,
+          caseData.penalty_inr || 0
+        );
+      } catch (payoutError: any) {
+        // Re-throw with better context
+        if (payoutError.name === 'PincodeNotRegisteredError' || payoutError.message?.includes('pincode')) {
+          throw payoutError; // Already user-friendly
+        }
+        if (payoutError.name === 'ContractNotFoundError') {
+          throw payoutError; // Already user-friendly
+        }
+        const calculationError = new Error(`Unable to calculate payout rates. Please ensure a valid contract and pincode tier exist for this combination. ${payoutError instanceof Error ? payoutError.message : ''}`);
+        calculationError.name = 'PayoutCalculationError';
+        throw calculationError;
+      }
 
       // Prepare metadata JSONB for instructions and candidate info
       const metadata = {
@@ -773,7 +787,8 @@ export class CaseService {
       return await this.getCaseById(data.id);
     } catch (error) {
       console.error('Failed to create case:', error);
-      return null;
+      // Re-throw with context so error handler can provide user-friendly message
+      throw error;
     }
   }
 

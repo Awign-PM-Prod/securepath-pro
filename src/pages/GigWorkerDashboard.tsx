@@ -252,11 +252,8 @@ export default function GigWorkerDashboard() {
       }
     } catch (error) {
       console.error('Error loading allocated cases:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load allocated cases',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsLoading(false);
     }
@@ -353,11 +350,8 @@ export default function GigWorkerDashboard() {
       }
     } catch (error) {
       console.error('Error accepting case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to accept case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -385,11 +379,8 @@ export default function GigWorkerDashboard() {
       }
     } catch (error) {
       console.error('Error rejecting case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to reject case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -428,11 +419,8 @@ export default function GigWorkerDashboard() {
       }
     } catch (error) {
       console.error('Error submitting case:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to submit case',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -461,19 +449,14 @@ export default function GigWorkerDashboard() {
         setIsSubmissionDialogOpen(false);
         loadAllocatedCases();
       } else {
-        toast({
-          title: 'Error',
-          description: result.error || 'Failed to submit case',
-          variant: 'destructive',
-        });
+        const errorObj = new Error(result.error || 'Failed to submit case');
+        const { getErrorToast } = await import('@/utils/errorMessages');
+        toast(getErrorToast(errorObj));
       }
     } catch (error) {
       console.error('Error submitting case:', error);
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred',
-        variant: 'destructive',
-      });
+        const { getErrorToast } = await import('@/utils/errorMessages');
+        toast(getErrorToast(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -502,19 +485,14 @@ export default function GigWorkerDashboard() {
         // setIsSubmissionDialogOpen(false);
         // loadAllocatedCases();
       } else {
-        toast({
-          title: 'Error',
-          description: result.error || 'Failed to save draft',
-          variant: 'destructive',
-        });
+        const errorObj = new Error(result.error || 'Failed to save draft');
+        const { getErrorToast } = await import('@/utils/errorMessages');
+        toast(getErrorToast(errorObj));
       }
     } catch (error) {
       console.error('Error saving draft:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to save draft',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -741,11 +719,8 @@ export default function GigWorkerDashboard() {
       }
     } catch (error) {
       console.error('Error resuming draft:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to resume draft',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 
@@ -766,11 +741,8 @@ export default function GigWorkerDashboard() {
       });
     } catch (error) {
       console.error('Error deleting draft:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to delete draft',
-        variant: 'destructive',
-      });
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
     }
   };
 

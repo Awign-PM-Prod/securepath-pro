@@ -189,7 +189,8 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
       onOpenChange(false);
       onUserCreated?.();
     } catch (err: any) {
-      setError(err.message || 'An error occurred while creating the user');
+      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
+      setError(getErrorAlertMessage(err));
     } finally {
       setIsLoading(false);
     }
