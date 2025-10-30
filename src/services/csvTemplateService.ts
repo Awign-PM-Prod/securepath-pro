@@ -6,6 +6,7 @@ export interface CSVTemplateData {
   client_name: string;
   contract_type: string;
   candidate_name: string;
+  company_name?: string;
   phone_primary: string;
   phone_secondary?: string;
   address_line: string;
@@ -29,6 +30,7 @@ export class CSVTemplateService {
       'client_name',
       'contract_type', 
       'candidate_name',
+      'company_name',
       'phone_primary',
       'phone_secondary',
       'address_line',
@@ -48,6 +50,7 @@ export class CSVTemplateService {
         client_name: 'Test Client',
         contract_type: 'residential_address_check',
         candidate_name: 'John Doe',
+        company_name: '',
         phone_primary: '9876543210',
         phone_secondary: '9876543211',
         address_line: '123 Main Street, HSR Layout',
@@ -65,6 +68,7 @@ export class CSVTemplateService {
         client_name: 'Test Client',
         contract_type: 'business_address_check',
         candidate_name: 'Jane Smith',
+        company_name: 'Acme Corp Pvt Ltd',
         phone_primary: '9876543212',
         phone_secondary: '',
         address_line: '456 Business Park, Sector 5',
@@ -82,6 +86,7 @@ export class CSVTemplateService {
         client_name: 'Another Client',
         contract_type: 'employment_verification',
         candidate_name: 'Bob Johnson',
+        company_name: '',
         phone_primary: '9876543213',
         phone_secondary: '9876543214',
         address_line: '789 Corporate Tower, MG Road',
@@ -142,6 +147,7 @@ export class CSVTemplateService {
       client_name: 'Name of the client (must exist in system)',
       contract_type: 'Type of verification (residential_address_check, business_address_check, employment_verification)',
       candidate_name: 'Full name of the candidate to be verified',
+      company_name: 'Company name (MANDATORY for business_address_check, ignored otherwise)',
       phone_primary: 'Primary phone number (10 digits)',
       phone_secondary: 'Secondary phone number (optional)',
       address_line: 'Complete address to be verified',

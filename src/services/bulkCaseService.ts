@@ -15,6 +15,11 @@ export interface BulkCreationResult {
 }
 
 export class BulkCaseService {
+  
+  private static isBusinessContract(contractType: string): boolean {
+    const ct = (contractType || '').toLowerCase();
+    return ct.includes('business');
+  }
   /**
    * Create multiple cases from parsed data
    */
@@ -191,7 +196,7 @@ export class BulkCaseService {
       }
 
       // Create case
-      const caseDataToInsert = {
+      const caseDataToInsert: any = {
         case_number: caseNumber,
         title: `${caseData.candidate_name} - ${caseData.contract_type}`,
         description: `Background verification for ${caseData.candidate_name}`,
@@ -220,6 +225,7 @@ export class BulkCaseService {
         total_payout_inr: totalPayout,
         contract_type: caseData.contract_type,
         candidate_name: caseData.candidate_name,
+        company_name: (BulkCaseService.isBusinessContract(caseData.contract_type) ? (caseData.company_name || null) : null),
         phone_primary: caseData.phone_primary,
         phone_secondary: caseData.phone_secondary || '',
         vendor_tat_start_date: dueAt.toISOString()

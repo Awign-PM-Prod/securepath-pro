@@ -9,6 +9,7 @@ export interface ParsedCaseData {
   client_id: string;
   contract_type: string;
   candidate_name: string;
+  company_name?: string;
   phone_primary: string;
   phone_secondary?: string;
   address_line: string;
@@ -177,6 +178,12 @@ export class CSVParserService {
       errors.push(`Invalid phone number '${rowData.phone_primary}'. Must be 10 digits starting with 6-9`);
     }
 
+    // If business verification, company_name must be provided
+    const isBusiness = typeof rowData.contract_type === 'string' && rowData.contract_type.toLowerCase().includes('business');
+    if (isBusiness && (!rowData.company_name || String(rowData.company_name).trim() === '')) {
+      errors.push('company_name is required for business verification rows');
+    }
+
     // Validate pincode
     const pincodeRegex = /^\d{6}$/;
     if (!pincodeRegex.test(rowData.pincode)) {
@@ -200,6 +207,7 @@ export class CSVParserService {
       client_id: client!.id,
       contract_type: rowData.contract_type,
       candidate_name: rowData.candidate_name,
+      company_name: rowData.company_name || undefined,
       phone_primary: rowData.phone_primary,
       phone_secondary: rowData.phone_secondary || undefined,
       address_line: rowData.address_line,
