@@ -457,6 +457,23 @@ export class FormService {
         }
 
         for (const file of files) {
+          // Skip if a file record with same submission, field and original name already exists
+          try {
+            const { data: existing, error: existingErr } = await supabase
+              .from('form_submission_files')
+              .select('id')
+              .eq('submission_id', submissionId)
+              .eq('field_id', field.id)
+              .eq('file_name', file.name)
+              .maybeSingle();
+            if (!existingErr && existing) {
+              console.log(`Skipping duplicate file record for ${file.name} (already exists for this field/submission)`);
+              continue;
+            }
+          } catch (checkErr) {
+            console.warn('Error checking for existing file record (will proceed to upload):', checkErr);
+          }
+
           // Generate filename with timestamp
           const fileExt = file.name.split('.').pop();
           const uploadTime = new Date().toISOString().replace(/[:.]/g, '-');

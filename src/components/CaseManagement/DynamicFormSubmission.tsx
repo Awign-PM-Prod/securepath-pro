@@ -282,10 +282,17 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
   const renderFieldValue = (fieldKey: string, value: any, fieldType: string, fieldTitle: string, submission: FormSubmission) => {
     switch (fieldType) {
       case 'file_upload':
-        // Find files for this field
-        const fieldFiles = submission.form_submission_files?.filter(file => 
+        // Find files for this field and de-duplicate by file_url (or id fallback)
+        const fieldFilesRaw = submission.form_submission_files?.filter(file => 
           file.form_field?.field_key === fieldKey
         ) || [];
+        const seen = new Set<string>();
+        const fieldFiles = fieldFilesRaw.filter(f => {
+          const key = f.file_url || f.id;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
         
         // Debug logging for file upload fields
         console.log(`File upload field ${fieldKey}:`, {
