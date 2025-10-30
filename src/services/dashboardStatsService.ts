@@ -13,10 +13,16 @@ export class DashboardStatsService {
    */
   static async getOpsDashboardStats(): Promise<DashboardStats> {
     try {
+      // Restrict to cases shown in ops/cases page: created today (>= start of today)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayIso = today.toISOString();
+
       // Get total cases count
       const { count: totalCases } = await supabase
         .from('cases')
-        .select('*', { count: 'exact', head: true });
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', todayIso);
 
       // Get active clients count (clients with cases or active contracts)
       const { count: activeClients } = await supabase
@@ -28,13 +34,15 @@ export class DashboardStatsService {
       const { count: pendingCases } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
-        .in('status', ['new', 'pending_allocation']);
+        .in('status', ['new', 'pending_allocation'])
+        .gte('created_at', todayIso);
 
       // Get completed cases (cases that are completed/passed QC)
       const { count: completedCases } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
-        .in('status', ['qc_passed', 'reported', 'payment_complete']);
+        .in('status', ['qc_passed', 'reported', 'payment_complete'])
+        .gte('created_at', todayIso);
 
       return {
         totalCases: totalCases || 0,
