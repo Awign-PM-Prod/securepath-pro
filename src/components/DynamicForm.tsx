@@ -784,6 +784,15 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     if (!files) return;
 
     const fileArray = Array.from(files);
+    // Enforce image-only (JPG/PNG)
+    const invalidFiles = fileArray.filter(f => !['image/jpeg', 'image/png'].includes(f.type));
+    if (invalidFiles.length > 0) {
+      setErrors(prev => ({
+        ...prev,
+        [fieldKey]: 'Only JPG and PNG image files are allowed.'
+      }));
+      return;
+    }
     const currentFiles = formData[fieldKey]?.files || [];
     const startIndex = currentFiles.length;
     
@@ -1444,7 +1453,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         case 'file_upload':
           const currentFileCount = fieldData.files?.length || 0;
           const canAddMoreFiles = !field.max_files || currentFileCount < field.max_files;
-          const isImageField = field.allowed_file_types?.some(type => type.startsWith('image/')) || false;
+          const keyLooksLikeImage = /photo|image|picture|selfie/i.test(field.field_key || '');
+          const titleLooksLikeImage = /photo|image|picture|selfie/i.test(field.field_title || '');
+          const typesSuggestImage = (field.allowed_file_types || []).some(type => {
+            if (typeof type !== 'string') return false;
+            const t = type.toLowerCase();
+            return t.startsWith('image/') || t.endsWith('jpg') || t.endsWith('.jpg') || t.endsWith('jpeg') || t.endsWith('.jpeg') || t.endsWith('png') || t.endsWith('.png');
+          });
+          const isImageField = typesSuggestImage || keyLooksLikeImage || titleLooksLikeImage;
           
 
           return (
@@ -1461,7 +1477,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                     type="file"
                     id={field.field_key}
                     multiple={field.max_files ? field.max_files > 1 : false}
-                    accept={field.allowed_file_types?.join(',')}
+                    accept={'image/jpeg,image/png'}
+                    capture={'environment'}
                     onChange={(e) => handleFileUpload(field.field_key, e.target.files)}
                     className="hidden"
                     disabled={uploadingFiles[field.field_key]}
@@ -1497,8 +1514,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                   )}
                 </div>
 
-                {/* Camera Capture Button - Only for image fields */}
-                {isImageField && canAddMoreFiles && (
+                {/* Camera Capture Button - Show for all file upload fields */}
+                {canAddMoreFiles && (
                   <Button
                     type="button"
                     variant="outline"
@@ -1507,7 +1524,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                     disabled={uploadingFiles[field.field_key]}
                   >
                     <Camera className="h-4 w-4 mr-2" />
-                    {uploadingFiles[field.field_key] ? 'Processing...' : 'Capture Photo'}
+                    {uploadingFiles[field.field_key] ? 'Processing...' : 'Capture Image'}
                   </Button>
                 )}
 
@@ -1792,7 +1809,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           isOpen={cameraOpen}
           onClose={closeCamera}
           onCapture={handleCapturedImage}
-          maxFiles={template?.form_fields?.find(f => f.field_key === cameraFieldKey)?.max_files}
+          maxFiles={(() => {
+            const mf = template?.form_fields?.find(f => f.field_key === cameraFieldKey)?.max_files as number | undefined | null;
+            return typeof mf === 'number' && mf > 0 ? mf : undefined;
+          })()}
           currentFileCount={formData[cameraFieldKey]?.files?.length || 0}
           allowedFileTypes={template?.form_fields?.find(f => f.field_key === cameraFieldKey)?.allowed_file_types}
           maxFileSizeMB={template?.form_fields?.find(f => f.field_key === cameraFieldKey)?.max_file_size_mb}

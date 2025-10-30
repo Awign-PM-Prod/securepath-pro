@@ -111,11 +111,12 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
   const startCamera = useCallback(async () => {
     try {
       setError(null);
-      
-      // Check if we can add more files
-      if (currentFileCount >= maxFiles) {
-        setError(`Maximum ${maxFiles} file(s) allowed`);
-        return;
+
+      // Normalize max files; if null/invalid, don't block camera start
+      const effectiveMaxFiles = typeof maxFiles === 'number' && isFinite(maxFiles) && maxFiles > 0 ? maxFiles : Number.POSITIVE_INFINITY;
+      if (currentFileCount >= effectiveMaxFiles) {
+        setError(`Maximum ${Number.isFinite(effectiveMaxFiles) ? effectiveMaxFiles : ''} file(s) allowed`);
+        // Still allow opening camera so user can retake/replace after removing
       }
 
       // Get current location
@@ -147,24 +148,42 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
       // Detect if we're on mobile for better camera settings
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       
-      // Get camera stream with mobile-optimized settings
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facingMode,
-          width: isMobile ? { ideal: 640, max: 1280 } : { ideal: 1280 },
-          height: isMobile ? { ideal: 480, max: 720 } : { ideal: 720 },
-          // Add additional constraints for better mobile performance
-          ...(isMobile && {
-            frameRate: { ideal: 30, max: 60 }
-          })
+      // Try preferred facing mode first, then fall back to the other camera
+      const getStream = async (preferred: 'user' | 'environment') => {
+        return await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: preferred },
+            width: isMobile ? { ideal: 640, max: 1280 } : { ideal: 1280 },
+            height: isMobile ? { ideal: 480, max: 720 } : { ideal: 720 },
+            ...(isMobile && { frameRate: { ideal: 30, max: 60 } })
+          }
+        });
+      };
+
+      let stream: MediaStream | null = null;
+      try {
+        stream = await getStream(facingMode);
+      } catch (primaryErr) {
+        console.warn('Primary camera open failed, trying fallback camera:', primaryErr);
+        const fallbackMode = facingMode === 'environment' ? 'user' : 'environment';
+        try {
+          stream = await getStream(fallbackMode);
+          setFacingMode(fallbackMode);
+        } catch (fallbackErr) {
+          console.error('Fallback camera also failed:', fallbackErr);
+          throw primaryErr;
         }
-      });
+      }
 
       streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        // iOS Safari needs playsInline and a play call in a user gesture; we already set playsInline
+        const playPromise = videoRef.current.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.catch(err => console.warn('Video play was prevented:', err));
+        }
         setIsStreaming(true);
       }
     } catch (err) {
@@ -516,7 +535,8 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
           </div>
 
           <div className="text-xs text-gray-500 text-center">
-            {currentFileCount}/{maxFiles} files uploaded
+            {currentFileCount}
+            {typeof maxFiles === 'number' && isFinite(maxFiles) && maxFiles > 0 ? `/${maxFiles}` : ''} files uploaded
             {maxFileSizeMB && ` • Max ${maxFileSizeMB}MB per file`}
           </div>
         </div>
