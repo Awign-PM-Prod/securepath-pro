@@ -477,13 +477,14 @@ export default function GigWorkerDashboard() {
       });
 
       if (result.success) {
+        // Inform user
         toast({
           title: 'Draft Saved',
-          description: 'Your progress has been saved as a draft.',
+          description: 'Your progress has been saved and the case is In Progress.',
         });
-        // Keep dialog open so user can continue editing
-        // setIsSubmissionDialogOpen(false);
-        // loadAllocatedCases();
+
+        // Refresh the case list so the case appears in the In Progress tab
+        await loadAllocatedCases();
       } else {
         const errorObj = new Error(result.error || 'Failed to save draft');
         const { getErrorToast } = await import('@/utils/errorMessages');
@@ -592,10 +593,10 @@ export default function GigWorkerDashboard() {
         console.log('Draft check result:', draftResult);
         
         if (draftResult.success && draftResult.draft) {
-          console.log('Draft exists, showing resume dialog');
-          // Show dialog to resume draft or start fresh
-          setPendingDraftCase(caseItem);
-          setIsDraftResumeDialogOpen(true);
+          // Auto-load draft for both accepted and in_progress so saved responses always appear
+          console.log('Draft found: auto-loading draft and opening form');
+          setDraftData(draftResult.draft);
+          setIsSubmissionDialogOpen(true);
         } else {
           console.log('No draft exists, starting fresh');
           // No draft exists - start fresh
@@ -1339,10 +1340,7 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
-                          onSubmit={() => {
-                            setSelectedCase(caseItem);
-                            setIsSubmissionDialogOpen(true);
-                          }}
+                          onSubmit={() => handleSubmitResponse(caseItem)}
                         />
                       ))}
                     </div>
@@ -1412,10 +1410,7 @@ export default function GigWorkerDashboard() {
                             <TableCell>
                               <Button
                                 size="sm"
-                                onClick={() => {
-                                  setSelectedCase(caseItem);
-                                  setIsSubmissionDialogOpen(true);
-                                }}
+                                onClick={() => handleSubmitResponse(caseItem)}
                               >
                                 <FileText className="h-4 w-4 mr-1" />
                                 Submit

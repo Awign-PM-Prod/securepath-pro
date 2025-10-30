@@ -281,21 +281,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     console.log('Form data has values:', hasValues);
   }, [formData, draftData, template]);
 
-  // Auto-save trigger when form data changes (with debouncing)
-  useEffect(() => {
-    // Only trigger auto-save if template is loaded and we have form data
-    if (template && formData && Object.keys(formData).length > 0) {
-      console.log('Auto-save trigger: formData changed, scheduling saveFormData');
-      
-      // Debounce auto-save to prevent too many calls
-      const timeoutId = setTimeout(() => {
-        console.log('Auto-save timeout triggered, calling saveFormData');
-        saveFormData(formData);
-      }, 2000); // 2 second delay
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [formData, template, saveFormData]);
+  // Removed debounced auto-save on any form change; auto-save should trigger only on value changes
 
   const loadDraftFilesFromDraft = async (draftData: any, initialData: FormData): Promise<FormData> => {
     try {
@@ -731,8 +717,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
       };
       
-      // Trigger immediate save after state update with a small delay
-      // to ensure file processing is complete
+      // Trigger auto-save only on value changes
       setTimeout(() => {
         saveFormData(updatedFormData);
       }, 100);
@@ -906,11 +891,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         };
         
-        // Trigger immediate save after state update
-        setTimeout(() => {
-          saveFormData(updatedFormData);
-        }, 0);
-        
+        // Do not trigger auto-save on file uploads
         return updatedFormData;
       });
 
@@ -964,11 +945,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         };
         
-        // Trigger immediate save after state update
-        setTimeout(() => {
-          saveFormData(updatedFormData);
-        }, 0);
-        
+        // Do not trigger auto-save on file uploads
         return updatedFormData;
       });
 
@@ -1008,12 +985,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
       };
       
-      // Trigger immediate save after state update with a small delay
-      // to ensure file processing is complete
-      setTimeout(() => {
-        saveFormData(updatedFormData);
-      }, 100);
-      
+      // Do not trigger auto-save on file removal
       return updatedFormData;
     });
     
