@@ -482,9 +482,11 @@ export default function GigWorkerDashboard() {
           title: 'Draft Saved',
           description: 'Your progress has been saved and the case is In Progress.',
         });
-
-        // Refresh the case list so the case appears in the In Progress tab
-        await loadAllocatedCases();
+        // Do not refresh the entire list to avoid page flicker
+        // Optimistically update local state if needed
+        if (selectedCase && selectedCase.status === 'accepted') {
+          setAllocatedCases(prev => prev.map(c => c.id === selectedCase.id ? { ...c, status: 'in_progress' } : c));
+        }
       } else {
         const errorObj = new Error(result.error || 'Failed to save draft');
         const { getErrorToast } = await import('@/utils/errorMessages');
@@ -546,9 +548,9 @@ export default function GigWorkerDashboard() {
           if (caseUpdateError) {
             console.error('Failed to update case status to in_progress:', caseUpdateError);
           } else {
-            console.log('Case status updated to in_progress, refreshing case list...');
-            // Refresh the case list to reflect the tab change
-            await loadAllocatedCases();
+            console.log('Case status updated to in_progress, updating local state...');
+            // Avoid full refresh; update local list
+            setAllocatedCases(prev => prev.map(c => c.id === caseId ? { ...c, status: 'in_progress' } : c));
             
             // Show a toast notification
             toast({
@@ -816,17 +818,10 @@ export default function GigWorkerDashboard() {
            (caseItem.submissions && caseItem.submissions.length > 0);
   };
   
-  const acceptedCases = allocatedCases.filter(c => {
-    // Include cases that are accepted and not rework
-    if (c.status === 'accepted' && c.QC_Response !== 'Rework') {
-      return true;
-    }
-    // Include cases without form responses regardless of status (except allocated, accepted, submitted, and rework)
-    if (c.status !== 'allocated' && c.status !== 'accepted' && c.status !== 'submitted' && c.QC_Response !== 'Rework' && !hasFormResponse(c)) {
-      return true;
-    }
-    return false;
-  });
+  // Accepted tab: show only accepted cases with NO form response yet (and not rework)
+  const acceptedCases = allocatedCases.filter(c =>
+    c.status === 'accepted' && c.QC_Response !== 'Rework' && !hasFormResponse(c)
+  );
 
   // Debug logging for accepted cases
   console.log('Accepted cases filter debug:', {
@@ -841,11 +836,10 @@ export default function GigWorkerDashboard() {
     }))
   });
   
-  const inProgressCases = allocatedCases.filter(c => 
-    c.status === 'in_progress' && 
-    c.QC_Response !== 'Rework' && 
-    hasFormResponse(c)
-  );
+  // In Progress tab: include normal in_progress OR accepted-with-response (and not rework)
+  const inProgressCases = allocatedCases.filter(c => (
+    (c.status === 'in_progress') || (c.status === 'accepted' && hasFormResponse(c))
+  ) && c.QC_Response !== 'Rework');
 
   // Debug logging for in-progress cases
   console.log('In-progress cases filter debug:', {

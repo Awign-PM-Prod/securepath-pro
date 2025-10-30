@@ -900,7 +900,24 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         };
         
-        // Do not trigger auto-save on file uploads
+        // Trigger Save Draft flow so files are persisted just like manual draft save
+        if (onSaveDraft) {
+          const formDataWithLocation = {
+            ...updatedFormData,
+            _metadata: {
+              file_locations: fileLocations,
+              individual_file_locations: individualFileLocations,
+              submission_timestamp: new Date().toISOString(),
+            }
+          } as FormData;
+          setTimeout(() => onSaveDraft(formDataWithLocation), 0);
+        } else {
+          // Fallback to auto-save if save draft callback is unavailable
+          setTimeout(() => {
+            saveFormData(updatedFormData);
+          }, 0);
+        }
+        
         return updatedFormData;
       });
 
@@ -954,7 +971,24 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         };
         
-        // Do not trigger auto-save on file uploads
+        // Trigger Save Draft flow so files are persisted just like manual draft save
+        if (onSaveDraft) {
+          const formDataWithLocation = {
+            ...updatedFormData,
+            _metadata: {
+              file_locations: fileLocations,
+              individual_file_locations: individualFileLocations,
+              submission_timestamp: new Date().toISOString(),
+            }
+          } as FormData;
+          setTimeout(() => onSaveDraft(formDataWithLocation), 0);
+        } else {
+          // Fallback to auto-save if save draft callback is unavailable
+          setTimeout(() => {
+            saveFormData(updatedFormData);
+          }, 0);
+        }
+        
         return updatedFormData;
       });
 
@@ -1160,6 +1194,38 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
 
     // Mark file as uploaded to prevent duplicates in auto-save
     markFileAsUploaded(processedFile);
+
+    // Trigger Save Draft flow for camera captures so files are persisted
+    if (onSaveDraft) {
+      const updated = {
+        ...formData,
+        [cameraFieldKey]: {
+          ...formData[cameraFieldKey],
+          files: [...currentFiles, processedFile]
+        }
+      } as FormData;
+      const formDataWithLocation = {
+        ...updated,
+        _metadata: {
+          file_locations: fileLocations,
+          individual_file_locations: individualFileLocations,
+          submission_timestamp: new Date().toISOString(),
+        }
+      } as FormData;
+      setTimeout(() => onSaveDraft(formDataWithLocation), 0);
+    } else {
+      // Fallback to auto-save
+      setTimeout(() => {
+        const updated = {
+          ...formData,
+          [cameraFieldKey]: {
+            ...formData[cameraFieldKey],
+            files: [...currentFiles, processedFile]
+          }
+        } as FormData;
+        saveFormData(updated);
+      }, 0);
+    }
 
     // Complete upload
     clearInterval(progressInterval);
@@ -1581,7 +1647,22 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                   {fieldData.files.map((file, index) => (
                     <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded">
                       <div className="flex items-center space-x-2">
-                        <FileText className="h-4 w-4" />
+                        {(() => {
+                          const type = (file.type || file.mime_type || '').toString();
+                          const name = (file.name || file.file_name || '').toString();
+                          const isImg = (type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name));
+                          if (!isImg) return null;
+                          const src = file.url ? file.url : (file instanceof File ? URL.createObjectURL(file) : undefined);
+                          if (!src) return null;
+                          return (
+                            <img
+                              src={src}
+                              alt="preview"
+                              className="h-12 w-12 object-cover rounded border"
+                              onLoad={() => { if (!file.url && (file instanceof File)) { try { URL.revokeObjectURL(src); } catch {} } }}
+                            />
+                          );
+                        })()}
                         <div className="flex flex-col">
                           <span className="text-sm">{file.name || file.file_name || 'Unknown file'}</span>
                           <span className="text-xs text-gray-500">
@@ -1599,7 +1680,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                             }
                             
                             // Fallback: Parse location from filename
-                            const locationMatch = file.name.match(/-(\d+\.\d+)-(\d+\.\d+)\./);
+                            const locationMatch = (file.name || '').match(/-(\d+\.\d+)-(\d+\.\d+)\./);
                             if (locationMatch) {
                               const lat = parseFloat(locationMatch[1]);
                               const lng = parseFloat(locationMatch[2]);
