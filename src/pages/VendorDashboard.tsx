@@ -331,16 +331,13 @@ const VendorDashboard: React.FC = () => {
       // Combine both datasets
       const allCases = [...(allocatedData || []), ...(acceptedData || [])];
 
-      // Filter out cases created before today (hide all cases created till yesterday)
+      // Filter: only show cases created today and after today
       const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
-      
+      today.setHours(0, 0, 0, 0);
       const filteredCases = allCases.filter(caseItem => {
         const caseCreatedDate = new Date(caseItem.created_at);
         return caseCreatedDate >= today;
       });
-      
-      console.log(`Filtered vendor cases: ${filteredCases.length} out of ${allCases.length} total cases (hiding all cases created till yesterday)`);
 
       // Resolve client names using client_id in case relational payload is missing
       const uniqueClientIds = Array.from(new Set(filteredCases.map((c: any) => c.client_id).filter(Boolean)));
@@ -367,7 +364,7 @@ const VendorDashboard: React.FC = () => {
       
       console.log('Raw allocated cases data:', allocatedData);
       console.log('Raw accepted cases data:', acceptedData);
-      console.log('Total cases:', filteredCases.length);
+      console.log('Total cases after filter:', filteredCases.length);
       
       const cases = filteredCases.map(c => {
         const clientName = c.clients?.name || clientIdToName[c.client_id] || '';

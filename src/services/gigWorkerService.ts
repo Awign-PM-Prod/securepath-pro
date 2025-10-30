@@ -507,6 +507,7 @@ export class GigWorkerService {
           priority,
           vendor_tat_start_date,
           due_at,
+          created_at,
           base_rate_inr,
           total_payout_inr,
           current_vendor_id,
@@ -604,16 +605,13 @@ export class GigWorkerService {
         };
       }) || [];
 
-      // Filter out cases created before today (hide all cases created till yesterday)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
-      
-      const filteredCases = casesWithDeadlines.filter(caseItem => {
-        const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= today;
+      // Filter: only show cases created today and after today
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const filteredCases = casesWithDeadlines.filter(c => {
+        const created = new Date((c as any).created_at);
+        return created >= todayStart;
       });
-      
-      console.log(`Gig Worker filtered cases: ${filteredCases.length} out of ${casesWithDeadlines.length} total cases (hiding all cases created till yesterday)`);
 
       return { success: true, cases: filteredCases };
     } catch (error) {
