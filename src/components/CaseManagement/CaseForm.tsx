@@ -52,6 +52,7 @@ export interface CaseFormData {
   tat_hours: number;
   due_date: Date;
   instructions?: string;
+  company_name?: string;
 }
 
 export default function CaseForm({ onSubmit, onCancel, isLoading = false, clients = [], contractTypes = [], initialData, isEditing = false, caseId }: CaseFormProps) {
@@ -74,6 +75,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
     tat_hours: initialData?.tat_hours || 24,
     due_date: initialData?.due_date || new Date(Date.now() + 24 * 60 * 60 * 1000),
     instructions: initialData?.instructions || '',
+    company_name: initialData?.company_name || '',
   });
 
   const [errors, setErrors] = useState<Partial<CaseFormData>>({});
@@ -223,6 +225,12 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
     if (!formData.state.trim()) newErrors.state = 'State is required';
     if (!formData.pincode.trim()) newErrors.pincode = 'Pincode is required';
     if (!formData.vendor_tat_start_date) newErrors.vendor_tat_start_date = 'Vendor TAT Start Date is required';
+    // If business verification, Company Name is required
+    if ((formData.contract_type || '').toLowerCase().includes('business')) {
+      if (!formData.company_name || !formData.company_name.trim()) {
+        (newErrors as any).company_name = 'Company Name is required for business verification';
+      }
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -320,6 +328,19 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
           {/* Candidate Information */}
           <div className="space-y-4">
             <h3 className="text-lg font-medium flex items-center"><User className="mr-2 h-4 w-4" /> Candidate Information</h3>
+            {selectedContractType.toLowerCase().includes('business') && (
+              <div className="space-y-2">
+                <Label htmlFor="company_name">Company Name <span className="text-red-500">*</span></Label>
+                <Input
+                  id="company_name"
+                  value={formData.company_name || ''}
+                  onChange={(e) => handleInputChange('company_name', e.target.value)}
+                  placeholder="Enter company name"
+                  className={(errors as any).company_name ? 'border-red-500' : ''}
+                />
+                {(errors as any).company_name && <p className="text-sm text-red-500">{(errors as any).company_name}</p>}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="candidate_name">Candidate Name <span className="text-red-500">*</span></Label>
               <Input

@@ -500,6 +500,7 @@ export class GigWorkerService {
           client_case_id,
           client_id,
           contract_type,
+          company_name,
           candidate_name,
           phone_primary,
           phone_secondary,

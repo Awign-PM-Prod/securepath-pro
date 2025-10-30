@@ -60,6 +60,7 @@ export interface CreateCaseData {
   client_case_id: string;
   contract_type: string;
   candidate_name: string;
+  company_name?: string;
   phone_primary: string;
   phone_secondary?: string;
   client_id: string;
@@ -761,6 +762,7 @@ export class CaseService {
           client_case_id: caseData.client_case_id,
           contract_type: caseData.contract_type,
           candidate_name: caseData.candidate_name,
+          company_name: caseData.company_name || null,
           phone_primary: caseData.phone_primary,
           phone_secondary: caseData.phone_secondary,
           status: 'new',

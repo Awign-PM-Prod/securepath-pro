@@ -39,6 +39,7 @@ interface DynamicFormProps {
       pincode: string;
     };
     fi_type?: 'business' | 'residence' | 'office';
+    company_name?: string;
   };
 }
 
@@ -497,6 +498,12 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           'applicant_name': caseData.candidate_name,
           'contact_number': caseData.phone_primary,
           'contact_no': caseData.phone_primary,
+          'phone': caseData.phone_primary,
+          'phone_number': caseData.phone_primary,
+          'phone_primary': caseData.phone_primary,
+          'mobile': caseData.phone_primary,
+          'mobile_number': caseData.phone_primary,
+          'contact_phone': caseData.phone_primary,
           'city': caseData.location?.city,
           'address': caseData.location?.address_line,
           'address_line': caseData.location?.address_line,
@@ -504,7 +511,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           'current_residential_address': caseData.location?.address_line,
           'pincode': caseData.location?.pincode,
           'pin_code': caseData.location?.pincode,
-          'fi_type': caseData.fi_type
+          'fi_type': caseData.fi_type,
+          // Company name variants
+          'company_name': caseData.company_name,
+          'business_name': caseData.company_name,
+          'company': caseData.company_name
         };
 
         // Apply auto-fill mappings
@@ -1399,9 +1410,12 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       const fieldError = errors[field.field_key];
       
       // Determine if field should be read-only (auto-filled from case data)
-      const autoFillFields = ['case_id', 'lead_id', 'applicant_name', 'contact_number', 'contact_no', 'city', 'address', 'address_line', 'current_office_address', 'current_residential_address', 'pincode', 'pin_code', 'fi_type'];
+      const autoFillFields = ['case_id', 'lead_id', 'applicant_name', 'contact_number', 'contact_no', 'phone', 'phone_number', 'phone_primary', 'mobile', 'mobile_number', 'contact_phone', 'city', 'address', 'address_line', 'current_office_address', 'current_residential_address', 'pincode', 'pin_code', 'fi_type', 'company_name', 'business_name', 'company'];
       const coordinateFields = ['latitude_and_longitude', 'lat_lng', 'coordinates', 'location_coordinates'];
-      const isReadOnly = caseData && autoFillFields.includes(field.field_key) && fieldData.value;
+      const isPhoneLike = /contact\s*number|phone|mobile/i.test(field.field_key || '') || /contact\s*number|phone|mobile/i.test(field.field_title || '');
+      const isContactNumberField = /contact\s*number/i.test(field.field_key || '') || /contact\s*number/i.test(field.field_title || '');
+      const isAutoFilledPhone = isPhoneLike && !!caseData?.phone_primary && !!fieldData?.value;
+      const isReadOnly = (caseData && autoFillFields.includes(field.field_key) && fieldData.value) || isAutoFilledPhone || isContactNumberField;
       const isCoordinateAutoFilled = coordinateFields.includes(field.field_key) && fieldData.value;
       
       // Debug: Log field data for each field

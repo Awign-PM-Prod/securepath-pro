@@ -2016,7 +2016,8 @@ export default function GigWorkerDashboard() {
                        city: selectedCase.locations?.city || selectedCase.city,
                        pincode: selectedCase.locations?.pincode || selectedCase.pincode
                      },
-                     fi_type: selectedCase.fi_type
+                      fi_type: selectedCase.fi_type,
+                      company_name: (selectedCase as any).company_name
                    }}
                  />
                </>
@@ -2143,7 +2144,8 @@ export default function GigWorkerDashboard() {
                         city: selectedSubmissionCase.locations.city,
                         pincode: selectedSubmissionCase.locations.pincode
                       },
-                      fi_type: selectedSubmissionCase.fi_type
+                      fi_type: selectedSubmissionCase.fi_type,
+                      company_name: (selectedSubmissionCase as any).company_name
                     }}
                   />
                 ) : (
