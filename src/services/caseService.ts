@@ -852,7 +852,31 @@ export class CaseService {
     try {
       console.log('Attempting to delete case with ID:', id);
       
-      // Simple delete from cases table
+      // Delete dependent rows first to satisfy FK constraints
+      // 1) Delete form_submissions for this case (form_submission_files will cascade)
+      const { error: formSubsErr } = await supabase
+        .from('form_submissions')
+        .delete()
+        .eq('case_id', id);
+      if (formSubsErr) {
+        console.error('Failed to delete form_submissions for case:', id, formSubsErr);
+        return false;
+      }
+
+      // 2) Best-effort delete from submissions table if exists
+      try {
+        const { error: subsErr } = await (supabase as any)
+          .from('submissions')
+          .delete()
+          .eq('case_id', id);
+        if (subsErr) {
+          console.warn('Warning deleting from submissions (ignored):', subsErr);
+        }
+      } catch (e) {
+        console.warn('Submissions table not present or delete failed (ignored):', e);
+      }
+
+      // 3) Delete the case itself
       const { error: deleteError } = await supabase
         .from('cases')
         .delete()
