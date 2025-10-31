@@ -226,7 +226,7 @@ export class GigWorkerService {
       const { error: rejectCaseError } = await supabase
         .from('cases')
         .update({
-          status: 'created',
+          status: 'pending_allocation',
           current_assignee_id: null,
           current_assignee_type: null,
           status_updated_at: new Date().toISOString()
@@ -708,7 +708,7 @@ export class GigWorkerService {
         const { error: timeoutCaseError } = await supabase
           .from('cases')
           .update({
-            status: 'created',
+            status: 'pending_allocation',
             current_assignee_id: null,
             current_assignee_type: null,
             status_updated_at: new Date().toISOString()

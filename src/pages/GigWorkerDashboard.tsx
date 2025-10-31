@@ -279,11 +279,11 @@ export default function GigWorkerDashboard() {
 
   const handleCaseTimeout = async (caseId: string) => {
     try {
-      // Update case status to created and remove assignee
+      // Update case status to pending_allocation and remove assignee
       const { error: caseError } = await supabase
         .from('cases')
         .update({
-          status: 'created' as any,
+          status: 'pending_allocation' as any,
           current_assignee_id: null,
           current_assignee_type: null,
           status_updated_at: new Date().toISOString()

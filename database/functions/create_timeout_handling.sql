@@ -26,10 +26,10 @@ BEGIN
         AND c.status = 'allocated'
         AND c.current_assignee_id = al.candidate_id
     LOOP
-        -- Update case status to created and remove assignee
+        -- Update case status to pending_allocation and remove assignee
         UPDATE public.cases
         SET 
-            status = 'created',
+            status = 'pending_allocation',
             current_assignee_id = NULL,
             current_assignee_type = NULL,
             status_updated_at = NOW()

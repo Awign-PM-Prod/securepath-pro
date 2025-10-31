@@ -289,6 +289,27 @@ const VendorDashboard: React.FC = () => {
         .eq('current_vendor_id', vendorId)
         .eq('status', 'allocated' as any);
 
+      // Fetch acceptance deadlines from allocation_logs for allocated cases
+      const allocatedCaseIds = allocatedData?.map(c => c.id) || [];
+      let acceptanceDeadlinesMap: Record<string, string> = {};
+      
+      if (allocatedCaseIds.length > 0) {
+        const { data: allocationLogs, error: logsError } = await supabase
+          .from('allocation_logs')
+          .select('case_id, acceptance_deadline')
+          .in('case_id', allocatedCaseIds)
+          .eq('decision', 'allocated')
+          .eq('candidate_type', 'vendor');
+        
+        if (!logsError && allocationLogs) {
+          allocationLogs.forEach(log => {
+            if (log.acceptance_deadline) {
+              acceptanceDeadlinesMap[log.case_id] = log.acceptance_deadline;
+            }
+          });
+        }
+      }
+
       if (allocatedError) {
         console.error('Error fetching allocated cases:', allocatedError);
         throw allocatedError;
@@ -378,7 +399,8 @@ const VendorDashboard: React.FC = () => {
           state: c.locations?.state || '',
           pincode: c.locations?.pincode || '',
           client_name: clientName,
-          client_email: c.clients?.email || ''
+          client_email: c.clients?.email || '',
+          acceptance_deadline: acceptanceDeadlinesMap[c.id] || ''
         };
       });
       
@@ -454,7 +476,7 @@ const VendorDashboard: React.FC = () => {
       const { error } = await supabase
         .from('cases')
         .update({
-          status: 'new',
+          status: 'pending_allocation',
           current_vendor_id: null,
           current_assignee_id: null,
           current_assignee_type: null,
@@ -467,6 +489,22 @@ const VendorDashboard: React.FC = () => {
         .eq('status', 'allocated');
 
       if (error) throw error;
+
+      // Update allocation log
+      const { error: logError } = await supabase
+        .from('allocation_logs')
+        .update({
+          decision: 'rejected',
+          decision_at: new Date().toISOString(),
+          reallocation_reason: 'Rejected by vendor'
+        })
+        .eq('case_id', caseId)
+        .eq('decision', 'allocated')
+        .or(`candidate_id.eq.${vendorId},vendor_id.eq.${vendorId}`);
+
+      if (logError) {
+        console.warn('Could not update allocation log:', logError);
+      }
 
       toast({
         title: 'Success',
@@ -1094,24 +1132,72 @@ const VendorDashboard: React.FC = () => {
 
   // Check for case timeouts
   const checkTimeouts = async () => {
-    const now = new Date();
-    const timeoutCases = pendingCases.filter(caseItem => {
-      if (caseItem.status !== 'allocated') return false;
-      if (!caseItem.acceptance_deadline) return false;
-      const deadline = new Date(caseItem.acceptance_deadline);
-      return now > deadline;
+    if (!vendorId) return;
+    
+    const now = new Date().toISOString();
+    
+    // Query database directly for timed-out allocated cases
+    // Check both candidate_id (vendor ID) and vendor_id for vendor allocations
+    const { data: timeoutCases, error } = await supabase
+      .from('allocation_logs')
+      .select(`
+        case_id,
+        acceptance_deadline,
+        candidate_id,
+        vendor_id,
+        candidate_type,
+        cases!inner (
+          id,
+          status,
+          current_vendor_id,
+          current_assignee_id,
+          current_assignee_type
+        )
+      `)
+      .eq('candidate_type', 'vendor')
+      .eq('decision', 'allocated')
+      .lt('acceptance_deadline', now)
+      .eq('cases.status', 'allocated')
+      .eq('cases.current_vendor_id', vendorId);
+
+    if (error) {
+      console.error('Error checking timeouts:', error);
+      return;
+    }
+
+    // Filter to only include cases where candidate_id or vendor_id matches vendorId
+    const vendorTimeoutCases = timeoutCases?.filter(log => {
+      const isVendorMatch = log.candidate_id === vendorId || log.vendor_id === vendorId;
+      const isCaseMatch = log.cases?.current_vendor_id === vendorId && 
+                         log.cases?.status === 'allocated';
+      return isVendorMatch && isCaseMatch;
+    }) || [];
+
+    console.log('Timeout check results:', {
+      totalFound: timeoutCases?.length || 0,
+      vendorMatches: vendorTimeoutCases.length,
+      vendorId,
+      timeoutCases: timeoutCases?.map(log => ({
+        case_id: log.case_id,
+        candidate_id: log.candidate_id,
+        vendor_id: log.vendor_id,
+        case_status: log.cases?.status,
+        current_vendor_id: log.cases?.current_vendor_id
+      }))
     });
 
-    if (timeoutCases.length > 0) {
+    if (vendorTimeoutCases.length > 0) {
       // Handle timeout cases
-      for (const caseItem of timeoutCases) {
-        await handleCaseTimeout(caseItem.id);
+      for (const log of vendorTimeoutCases) {
+        console.log('Handling timeout for case:', log.case_id);
+        await handleCaseTimeout(log.case_id);
       }
       // Reload cases
       fetchAssignedCases();
     }
 
     // Also check for expired rework case assignments (only unassigned ones)
+    const nowDate = new Date(now);
     const expiredReworkCases = reworkCases.filter(caseItem => {
       if (caseItem.status !== 'qc_rework') return false;
       
@@ -1128,7 +1214,7 @@ const VendorDashboard: React.FC = () => {
       }
       
       const deadline = new Date(reworkTime.getTime() + (30 * 60 * 1000)); // Add 30 minutes
-      return now > deadline;
+      return nowDate > deadline;
     });
 
     if (expiredReworkCases.length > 0) {
@@ -1144,21 +1230,29 @@ const VendorDashboard: React.FC = () => {
   // Handle case timeout
   const handleCaseTimeout = async (caseId: string) => {
     try {
-      // Update case status to draft and remove assignee
-      const { error: caseError } = await supabase
+      console.log('🔄 handleCaseTimeout called for case:', caseId);
+      
+      // Update case status to pending_allocation and remove assignee
+      const { error: caseError, data: caseUpdateData } = await supabase
         .from('cases')
         .update({
-          status: 'new',
+          status: 'pending_allocation',
           current_assignee_id: null,
           current_assignee_type: null,
           current_vendor_id: null,
           status_updated_at: new Date().toISOString()
         })
-        .eq('id', caseId);
+        .eq('id', caseId)
+        .select();
 
-      if (caseError) throw caseError;
+      if (caseError) {
+        console.error('❌ Error updating case status:', caseError);
+        throw caseError;
+      }
+      
+      console.log('✅ Case status updated to pending_allocation:', caseUpdateData);
 
-      // Update allocation log
+      // Update allocation log - try both candidate_id and vendor_id matches
       const { error: logError } = await supabase
         .from('allocation_logs')
         .update({
@@ -1167,10 +1261,13 @@ const VendorDashboard: React.FC = () => {
           reallocation_reason: 'Not accepted within 30 minutes'
         })
         .eq('case_id', caseId)
-        .eq('decision', 'allocated');
+        .eq('decision', 'allocated')
+        .or(`candidate_id.eq.${vendorId},vendor_id.eq.${vendorId}`);
 
       if (logError) {
-        console.warn('Could not update allocation log:', logError);
+        console.warn('⚠️ Could not update allocation log:', logError);
+      } else {
+        console.log('✅ Allocation log updated');
       }
 
       toast({
@@ -1179,7 +1276,12 @@ const VendorDashboard: React.FC = () => {
         variant: 'destructive',
       });
     } catch (error) {
-      console.error('Error handling case timeout:', error);
+      console.error('❌ Error handling case timeout:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to handle case timeout',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -2429,7 +2531,6 @@ const VendorDashboard: React.FC = () => {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Case Number</TableHead>
-                          <TableHead>Title</TableHead>
                           <TableHead>Location</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Assigned To</TableHead>
@@ -2527,8 +2628,6 @@ const VendorDashboard: React.FC = () => {
                           return (
                             <TableRow key={caseItem.id}>
                               <TableCell className="font-mono">{caseItem.case_number}</TableCell>
-                              <TableCell>{caseItem.title}</TableCell>
-                              <TableCell>{caseItem.client_name}</TableCell>
                               <TableCell>
                                 <div className="space-y-1">
                                   <div className="text-sm font-medium text-gray-900">

@@ -462,6 +462,19 @@ export class AllocationEngine {
    */
   async rejectCase(caseId: string, gigPartnerId: string, reason?: string): Promise<boolean> {
     try {
+      // Update case status to pending_allocation
+      const { error: caseError } = await supabase
+        .from('cases')
+        .update({
+          status: 'pending_allocation',
+          current_assignee_id: null,
+          current_assignee_type: null,
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId);
+
+      if (caseError) throw caseError;
+
       // Update allocation log
       const { error: logError } = await supabase
         .from('allocation_logs')

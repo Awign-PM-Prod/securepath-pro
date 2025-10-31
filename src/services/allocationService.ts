@@ -232,10 +232,10 @@ export class AllocationService {
         };
       }
 
-      if (caseData.status !== 'new') {
+      if (caseData.status !== 'new' && caseData.status !== 'pending_allocation') {
         return {
           success: false,
-          error: 'Case is not in new status'
+          error: 'Case is not in a valid status for allocation'
         };
       }
 
@@ -371,10 +371,10 @@ export class AllocationService {
         };
       }
 
-      if (caseData.status !== 'new') {
+      if (caseData.status !== 'new' && caseData.status !== 'pending_allocation') {
         return {
           success: false,
-          error: 'Case is not in new status'
+          error: 'Case is not in a valid status for allocation'
         };
       }
 
@@ -546,13 +546,27 @@ export class AllocationService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Update case status to pending_allocation
+      const { error: caseError } = await supabase
+        .from('cases')
+        .update({
+          status: 'pending_allocation',
+          current_assignee_id: null,
+          current_assignee_type: null,
+          current_vendor_id: null,
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId);
+
+      if (caseError) throw caseError;
+
       // Update allocation log
       const { error: allocationError } = await supabase
         .from('allocation_logs')
         .update({
           decision: 'rejected',
           decision_at: new Date().toISOString(),
-          reallocation_reason: reason
+          reallocation_reason: reason || 'Rejected by user'
         })
         .eq('id', allocationId);
 
@@ -584,12 +598,27 @@ export class AllocationService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Update case status to pending_allocation
+      const { error: caseError } = await supabase
+        .from('cases')
+        .update({
+          status: 'pending_allocation',
+          current_assignee_id: null,
+          current_assignee_type: null,
+          current_vendor_id: null,
+          status_updated_at: new Date().toISOString()
+        })
+        .eq('id', caseId);
+
+      if (caseError) throw caseError;
+
       // Update allocation log
       const { error: allocationError } = await supabase
         .from('allocation_logs')
         .update({
           decision: 'rejected',
-          decision_at: new Date().toISOString()
+          decision_at: new Date().toISOString(),
+          reallocation_reason: 'Not accepted within 30 minutes'
         })
         .eq('id', allocationId);
 
