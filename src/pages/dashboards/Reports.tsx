@@ -3,9 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Download, FileSpreadsheet, FileText, User, Phone, MapPin, Clock, Building, Calendar as CalendarIcon } from 'lucide-react';
+import { Search, Download, FileSpreadsheet, FileText, User, Phone, MapPin, Clock, Building, Calendar as CalendarIcon, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { CSVService, FormSubmissionData } from '@/services/csvService';
@@ -75,6 +77,11 @@ const getTierNumber = (tierString: string | undefined | null) => {
   return tierMap[tierString] || '?';
 };
 
+interface Client {
+  id: string;
+  name: string;
+}
+
 export default function Reports() {
   const [cases, setCases] = useState<Case[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -84,9 +91,37 @@ export default function Reports() {
   const [downloadingCase, setDownloadingCase] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Filter states
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [selectedClient, setSelectedClient] = useState<string>('all');
+  
+  // Options for filters
+  const [clients, setClients] = useState<Client[]>([]);
+
   useEffect(() => {
     loadSubmittedCases();
+    loadFilterOptions();
   }, []);
+
+  const loadFilterOptions = async () => {
+    try {
+      // Load clients
+      const { data: clientsData, error: clientsError } = await supabase
+        .from('clients')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name');
+
+      if (clientsError) {
+        console.error('Error loading clients:', clientsError);
+      } else {
+        setClients(clientsData || []);
+      }
+    } catch (error) {
+      console.error('Error loading filter options:', error);
+    }
+  };
 
   const loadSubmittedCases = async () => {
     try {
@@ -136,18 +171,10 @@ export default function Reports() {
         submitted_at: caseItem.submitted_at
       })) || [];
 
-      // Filter out cases created before today (hide all cases created till yesterday)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
-      
-      const filteredCases = formattedCases.filter(caseItem => {
-        const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= today;
-      });
-      
-      console.log(`Reports filtered cases: ${filteredCases.length} out of ${formattedCases.length} total cases (hiding all cases created till yesterday)`);
+      // Show all submitted cases including old cases (for testing purposes)
+      console.log(`Reports loaded ${formattedCases.length} submitted cases (showing all cases including old ones)`);
 
-      setCases(filteredCases);
+      setCases(formattedCases);
     } catch (error) {
       console.error('Error loading submitted cases:', error);
       toast({
@@ -160,13 +187,79 @@ export default function Reports() {
     }
   };
 
-  const filteredCases = cases.filter(caseItem => 
-    caseItem.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    caseItem.client_case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    caseItem.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    caseItem.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    caseItem.location.city.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCases = cases.filter(caseItem => {
+    // Search filter
+    const matchesSearch = 
+      caseItem.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      caseItem.client_case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      caseItem.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      caseItem.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      caseItem.location.city.toLowerCase().includes(searchTerm.toLowerCase());
+
+    // Date range filter
+    let matchesDateRange = true;
+    if (startDate || endDate) {
+      const caseDate = new Date(caseItem.created_at);
+      caseDate.setHours(0, 0, 0, 0);
+      
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        if (caseDate < start) matchesDateRange = false;
+      }
+      
+      if (endDate && matchesDateRange) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        if (caseDate > end) matchesDateRange = false;
+      }
+    }
+
+    // Client filter
+    const matchesClient = selectedClient === 'all' || caseItem.client.id === selectedClient;
+
+    return matchesSearch && matchesDateRange && matchesClient;
+  });
+
+  const clearFilters = () => {
+    setStartDate('');
+    setEndDate('');
+    setSelectedClient('all');
+  };
+
+  const hasActiveFilters = startDate || endDate || selectedClient !== 'all';
+
+  // Get today's date in YYYY-MM-DD format for max date validation
+  const getTodayString = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
+  const handleStartDateChange = (value: string) => {
+    setStartDate(value);
+    // If end date is before new start date, clear it
+    if (endDate && value && endDate < value) {
+      setEndDate('');
+      toast({
+        title: 'Date Range Updated',
+        description: 'End date has been cleared because it was before the start date',
+        variant: 'default',
+      });
+    }
+  };
+
+  const handleEndDateChange = (value: string) => {
+    // Validate that end date is not before start date
+    if (startDate && value && value < startDate) {
+      toast({
+        title: 'Invalid Date',
+        description: 'End date cannot be before start date',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setEndDate(value);
+  };
 
   const fetchFormSubmissions = async (caseId: string): Promise<FormSubmissionData[]> => {
     try {
@@ -443,7 +536,10 @@ export default function Reports() {
           <CardDescription>
             All cases with status "submitted"
           </CardDescription>
-          <div className="mt-4">
+          
+          {/* Filters Section */}
+          <div className="mt-4 space-y-4">
+            {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
@@ -452,6 +548,67 @@ export default function Reports() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
               />
+            </div>
+
+            {/* Filter Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Date Range - Start Date */}
+              <div className="space-y-2">
+                <Label htmlFor="start-date">Start Date</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  max={getTodayString()}
+                />
+              </div>
+
+              {/* Date Range - End Date */}
+              <div className="space-y-2">
+                <Label htmlFor="end-date">End Date</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
+                  min={startDate || undefined}
+                  max={getTodayString()}
+                />
+              </div>
+
+              {/* Client Filter */}
+              <div className="space-y-2">
+                <Label htmlFor="client-filter">Client</Label>
+                <Select value={selectedClient} onValueChange={setSelectedClient}>
+                  <SelectTrigger id="client-filter">
+                    <SelectValue placeholder="All Clients" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Clients</SelectItem>
+                    {clients.map((client) => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Clear Filters Button */}
+              <div className="space-y-2">
+                <Label>&nbsp;</Label>
+                {hasActiveFilters && (
+                  <Button
+                    variant="outline"
+                    onClick={clearFilters}
+                    className="w-full"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Clear Filters
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </CardHeader>
