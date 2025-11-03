@@ -28,6 +28,7 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [isCapturing, setIsCapturing] = useState(false);
@@ -273,9 +274,10 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
         return;
       }
 
-      // Check file type
-      if (!allowedFileTypes.includes(blob.type)) {
-        setError(`Invalid file type. Allowed: ${allowedFileTypes.join(', ')}`);
+      // Check file type - use default if allowedFileTypes is null/undefined
+      const validFileTypes = allowedFileTypes ?? ['image/jpeg', 'image/png'];
+      if (!validFileTypes.includes(blob.type)) {
+        setError(`Invalid file type. Allowed: ${validFileTypes.join(', ')}`);
         return;
       }
 
@@ -291,17 +293,21 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
 
       console.log('File created:', { name: file.name, size: file.size, type: file.type });
 
+      // Store the captured file for later use
+      setCapturedFile(file);
+      
       // Set captured image for preview
       setCapturedImage(canvas.toDataURL('image/jpeg', 0.8));
       
       // Stop camera
       stopCamera();
     }, 'image/jpeg', 0.8);
-  }, [maxFileSizeMB, allowedFileTypes, stopCamera]);
+  }, [maxFileSizeMB, stopCamera]);
 
   const confirmCapture = useCallback(async () => {
-    if (!canvasRef.current) {
-      console.error('Canvas not available for confirmation');
+    if (!capturedFile) {
+      console.error('No captured file available for confirmation');
+      setError('No captured image found. Please capture again.');
       return;
     }
 
@@ -321,55 +327,39 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
       }
     }
 
-    canvasRef.current.toBlob(async (blob) => {
-      if (!blob) {
-        console.error('Failed to create blob for confirmation');
-        setError('Failed to process image. Please try again.');
-        return;
-      }
-
-      console.log('Confirmation blob created:', { size: blob.size, type: blob.type });
-
-      const captureTime = new Date().toISOString().replace(/[:.]/g, '-');
-      const locationSuffix = finalLocation 
-        ? `-${finalLocation.lat.toFixed(6)}-${finalLocation.lng.toFixed(6)}`
-        : '';
-      const originalFile = new File([blob], `camera-capture-${captureTime}${locationSuffix}.jpg`, {
-        type: blob.type,
-        lastModified: Date.now()
+    try {
+      // Add overlay to the image
+      console.log('Adding overlay to captured image...');
+      const fileWithOverlay = await addImageOverlay(capturedFile, finalLocation || undefined, new Date());
+      console.log('Overlay added successfully:', { 
+        originalSize: capturedFile.size, 
+        newSize: fileWithOverlay.size,
+        name: fileWithOverlay.name 
       });
 
-      try {
-        // Add overlay to the image
-        console.log('Adding overlay to captured image...');
-        const fileWithOverlay = await addImageOverlay(originalFile, finalLocation || undefined, new Date());
-        console.log('Overlay added successfully:', { 
-          originalSize: originalFile.size, 
-          newSize: fileWithOverlay.size,
-          name: fileWithOverlay.name 
-        });
+      console.log('Final file created with overlay:', { name: fileWithOverlay.name, size: fileWithOverlay.size, type: fileWithOverlay.type });
+      console.log('Final location state at capture:', finalLocation);
+      console.log('Passing location to form:', finalLocation);
 
-        console.log('Final file created with overlay:', { name: fileWithOverlay.name, size: fileWithOverlay.size, type: fileWithOverlay.type });
-        console.log('Final location state at capture:', finalLocation);
-        console.log('Passing location to form:', finalLocation);
-
-        console.log('Passing to form:', { file: fileWithOverlay.name, location: finalLocation });
-        onCapture(fileWithOverlay, finalLocation);
-        setCapturedImage(null);
-        onClose(); // Close the camera dialog
-      } catch (overlayError) {
-        console.error('Failed to add overlay:', overlayError);
-        // Fallback to original file if overlay fails
-        console.log('Using original file without overlay due to error');
-        onCapture(originalFile, finalLocation);
-        setCapturedImage(null);
-        onClose();
-      }
-    }, 'image/jpeg', 0.8);
-  }, [onCapture, onClose, currentLocation, getCurrentLocation]);
+      console.log('Passing to form:', { file: fileWithOverlay.name, location: finalLocation });
+      onCapture(fileWithOverlay, finalLocation);
+      setCapturedImage(null);
+      setCapturedFile(null);
+      onClose(); // Close the camera dialog
+    } catch (overlayError) {
+      console.error('Failed to add overlay:', overlayError);
+      // Fallback to original file if overlay fails
+      console.log('Using original file without overlay due to error');
+      onCapture(capturedFile, finalLocation);
+      setCapturedImage(null);
+      setCapturedFile(null);
+      onClose();
+    }
+  }, [onCapture, onClose, currentLocation, getCurrentLocation, capturedFile]);
 
   const retakePhoto = useCallback(() => {
     setCapturedImage(null);
+    setCapturedFile(null);
     startCamera();
   }, [startCamera]);
 
@@ -380,6 +370,7 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
   const handleClose = useCallback(() => {
     stopCamera();
     setCapturedImage(null);
+    setCapturedFile(null);
     setError(null);
     onClose();
   }, [stopCamera, onClose]);
