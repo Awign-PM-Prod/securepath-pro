@@ -81,12 +81,23 @@ export class PDFService {
   }
 
   /**
-   * Convert form submission data to PDF format
+   * Convert form submission data to PDF format and return as blob
    */
-  static async convertFormSubmissionsToPDF(
+  static async convertFormSubmissionsToPDFBlob(
     submissions: FormSubmissionData[],
     caseNumber: string
-  ): Promise<void> {
+  ): Promise<Blob> {
+    const doc = await this.generatePDFDocument(submissions, caseNumber);
+    return doc.output('blob');
+  }
+
+  /**
+   * Generate PDF document (internal helper method)
+   */
+  private static async generatePDFDocument(
+    submissions: FormSubmissionData[],
+    caseNumber: string
+  ): Promise<jsPDF> {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -283,6 +294,17 @@ export class PDFService {
       yPosition += 5;
     }
 
+    return doc;
+  }
+
+  /**
+   * Convert form submission data to PDF format (downloads automatically)
+   */
+  static async convertFormSubmissionsToPDF(
+    submissions: FormSubmissionData[],
+    caseNumber: string
+  ): Promise<void> {
+    const doc = await this.generatePDFDocument(submissions, caseNumber);
     // Download the PDF
     const filename = `case-${caseNumber}-responses-${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(filename);

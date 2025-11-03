@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Search, Download, FileSpreadsheet, FileText, User, Phone, MapPin, Clock, Building, Calendar as CalendarIcon, X } from 'lucide-react';
@@ -12,6 +15,7 @@ import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { CSVService, FormSubmissionData } from '@/services/csvService';
 import { PDFService } from '@/services/pdfService';
+import JSZip from 'jszip';
 
 interface Case {
   id: string;
@@ -99,6 +103,18 @@ export default function Reports() {
   // Options for filters
   const [clients, setClients] = useState<Client[]>([]);
 
+  // Bulk download states
+  const [bulkReportsDialogOpen, setBulkReportsDialogOpen] = useState(false);
+  const [caseSelectionDialogOpen, setCaseSelectionDialogOpen] = useState(false);
+  const [selectedFormat, setSelectedFormat] = useState<'csv' | 'pdf' | null>(null);
+  const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set());
+  
+  // Filters for case selection dialog
+  const [selectionStartDate, setSelectionStartDate] = useState<string>('');
+  const [selectionEndDate, setSelectionEndDate] = useState<string>('');
+  const [selectionClient, setSelectionClient] = useState<string>('all');
+  const [selectionSearchTerm, setSelectionSearchTerm] = useState<string>('');
+
   useEffect(() => {
     loadSubmittedCases();
     loadFilterOptions();
@@ -126,6 +142,12 @@ export default function Reports() {
   const loadSubmittedCases = async () => {
     try {
       setIsLoading(true);
+      
+      // Get today's date at 00:00:00
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayISOString = today.toISOString();
+      
       const { data, error } = await supabase
         .from('cases')
         .select(`
@@ -134,6 +156,7 @@ export default function Reports() {
           locations(id, address_line, city, state, pincode, pincode_tier, lat, lng, location_url)
         `)
         .eq('status', 'submitted')
+        .gte('created_at', todayISOString)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -171,8 +194,8 @@ export default function Reports() {
         submitted_at: caseItem.submitted_at
       })) || [];
 
-      // Show all submitted cases including old cases (for testing purposes)
-      console.log(`Reports loaded ${formattedCases.length} submitted cases (showing all cases including old ones)`);
+      // Show only cases created today and onwards
+      console.log(`Reports loaded ${formattedCases.length} submitted cases (created from today onwards)`);
 
       setCases(formattedCases);
     } catch (error) {
@@ -259,6 +282,309 @@ export default function Reports() {
       return;
     }
     setEndDate(value);
+  };
+
+  // Bulk download handlers
+  const handleOpenBulkReportsDialog = () => {
+    setBulkReportsDialogOpen(true);
+  };
+
+  const handleSelectFormat = (format: 'csv' | 'pdf') => {
+    setSelectedFormat(format);
+    setBulkReportsDialogOpen(false);
+    setCaseSelectionDialogOpen(true);
+    setSelectedCaseIds(new Set());
+  };
+
+  const handleBulkDownload = async () => {
+    if (selectedCaseIds.size === 0) {
+      toast({
+        title: 'No Cases Selected',
+        description: 'Please select at least one case to download',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!selectedFormat) return;
+
+    try {
+      setIsDownloading(true);
+      setDownloadProgress(0);
+      const selectedCases = cases.filter(c => selectedCaseIds.has(c.id));
+      const totalCases = selectedCases.length;
+
+      if (selectedFormat === 'csv') {
+        // Bulk CSV download - combine all submissions into one CSV
+        let allSubmissions: Array<FormSubmissionData & { case_number?: string }> = [];
+        
+        for (let i = 0; i < selectedCases.length; i++) {
+          const caseItem = selectedCases[i];
+          setDownloadProgress(Math.round(((i + 1) / totalCases) * 50));
+          setDownloadingCase(caseItem.id);
+          
+          const submissions = await fetchFormSubmissions(caseItem.id);
+          
+          // Add case number to each submission for identification
+          submissions.forEach(sub => {
+            allSubmissions.push({
+              ...sub,
+              case_number: caseItem.case_number,
+            } as FormSubmissionData & { case_number?: string });
+          });
+        }
+
+        setDownloadProgress(75);
+        
+        if (allSubmissions.length === 0) {
+          toast({
+            title: 'No Data',
+            description: 'No form submissions found for selected cases',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // Generate CSV with case number column
+        const csvContent = generateBulkCSV(allSubmissions);
+        
+        if (!csvContent) {
+          toast({
+            title: 'Error',
+            description: 'Failed to generate CSV content',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        CSVService.downloadCSV(csvContent, `bulk_reports_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+        setDownloadProgress(100);
+
+        toast({
+          title: 'Success',
+          description: `Downloaded ${selectedCases.length} cases as CSV`,
+        });
+      } else if (selectedFormat === 'pdf') {
+        // Bulk PDF download - create zip file with all PDFs (or download directly if single)
+        const pdfBlobs: Array<{ blob: Blob; caseNumber: string }> = [];
+
+        for (let i = 0; i < selectedCases.length; i++) {
+          const caseItem = selectedCases[i];
+          setDownloadProgress(Math.round(((i + 1) / totalCases) * 80));
+          setDownloadingCase(caseItem.id);
+          
+          const submissions = await fetchFormSubmissions(caseItem.id);
+          
+          if (submissions.length > 0) {
+            try {
+              // Generate PDF as blob
+              const pdfBlob = await PDFService.convertFormSubmissionsToPDFBlob(submissions, caseItem.case_number);
+              pdfBlobs.push({ blob: pdfBlob, caseNumber: caseItem.case_number });
+            } catch (error) {
+              console.error(`Error generating PDF for case ${caseItem.case_number}:`, error);
+              // Continue with other cases even if one fails
+            }
+          }
+        }
+
+        setDownloadProgress(90);
+
+        if (pdfBlobs.length === 0) {
+          toast({
+            title: 'No Data',
+            description: 'No form submissions found for selected cases',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        if (pdfBlobs.length === 1) {
+          // Single PDF - download directly
+          const { blob, caseNumber } = pdfBlobs[0];
+          const sanitizedCaseNumber = caseNumber.replace(/[^a-zA-Z0-9-_]/g, '_');
+          const filename = `case-${sanitizedCaseNumber}-responses-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        } else {
+          // Multiple PDFs - create zip file
+          const zip = new JSZip();
+          
+          pdfBlobs.forEach(({ blob, caseNumber }) => {
+            const sanitizedCaseNumber = caseNumber.replace(/[^a-zA-Z0-9-_]/g, '_');
+            const filename = `case-${sanitizedCaseNumber}-responses-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+            zip.file(filename, blob);
+          });
+
+          // Generate and download zip file
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const zipFilename = `bulk_pdf_reports_${format(new Date(), 'yyyy-MM-dd')}.zip`;
+          const url = URL.createObjectURL(zipBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = zipFilename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
+
+        setDownloadProgress(100);
+
+        toast({
+          title: 'Success',
+          description: `Downloaded ${pdfBlobs.length} case${pdfBlobs.length !== 1 ? 's' : ''} as PDF${pdfBlobs.length > 1 ? ' (ZIP file)' : ''}`,
+        });
+      }
+
+      setTimeout(() => {
+        setIsDownloading(false);
+        setDownloadingCase(null);
+        setDownloadProgress(0);
+        handleCloseCaseSelection();
+      }, 500);
+    } catch (error) {
+      console.error('Error in bulk download:', error);
+      setIsDownloading(false);
+      setDownloadingCase(null);
+      setDownloadProgress(0);
+      toast({
+        title: 'Error',
+        description: 'Failed to download reports',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCloseCaseSelection = () => {
+    setCaseSelectionDialogOpen(false);
+    setSelectedFormat(null);
+    setSelectedCaseIds(new Set());
+    setSelectionStartDate('');
+    setSelectionEndDate('');
+    setSelectionClient('all');
+    setSelectionSearchTerm('');
+  };
+
+  // Filter cases for selection dialog
+  const selectionFilteredCases = useMemo(() => {
+    return cases.filter(caseItem => {
+      // Search filter
+      const matchesSearch = 
+        caseItem.case_number.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
+        caseItem.client_case_id.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
+        caseItem.candidate_name.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
+        caseItem.client.name.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
+        caseItem.location.city.toLowerCase().includes(selectionSearchTerm.toLowerCase());
+
+      // Date range filter
+      let matchesDateRange = true;
+      if (selectionStartDate || selectionEndDate) {
+        const caseDate = new Date(caseItem.created_at);
+        caseDate.setHours(0, 0, 0, 0);
+        
+        if (selectionStartDate) {
+          const start = new Date(selectionStartDate);
+          start.setHours(0, 0, 0, 0);
+          if (caseDate < start) matchesDateRange = false;
+        }
+        
+        if (selectionEndDate && matchesDateRange) {
+          const end = new Date(selectionEndDate);
+          end.setHours(23, 59, 59, 999);
+          if (caseDate > end) matchesDateRange = false;
+        }
+      }
+
+      // Client filter
+      const matchesClient = selectionClient === 'all' || caseItem.client.id === selectionClient;
+
+      return matchesSearch && matchesDateRange && matchesClient;
+    });
+  }, [cases, selectionSearchTerm, selectionStartDate, selectionEndDate, selectionClient]);
+
+  const handleToggleCaseSelection = (caseId: string) => {
+    const newSelected = new Set(selectedCaseIds);
+    if (newSelected.has(caseId)) {
+      newSelected.delete(caseId);
+    } else {
+      newSelected.add(caseId);
+    }
+    setSelectedCaseIds(newSelected);
+  };
+
+  const handleSelectAllCases = () => {
+    if (selectedCaseIds.size === selectionFilteredCases.length) {
+      setSelectedCaseIds(new Set());
+    } else {
+      setSelectedCaseIds(new Set(selectionFilteredCases.map(c => c.id)));
+    }
+  };
+
+
+  const handleSelectionStartDateChange = (value: string) => {
+    setSelectionStartDate(value);
+    if (selectionEndDate && value && selectionEndDate < value) {
+      setSelectionEndDate('');
+    }
+  };
+
+  const handleSelectionEndDateChange = (value: string) => {
+    if (selectionStartDate && value && value < selectionStartDate) {
+      toast({
+        title: 'Invalid Date',
+        description: 'End date cannot be before start date',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setSelectionEndDate(value);
+  };
+
+  // Generate CSV with case number for bulk download
+  const generateBulkCSV = (submissions: Array<FormSubmissionData & { case_number?: string }>): string => {
+    if (submissions.length === 0) {
+      return '';
+    }
+
+    // Use the existing CSVService to generate base CSV
+    const baseCSV = CSVService.convertFormSubmissionsToCSV(submissions);
+    
+    // Check if we have multiple cases
+    const uniqueCases = new Set(submissions.map(s => s.case_number).filter(Boolean));
+    const hasMultipleCases = uniqueCases.size > 1;
+
+    if (!hasMultipleCases) {
+      return baseCSV;
+    }
+
+    // Parse the CSV and add case number column
+    const lines = baseCSV.split('\n').filter(line => line.trim());
+    if (lines.length === 0) {
+      return baseCSV;
+    }
+
+    // Add "Case Number" as first column in header
+    const headerLine = 'Case Number,' + lines[0];
+    
+    // Add case number to each data row (one row per submission)
+    const dataLines = lines.slice(1).map((line, index) => {
+      if (index >= submissions.length) return line; // Safety check
+      const submission = submissions[index];
+      const caseNumber = submission?.case_number || '';
+      // Escape case number if it contains commas/quotes
+      const escapedCaseNumber = (caseNumber.includes(',') || caseNumber.includes('"') || caseNumber.includes('\n')) 
+        ? `"${caseNumber.replace(/"/g, '""')}"` 
+        : caseNumber;
+      return escapedCaseNumber + ',' + line;
+    });
+
+    return [headerLine, ...dataLines].join('\n');
   };
 
   const fetchFormSubmissions = async (caseId: string): Promise<FormSubmissionData[]> => {
@@ -528,6 +854,10 @@ export default function Reports() {
           <h1 className="text-2xl font-bold">Reports</h1>
           <p className="text-muted-foreground">View all submitted cases and download reports</p>
         </div>
+        <Button onClick={handleOpenBulkReportsDialog} variant="outline">
+          <Download className="h-4 w-4 mr-2" />
+          Bulk Reports
+        </Button>
       </div>
 
       <Card>
@@ -751,6 +1081,184 @@ export default function Reports() {
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk Reports Format Selection Dialog */}
+      <Dialog open={bulkReportsDialogOpen} onOpenChange={setBulkReportsDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Reports</DialogTitle>
+            <DialogDescription>
+              Select the format for bulk download
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-4">
+            <Button
+              variant="outline"
+              className="h-24 flex flex-col items-center justify-center gap-2"
+              onClick={() => handleSelectFormat('csv')}
+            >
+              <FileSpreadsheet className="h-8 w-8" />
+              <span>CSV</span>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-24 flex flex-col items-center justify-center gap-2"
+              onClick={() => handleSelectFormat('pdf')}
+            >
+              <FileText className="h-8 w-8" />
+              <span>PDF</span>
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkReportsDialogOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Case Selection Dialog */}
+      <Dialog open={caseSelectionDialogOpen} onOpenChange={handleCloseCaseSelection}>
+        <DialogContent className="max-w-4xl max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>
+              Select Cases for Bulk {selectedFormat?.toUpperCase()} Download
+            </DialogTitle>
+            <DialogDescription>
+              Select the cases you want to download. {selectedCaseIds.size > 0 && `${selectedCaseIds.size} case(s) selected`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Filters */}
+            <div className="space-y-3 border-b pb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Search cases..."
+                  value={selectionSearchTerm}
+                  onChange={(e) => setSelectionSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="selection-start-date">Start Date</Label>
+                  <Input
+                    id="selection-start-date"
+                    type="date"
+                    value={selectionStartDate}
+                    onChange={(e) => handleSelectionStartDateChange(e.target.value)}
+                    max={getTodayString()}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="selection-end-date">End Date</Label>
+                  <Input
+                    id="selection-end-date"
+                    type="date"
+                    value={selectionEndDate}
+                    onChange={(e) => handleSelectionEndDateChange(e.target.value)}
+                    min={selectionStartDate || undefined}
+                    max={getTodayString()}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="selection-client-filter">Client</Label>
+                  <Select value={selectionClient} onValueChange={setSelectionClient}>
+                    <SelectTrigger id="selection-client-filter">
+                      <SelectValue placeholder="All Clients" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Clients</SelectItem>
+                      {clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Case List */}
+            <ScrollArea className="h-[400px] border rounded-md p-4">
+              {selectionFilteredCases.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No cases found.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2 pb-2 border-b">
+                    <Checkbox
+                      checked={selectedCaseIds.size === selectionFilteredCases.length && selectionFilteredCases.length > 0}
+                      onCheckedChange={handleSelectAllCases}
+                    />
+                    <Label className="font-semibold">
+                      Select All ({selectionFilteredCases.length} cases)
+                    </Label>
+                  </div>
+                  {selectionFilteredCases.map((caseItem) => (
+                    <div
+                      key={caseItem.id}
+                      className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50"
+                    >
+                      <Checkbox
+                        checked={selectedCaseIds.has(caseItem.id)}
+                        onCheckedChange={() => handleToggleCaseSelection(caseItem.id)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-medium">{caseItem.case_number}</h4>
+                          {isRecreatedCase(caseItem.case_number) && (
+                            <Badge variant="outline" className="text-xs">
+                              Recreated
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{caseItem.client_case_id}</p>
+                        <p className="text-sm font-medium">{caseItem.candidate_name}</p>
+                        <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
+                          <span>{caseItem.client.name}</span>
+                          <span>{caseItem.location.city}, {caseItem.location.state}</span>
+                          <span>{format(new Date(caseItem.created_at), 'MMM dd, yyyy')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseCaseSelection}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkDownload}
+              disabled={selectedCaseIds.size === 0 || isDownloading}
+            >
+              {isDownloading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download {selectedCaseIds.size} {selectedFormat?.toUpperCase()} {selectedCaseIds.size === 1 ? 'Report' : 'Reports'}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
