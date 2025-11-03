@@ -1558,7 +1558,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                     id={field.field_key}
                     multiple={field.max_files ? field.max_files > 1 : false}
                     accept={'image/jpeg,image/png'}
-                    capture={'environment'}
                     onChange={(e) => handleFileUpload(field.field_key, e.target.files)}
                     className="hidden"
                     disabled={uploadingFiles[field.field_key]}
@@ -1910,7 +1909,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           })()}
           currentFileCount={formData[cameraFieldKey]?.files?.length || 0}
           allowedFileTypes={template?.form_fields?.find(f => f.field_key === cameraFieldKey)?.allowed_file_types}
-          maxFileSizeMB={template?.form_fields?.find(f => f.field_key === cameraFieldKey)?.max_file_size_mb}
+          maxFileSizeMB={template?.form_fields?.find(f => f.field_key === cameraFieldKey)?.max_file_size_mb ?? 10}
         />
       )}
     </Card>

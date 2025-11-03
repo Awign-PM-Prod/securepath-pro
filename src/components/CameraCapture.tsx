@@ -266,9 +266,10 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
 
       console.log('Blob created:', { size: blob.size, type: blob.type });
 
-      // Check file size
-      if (blob.size > maxFileSizeMB * 1024 * 1024) {
-        setError(`File size must be less than ${maxFileSizeMB}MB`);
+      // Check file size - use default if maxFileSizeMB is null/undefined
+      const fileSizeLimitMB = maxFileSizeMB ?? 10;
+      if (blob.size > fileSizeLimitMB * 1024 * 1024) {
+        setError(`File size must be less than ${fileSizeLimitMB}MB`);
         return;
       }
 
