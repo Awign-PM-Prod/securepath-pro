@@ -890,9 +890,10 @@ export default function GigWorkerManagement() {
       worker.profiles?.first_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       worker.profiles?.last_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       worker.profiles?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      worker.phone.includes(searchTerm) ||
-      worker.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      worker.state.toLowerCase().includes(searchTerm.toLowerCase());
+      worker.profiles?.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      worker.alternate_phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      worker.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      worker.state?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesVendor = selectedVendor === 'all' || 
       (selectedVendor === 'direct' && worker.is_direct_gig) ||
