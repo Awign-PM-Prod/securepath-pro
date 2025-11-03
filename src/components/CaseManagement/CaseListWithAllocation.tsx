@@ -252,6 +252,12 @@ export default function CaseListWithAllocation({
     ), [filteredCases]
   );
 
+  const unallocatableSelectedCases = useMemo(() => 
+    filteredCases.filter(caseItem => 
+      caseItem.status === 'allocated' && caseItem.current_assignee
+    ), [filteredCases]
+  );
+
   const unallocatableCases = useMemo(() => 
     filteredCases.filter(caseItem => 
       (caseItem.status === 'allocated' || caseItem.status === 'in_progress') && 
@@ -264,6 +270,14 @@ export default function CaseListWithAllocation({
       const caseItem = cases.find(c => c.id === caseId);
       const isAllocatable = caseItem && (caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee;
       return isAllocatable;
+    }), [selectedCases, cases]
+  );
+
+  const selectedUnallocatableCases = useMemo(() => 
+    Array.from(selectedCases).filter(caseId => {
+      const caseItem = cases.find(c => c.id === caseId);
+      const isUnallocatable = caseItem && caseItem.status === 'allocated' && caseItem.current_assignee;
+      return isUnallocatable;
     }), [selectedCases, cases]
   );
 
@@ -507,15 +521,35 @@ export default function CaseListWithAllocation({
   };
 
 
+  const handleUnallocate = () => {
+    if (selectedUnallocatableCases.length === 0) {
+      toast({
+        title: 'No Cases Selected',
+        description: 'Please select allocated cases to unallocate',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setIsUnallocationDialogOpen(true);
+  };
+
   const handleConfirmUnallocate = async () => {
+    if (selectedUnallocatableCases.length === 0) {
+      toast({
+        title: 'No Cases Selected',
+        description: 'Please select allocated cases to unallocate',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setIsUnallocating(true);
     try {
-      const results = await allocationService.unallocateCases([], unallocationReason);
+      const results = await allocationService.unallocateCases(selectedUnallocatableCases, unallocationReason);
 
       toast({
         title: 'Unallocation Complete',
-        description: `Successfully unallocated ${results.successful} cases. ${results.failed > 0 ? `${results.failed} failed.` : ''}`,
+        description: `Successfully unallocated ${results.successful} case${results.successful !== 1 ? 's' : ''}. ${results.failed > 0 ? `${results.failed} failed.` : ''}`,
         variant: results.failed > 0 ? 'destructive' : 'default',
       });
 
@@ -642,11 +676,12 @@ export default function CaseListWithAllocation({
 
   const handleSelectAllCases = useCallback((checked: boolean) => {
     if (checked) {
-      // Select all allocatable cases on current page
+      // Select all allocatable and allocated cases on current page
       setSelectedCases(prev => {
         const newSelectedCases = new Set(prev);
         displayCases.forEach(caseItem => {
-          if ((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) {
+          if (((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) ||
+              (caseItem.status === 'allocated' && caseItem.current_assignee)) {
             newSelectedCases.add(caseItem.id);
           }
         });
@@ -661,18 +696,20 @@ export default function CaseListWithAllocation({
   const isCaseSelected = useCallback((caseId: string) => selectedCases.has(caseId), [selectedCases]);
 
   const isAllCasesSelected = useMemo(() => {
-    const allocatableCasesOnPage = displayCases.filter(caseItem => 
-      (caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee
+    const selectableCasesOnPage = displayCases.filter(caseItem => 
+      ((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) ||
+      (caseItem.status === 'allocated' && caseItem.current_assignee)
     );
-    return allocatableCasesOnPage.length > 0 && 
-           allocatableCasesOnPage.every(caseItem => selectedCases.has(caseItem.id));
+    return selectableCasesOnPage.length > 0 && 
+           selectableCasesOnPage.every(caseItem => selectedCases.has(caseItem.id));
   }, [displayCases, selectedCases]);
 
   const isSomeCasesSelected = useMemo(() => {
-    const allocatableCasesOnPage = displayCases.filter(caseItem => 
-      (caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee
+    const selectableCasesOnPage = displayCases.filter(caseItem => 
+      ((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) ||
+      (caseItem.status === 'allocated' && caseItem.current_assignee)
     );
-    return allocatableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
+    return selectableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
   }, [displayCases, selectedCases]);
 
   
@@ -907,7 +944,7 @@ export default function CaseListWithAllocation({
           </div>
         )}
 
-        {/* Allocation Actions - Show when cases are selected */}
+        {/* Allocation Actions - Show when allocatable cases are selected */}
         {selectedAllocatableCases.length > 0 && (
           <div className="mb-6">
             <Alert>
@@ -936,6 +973,39 @@ export default function CaseListWithAllocation({
                     >
                       <Users className="h-4 w-4 mr-2" />
                       Manual Allocate
+                    </Button>
+                    <Button
+                      onClick={() => setSelectedCases(new Set())}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Clear Selection
+                    </Button>
+                  </div>
+                </div>
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+
+        {/* Unallocation Actions - Show when allocated cases are selected */}
+        {selectedUnallocatableCases.length > 0 && (
+          <div className="mb-6">
+            <Alert>
+              <RotateCcw className="h-4 w-4" />
+              <AlertDescription>
+                <div className="flex items-center justify-between">
+                  <span>
+                    {selectedUnallocatableCases.length} allocated case{selectedUnallocatableCases.length > 1 ? 's' : ''} selected
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleUnallocate}
+                      size="sm"
+                      variant="destructive"
+                    >
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Unallocate
                     </Button>
                     <Button
                       onClick={() => setSelectedCases(new Set())}
@@ -1015,8 +1085,9 @@ export default function CaseListWithAllocation({
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-start gap-3">
-                          {/* Checkbox for new and pending_allocation status cases */}
-                          {(caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee && (
+                          {/* Checkbox for new, pending_allocation, and allocated status cases */}
+                          {(((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) || 
+                           (caseItem.status === 'allocated' && caseItem.current_assignee)) && (
                             <Checkbox
                               checked={isCaseSelected(caseItem.id)}
                               onCheckedChange={(checked) => handleSelectCase(caseItem.id, checked as boolean)}
@@ -1365,7 +1436,7 @@ export default function CaseListWithAllocation({
             <DialogHeader>
               <DialogTitle>Unallocate Cases</DialogTitle>
               <DialogDescription>
-                This will remove assignments from cases and change their status to 'Created'.
+                This will unallocate {selectedUnallocatableCases.length} case{selectedUnallocatableCases.length !== 1 ? 's' : ''} and change their status to 'new'.
                 The assigned workers will have their capacity freed up.
               </DialogDescription>
             </DialogHeader>
