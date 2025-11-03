@@ -45,7 +45,7 @@ class NotificationService {
         .from('app_settings')
         .select('value')
         .eq('key', 'vapid_public_key')
-        .single();
+        .maybeSingle(); // Use maybeSingle instead of single to avoid errors if not found
 
       if (error) {
         console.warn('VAPID key not found in database, using default:', error.message);
@@ -62,6 +62,7 @@ class NotificationService {
         this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
       }
     } catch (error) {
+      // Silently handle errors - don't let this block anything
       console.warn('Error initializing VAPID key, using default:', error);
       this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
     }

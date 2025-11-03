@@ -38,6 +38,7 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
   });
 
   const [editingField, setEditingField] = useState<FormBuilderField | null>(null);
+  const [editingFieldIndex, setEditingFieldIndex] = useState<number | null>(null);
   const [showFieldEditor, setShowFieldEditor] = useState(false);
 
   useEffect(() => {
@@ -64,36 +65,59 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
       field_config: {},
       field_order: (template.fields || []).length
     };
+    const newIndex = template.fields.length;
+    // Add the field first, then edit it
+    setTemplate(prev => ({
+      ...prev,
+      fields: [...prev.fields, newField]
+    }));
     setEditingField(newField);
+    setEditingFieldIndex(newIndex);
     setShowFieldEditor(true);
+    
+    // Scroll to the new field after a short delay
+    setTimeout(() => {
+      const fieldElement = document.getElementById(`field-${newIndex}`);
+      if (fieldElement) {
+        fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   const editField = (index: number) => {
     setEditingField({ ...template.fields[index] });
+    setEditingFieldIndex(index);
     setShowFieldEditor(true);
+    
+    // Scroll to the field being edited after a short delay to ensure DOM is updated
+    setTimeout(() => {
+      const fieldElement = document.getElementById(`field-${index}`);
+      if (fieldElement) {
+        fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   const saveField = (field: FormBuilderField) => {
-    if (editingField) {
-      const fieldIndex = template.fields.findIndex(f => f.field_order === editingField.field_order);
-      if (fieldIndex >= 0) {
-        // Update existing field
-        const updatedFields = [...template.fields];
-        updatedFields[fieldIndex] = { ...field, field_order: editingField.field_order };
-        setTemplate(prev => ({ ...prev, fields: updatedFields }));
-      } else {
-        // Add new field
-        setTemplate(prev => ({
-          ...prev,
-          fields: [...prev.fields, { ...field, field_order: prev.fields.length }]
-        }));
-      }
+    if (editingField && editingFieldIndex !== null) {
+      // Update the field at the editing index
+      const updatedFields = [...template.fields];
+      updatedFields[editingFieldIndex] = { ...field, field_order: editingFieldIndex };
+      setTemplate(prev => ({ ...prev, fields: updatedFields }));
     }
     setEditingField(null);
+    setEditingFieldIndex(null);
     setShowFieldEditor(false);
   };
 
   const deleteField = (index: number) => {
+    // If deleting the field being edited, close the editor
+    if (editingFieldIndex === index) {
+      setEditingField(null);
+      setEditingFieldIndex(null);
+      setShowFieldEditor(false);
+    }
+    
     setTemplate(prev => ({
       ...prev,
       fields: (prev.fields || []).filter((_, i) => i !== index).map((field, i) => ({
@@ -115,6 +139,26 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
       ...field,
       field_order: index
     }));
+
+    // Update editingFieldIndex if a field is being edited
+    if (editingFieldIndex !== null) {
+      if (result.source.index === editingFieldIndex) {
+        // The field being edited was moved
+        setEditingFieldIndex(result.destination.index);
+      } else if (
+        result.source.index < editingFieldIndex && 
+        result.destination.index >= editingFieldIndex
+      ) {
+        // A field before the edited one was moved to after it
+        setEditingFieldIndex(editingFieldIndex - 1);
+      } else if (
+        result.source.index > editingFieldIndex && 
+        result.destination.index <= editingFieldIndex
+      ) {
+        // A field after the edited one was moved to before it
+        setEditingFieldIndex(editingFieldIndex + 1);
+      }
+    }
 
     setTemplate(prev => ({ ...prev, fields: reorderedFields }));
   };
@@ -146,8 +190,8 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
     };
 
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
-        <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white border-2 border-blue-300 rounded-lg shadow-lg z-40 my-4">
+        <Card className="border-0 shadow-none">
           <CardHeader>
             <CardTitle>Edit Field</CardTitle>
           </CardHeader>
@@ -265,7 +309,11 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
             </div>
 
             <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={() => setShowFieldEditor(false)}>
+              <Button variant="outline" onClick={() => {
+                setShowFieldEditor(false);
+                setEditingField(null);
+                setEditingFieldIndex(null);
+              }}>
                 Cancel
               </Button>
               <Button onClick={() => saveField(localField)}>
@@ -323,39 +371,44 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
               {(provided) => (
                 <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-2">
                   {(template.fields || []).map((field, index) => (
-                    <Draggable key={index} draggableId={index.toString()} index={index}>
-                      {(provided) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          className="flex items-center space-x-2 p-3 border rounded-lg bg-white"
-                        >
-                          <div {...provided.dragHandleProps} className="cursor-grab">
-                            <GripVertical className="h-4 w-4" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="font-medium">{field.field_title}</div>
-                            <div className="text-sm text-gray-500">
-                              {field.field_type} • {field.validation_type}
+                    <div key={index}>
+                      <Draggable draggableId={index.toString()} index={index}>
+                        {(provided) => (
+                          <div
+                            id={`field-${index}`}
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            className="flex items-center space-x-2 p-3 border rounded-lg bg-white"
+                          >
+                            <div {...provided.dragHandleProps} className="cursor-grab">
+                              <GripVertical className="h-4 w-4" />
                             </div>
+                            <div className="flex-1">
+                              <div className="font-medium">{field.field_title}</div>
+                              <div className="text-sm text-gray-500">
+                                {field.field_type} • {field.validation_type}
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => editField(index)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteField(index)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => editField(index)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteField(index)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </Draggable>
+                        )}
+                      </Draggable>
+                      {/* Render editor inline after the field being edited */}
+                      {editingFieldIndex === index && showFieldEditor && <FieldEditor />}
+                    </div>
                   ))}
                   {provided.placeholder}
                 </div>
@@ -379,7 +432,6 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
         </Button>
       </div>
 
-      {showFieldEditor && <FieldEditor />}
     </div>
   );
 };

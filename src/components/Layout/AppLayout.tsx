@@ -23,7 +23,15 @@ export function AppLayout() {
   const { unreadCount } = useNotifications(user?.id || null);
 
   const handleSignOut = async () => {
-    await signOut();
+    try {
+      await signOut();
+      // Navigate to login page after sign out
+      navigate('/', { replace: true });
+    } catch (error) {
+      console.error('Error signing out:', error);
+      // Still navigate even if there's an error
+      navigate('/', { replace: true });
+    }
   };
 
   return (
@@ -102,7 +110,12 @@ export function AppLayout() {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSignOut}>
+                  <DropdownMenuItem 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleSignOut();
+                    }}
+                  >
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign out
                   </DropdownMenuItem>

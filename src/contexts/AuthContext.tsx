@@ -114,7 +114,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      console.log('AuthContext: Starting sign out...');
+      
+      // Clear state first
+      setUser(null);
+      setSession(null);
+      
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Sign out error:', error);
+      }
+      
+      // Manually clear all Supabase auth storage
+      try {
+        // Clear all Supabase-related localStorage keys
+        Object.keys(localStorage).forEach(key => {
+          if (key.includes('supabase') || key.includes('sb-') || key.includes('auth')) {
+            console.log('Clearing localStorage key:', key);
+            localStorage.removeItem(key);
+          }
+        });
+        
+        console.log('AuthContext: Cleared localStorage');
+      } catch (storageError) {
+        console.warn('AuthContext: Error clearing storage:', storageError);
+      }
+      
+      console.log('AuthContext: Sign out successful');
+      return { success: true };
+    } catch (error) {
+      console.error('AuthContext: Sign out failed:', error);
+      // Clear state even on error
+      setUser(null);
+      setSession(null);
+      throw error;
+    }
   };
 
   const hasRole = (role: UserRole) => {

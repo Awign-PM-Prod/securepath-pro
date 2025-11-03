@@ -20,7 +20,32 @@ export function NoSidebarLayout() {
   const { unreadCount } = useNotifications(user?.id || null);
 
   const handleSignOut = async () => {
-    await signOut();
+    console.log('handleSignOut called');
+    try {
+      // Wait for sign out to complete before redirecting
+      console.log('Waiting for signOut to complete...');
+      await signOut();
+      console.log('SignOut completed, redirecting...');
+      
+      // Small delay to ensure localStorage is cleared
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Force redirect - this will reload the page and auth state should be cleared
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Error in handleSignOut:', error);
+      // Even on error, clear localStorage and redirect
+      try {
+        Object.keys(localStorage).forEach(key => {
+          if (key.includes('supabase') || key.includes('sb-') || key.includes('auth')) {
+            localStorage.removeItem(key);
+          }
+        });
+      } catch (clearError) {
+        console.error('Error clearing storage:', clearError);
+      }
+      window.location.href = '/';
+    }
   };
 
   return (
@@ -73,7 +98,15 @@ export function NoSidebarLayout() {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSignOut}>
+                  <DropdownMenuItem 
+                    className="cursor-pointer"
+                    onClick={async (e) => {
+                      console.log('Sign out onClick fired');
+                      e.preventDefault();
+                      e.stopPropagation();
+                      await handleSignOut();
+                    }}
+                  >
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign out
                   </DropdownMenuItem>
