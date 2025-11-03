@@ -66,6 +66,38 @@ interface Case {
   submitted_at?: string;
 }
 
+const STATUS_COLORS = {
+  new: 'bg-gray-100 text-gray-800',
+  allocated: 'bg-blue-100 text-blue-800',
+  accepted: 'bg-green-100 text-green-800',
+  pending_allocation: 'bg-yellow-100 text-yellow-800',
+  in_progress: 'bg-blue-100 text-blue-800',
+  submitted: 'bg-purple-100 text-purple-800',
+  qc_passed: 'bg-green-100 text-green-800',
+  qc_rejected: 'bg-red-100 text-red-800',
+  qc_rework: 'bg-orange-100 text-orange-800',
+  reported: 'bg-green-100 text-green-800',
+  in_payment_cycle: 'bg-blue-100 text-blue-800',
+  payment_complete: 'bg-green-100 text-green-800',
+  cancelled: 'bg-gray-100 text-gray-800',
+};
+
+const STATUS_LABELS = {
+  new: 'New',
+  allocated: 'Allocated',
+  accepted: 'Accepted',
+  pending_allocation: 'Pending Allocation',
+  in_progress: 'In Progress',
+  submitted: 'Submitted',
+  qc_passed: 'QC Passed',
+  qc_rejected: 'QC Rejected',
+  qc_rework: 'QC Rework',
+  reported: 'Reported',
+  in_payment_cycle: 'In Payment Cycle',
+  payment_complete: 'Payment Complete',
+  cancelled: 'Cancelled',
+};
+
 const getTierNumber = (tierString: string | undefined | null) => {
   if (!tierString) return '?';
   
@@ -155,7 +187,7 @@ export default function Reports() {
           clients(id, name, contact_person, phone, email),
           locations(id, address_line, city, state, pincode, pincode_tier, lat, lng, location_url)
         `)
-        .eq('status', 'submitted')
+        .in('status', ['submitted', 'qc_passed'])
         .gte('created_at', todayISOString)
         .order('created_at', { ascending: false });
 
@@ -195,14 +227,14 @@ export default function Reports() {
       })) || [];
 
       // Show only cases created today and onwards
-      console.log(`Reports loaded ${formattedCases.length} submitted cases (created from today onwards)`);
+      console.log(`Reports loaded ${formattedCases.length} cases with status 'submitted' or 'qc_passed' (created from today onwards)`);
 
       setCases(formattedCases);
     } catch (error) {
-      console.error('Error loading submitted cases:', error);
+      console.error('Error loading cases:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load submitted cases',
+        description: 'Failed to load cases',
         variant: 'destructive',
       });
     } finally {
@@ -812,7 +844,7 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <CardTitle>Reports</CardTitle>
-          <CardDescription>Loading submitted cases...</CardDescription>
+          <CardDescription>Loading cases...</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center py-8">
@@ -852,7 +884,7 @@ export default function Reports() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>
-          <p className="text-muted-foreground">View all submitted cases and download reports</p>
+          <p className="text-muted-foreground">View all submitted and QC passed cases and download reports</p>
         </div>
         <Button onClick={handleOpenBulkReportsDialog} variant="outline">
           <Download className="h-4 w-4 mr-2" />
@@ -862,9 +894,9 @@ export default function Reports() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Submitted Cases ({filteredCases.length})</CardTitle>
+          <CardTitle>Reports Cases ({filteredCases.length})</CardTitle>
           <CardDescription>
-            All cases with status "submitted"
+            All cases with status "submitted" or "qc_passed"
           </CardDescription>
           
           {/* Filters Section */}
@@ -945,7 +977,7 @@ export default function Reports() {
         <CardContent>
           {filteredCases.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No submitted cases found.
+              No cases found.
             </div>
           ) : (
             <div className="grid gap-4">
@@ -965,7 +997,9 @@ export default function Reports() {
                             </Badge>
                           )}
                         </h3>
-                        <Badge className="bg-purple-100 text-purple-800">Submitted</Badge>
+                        <Badge className={STATUS_COLORS[caseItem.status] || 'bg-gray-100 text-gray-800'}>
+                          {STATUS_LABELS[caseItem.status] || caseItem.status}
+                        </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">
                         {caseItem.client_case_id}
