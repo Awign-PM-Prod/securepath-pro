@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Upload, X, FileText, Camera } from 'lucide-react';
+import { Upload, X, FileText, Camera, Trash2 } from 'lucide-react';
 import { CameraCapture } from '@/components/CameraCapture';
 import { addImageOverlay, isImageFile } from '@/utils/imageOverlayUtils';
 
@@ -1026,9 +1026,75 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     }
   };
 
-  const removeFile = (fieldKey: string, fileIndex: number) => {
+  const removeFile = async (fieldKey: string, fileIndex: number) => {
     // Get the file being removed to update the uploaded set
     const fileToRemove = formData[fieldKey]?.files?.[fileIndex];
+    
+    // If file has an id, it's already in the database - delete it
+    if (fileToRemove && (fileToRemove as any).id) {
+      try {
+        const fileId = (fileToRemove as any).id;
+        const fileUrl = (fileToRemove as any).url || (fileToRemove as any).file_url;
+        
+        console.log('Deleting file from database:', { fileId, fileUrl });
+        
+        // Import supabase client
+        const { supabase } = await import('@/integrations/supabase/client');
+        
+        // Delete from form_submission_files table
+        const { error: deleteError } = await supabase
+          .from('form_submission_files')
+          .delete()
+          .eq('id', fileId);
+        
+        if (deleteError) {
+          console.error('Error deleting file from database:', deleteError);
+          // Still continue with UI removal even if DB delete fails
+        } else {
+          console.log('File deleted from database successfully');
+          
+          // Optionally delete from storage bucket if file_url exists
+          if (fileUrl) {
+            try {
+              // Extract file path from Supabase storage URL
+              // URL format: https://[project].supabase.co/storage/v1/object/public/form_submissions/[path]
+              const urlObj = new URL(fileUrl);
+              const pathParts = urlObj.pathname.split('/');
+              
+              // Find the index of 'form_submissions' and get everything after it
+              const bucketIndex = pathParts.findIndex(part => part === 'form_submissions');
+              if (bucketIndex >= 0 && bucketIndex < pathParts.length - 1) {
+                const filePath = pathParts.slice(bucketIndex + 1).join('/');
+                
+                if (filePath) {
+                  console.log('Deleting file from storage:', filePath);
+                  const { error: storageError } = await supabase.storage
+                    .from('form_submissions')
+                    .remove([filePath]);
+                  
+                  if (storageError) {
+                    console.warn('Error deleting file from storage (non-critical):', storageError);
+                    // Non-critical - file record is already deleted
+                  } else {
+                    console.log('File deleted from storage successfully');
+                  }
+                }
+              }
+            } catch (storageErr) {
+              console.warn('Error parsing file URL for storage deletion (non-critical):', storageErr);
+              // Non-critical - continue with deletion
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error deleting file:', error);
+        // Continue with UI removal even if deletion fails
+      }
+    }
+    
+    // Capture current location state before updating
+    const currentFileLocations = { ...fileLocations };
+    const currentIndividualFileLocations = { ...individualFileLocations };
     
     setFormData(prev => {
       const updatedFormData = {
@@ -1039,7 +1105,48 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
       };
       
-      // Do not trigger auto-save on file removal
+      // Persist the deletion by saving the form data
+      setTimeout(() => {
+        // Update individual file locations for the reindexed state
+        const updatedIndividualFileLocations = { ...currentIndividualFileLocations };
+        const fieldLocations = updatedIndividualFileLocations[fieldKey] || {};
+        const newFieldLocations = { ...fieldLocations };
+        delete newFieldLocations[fileIndex];
+        
+        // Reindex remaining locations
+        const reindexedLocations: Record<number, any> = {};
+        let newIndex = 0;
+        Object.keys(newFieldLocations)
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .forEach(key => {
+            const oldIndex = parseInt(key);
+            if (oldIndex !== fileIndex) {
+              reindexedLocations[newIndex] = newFieldLocations[oldIndex];
+              newIndex++;
+            }
+          });
+        
+        updatedIndividualFileLocations[fieldKey] = reindexedLocations;
+        
+        // Add location metadata for save
+        const formDataWithLocation = {
+          ...updatedFormData,
+          _metadata: {
+            file_locations: currentFileLocations,
+            individual_file_locations: updatedIndividualFileLocations,
+            submission_timestamp: new Date().toISOString(),
+          }
+        } as FormData;
+        
+        // Trigger save draft if available
+        if (onSaveDraft) {
+          onSaveDraft(formDataWithLocation);
+        } else {
+          // Fallback to auto-save
+          saveFormData(updatedFormData);
+        }
+      }, 0);
+      
       return updatedFormData;
     });
     
@@ -1712,8 +1819,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => removeFile(field.field_key, index)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        title="Delete image"
                       >
-                        <X className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   ))}
