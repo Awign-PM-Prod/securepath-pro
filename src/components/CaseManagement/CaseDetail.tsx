@@ -235,7 +235,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       setDownloadProgress(10);
 
       setDownloadProgress(40);
-      await PDFService.convertFormSubmissionsToPDF(formSubmissions, caseData.case_number);
+      await PDFService.convertFormSubmissionsToPDF(formSubmissions, caseData.case_number, caseData.contract_type);
       
       setDownloadProgress(100);
       toast.success('PDF file downloaded successfully');

@@ -409,7 +409,7 @@ export default function Reports() {
           if (submissions.length > 0) {
             try {
               // Generate PDF as blob
-              const pdfBlob = await PDFService.convertFormSubmissionsToPDFBlob(submissions, caseItem.case_number);
+              const pdfBlob = await PDFService.convertFormSubmissionsToPDFBlob(submissions, caseItem.case_number, caseItem.contract_type);
               pdfBlobs.push({ blob: pdfBlob, caseNumber: caseItem.case_number });
             } catch (error) {
               console.error(`Error generating PDF for case ${caseItem.case_number}:`, error);
@@ -811,7 +811,7 @@ export default function Reports() {
       }
 
       setDownloadProgress(60);
-      await PDFService.convertFormSubmissionsToPDF(submissions, caseItem.case_number);
+      await PDFService.convertFormSubmissionsToPDF(submissions, caseItem.case_number, caseItem.contract_type);
       setDownloadProgress(100);
       
       toast({

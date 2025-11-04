@@ -103,10 +103,29 @@ export class PDFService {
    */
   static async convertFormSubmissionsToPDFBlob(
     submissions: FormSubmissionData[],
-    caseNumber: string
+    caseNumber: string,
+    contractType?: string
   ): Promise<Blob> {
-    const doc = await this.generatePDFDocument(submissions, caseNumber);
+    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType);
     return doc.output('blob');
+  }
+
+  /**
+   * Get report title based on contract type
+   */
+  private static getReportTitle(contractType?: string): string {
+    if (!contractType) {
+      return 'Verification Report';
+    }
+    
+    const contractTypeLower = contractType.toLowerCase();
+    if (contractTypeLower.includes('business') || contractTypeLower.includes('business_address')) {
+      return 'Business Verification Report';
+    } else if (contractTypeLower.includes('residence') || contractTypeLower.includes('residential') || contractTypeLower.includes('residential_address')) {
+      return 'Residence Verification Report';
+    } else {
+      return 'Verification Report';
+    }
   }
 
   /**
@@ -114,7 +133,8 @@ export class PDFService {
    */
   private static async generatePDFDocument(
     submissions: FormSubmissionData[],
-    caseNumber: string
+    caseNumber: string,
+    contractType?: string
   ): Promise<jsPDF> {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -142,23 +162,19 @@ export class PDFService {
       return lines.length * lineHeight;
     };
 
-    // Add header
-    doc.setFontSize(18); // Increased for better readability
+    // Add logo on the right side (only first page)
+    const logoHeight = await this.addLogoToPDF(doc, pageWidth - margin, margin, contentWidth, true);
+    
+    // Add report title centered below the logo (only first page)
+    const reportTitle = this.getReportTitle(contractType);
+    doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
-    doc.text('Case Form Submissions', margin, yPosition);
-    yPosition += 10;
-
-    doc.setFontSize(11); // Increased for better readability
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Case Number: ${caseNumber}`, margin, yPosition);
-    yPosition += 6;
-    doc.text(`Generated: ${new Date().toLocaleString()}`, margin, yPosition);
-    yPosition += 9;
-
-    // Add a line
-    doc.setLineWidth(0.4);
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 8;
+    
+    // Center the title
+    const titleWidth = doc.getTextWidth(reportTitle);
+    const titleX = (pageWidth - titleWidth) / 2;
+    doc.text(reportTitle, titleX, margin + logoHeight + 12);
+    yPosition = margin + logoHeight + 22;
 
     if (submissions.length === 0) {
       doc.setFontSize(12);
@@ -169,179 +185,401 @@ export class PDFService {
     // Process each submission
     for (let index = 0; index < submissions.length; index++) {
       const submission = submissions[index];
-      checkPageBreak(20); // Reduced from 30
-
-      // Submission header
-      doc.setFontSize(14); // Increased for better readability
-      doc.setFont('helvetica', 'bold');
-      const title = `Submission ${index + 1}`;
-      doc.text(title, margin, yPosition);
-      yPosition += 8;
-
-      doc.setFontSize(11); // Increased for better readability
-      doc.setFont('helvetica', 'normal');
       
-      // Submitted date
-      if (submission.submitted_at) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('Submitted:', margin, yPosition);
-        doc.setFont('helvetica', 'normal');
-        doc.text(new Date(submission.submitted_at).toLocaleString(), margin + 25, yPosition);
-        yPosition += 7;
+      // For subsequent submissions, just add spacing (no title/logo on new pages)
+      if (index > 0) {
+        yPosition += 10; // Space between submissions
+        checkPageBreak(30);
       }
 
-      yPosition += 2;
-
-      // Draw a divider line
-      doc.setLineWidth(0.3);
-      doc.line(margin, yPosition, pageWidth - margin, yPosition);
-      yPosition += 5;
-
-      // Process form fields and answers
+      // Process form fields and answers in table format
       if (submission.form_fields && submission.form_fields.length > 0) {
-        // Sort fields by order
+        // Sort fields by order and separate file uploads from other fields
         const sortedFields = [...submission.form_fields].sort((a, b) => 
           (a.field_order || 0) - (b.field_order || 0)
         );
+        
+        // Separate non-file-upload fields and file-upload fields
+        const textFields = sortedFields.filter(field => field.field_type !== 'file_upload');
+        const fileUploadFields = sortedFields.filter(field => field.field_type === 'file_upload');
 
-        for (const field of sortedFields) {
-          checkPageBreak(20); // Reduced from 25
+        // Create table with Question and Answer columns
+        const questionColWidth = contentWidth * 0.4; // 40% for questions (increased from 35%)
+        const answerColWidth = contentWidth * 0.6; // 60% for answers (reduced from 65%)
+        const questionColX = margin;
+        const answerColX = margin + questionColWidth; // No gap - columns are directly connected
+        const rowHeight = 8; // Base row height
+        const headerHeight = 10;
 
-          const answer = submission.submission_data[field.field_key];
+        // Process text fields first
+        if (textFields.length > 0) {
+          // Table header - only check for header space, not entire table
+          checkPageBreak(headerHeight + 15);
           
-          // Question (field title)
-          doc.setFontSize(11); // Increased for better readability
+          doc.setFontSize(11);
           doc.setFont('helvetica', 'bold');
-          const fieldTitle = field.field_title || field.field_key;
-          doc.text(fieldTitle, margin, yPosition);
-          yPosition += 6;
+          
+          // Header background
+          doc.setFillColor(240, 240, 240);
+          doc.rect(questionColX, yPosition - 6, questionColWidth, headerHeight, 'F');
+          doc.rect(answerColX, yPosition - 6, answerColWidth, headerHeight, 'F');
+          
+          // Header text
+          doc.text('Question', questionColX + 3, yPosition);
+          doc.text('Answer', answerColX + 3, yPosition);
+          
+          // Header border
+          doc.setDrawColor(0, 0, 0);
+          doc.setLineWidth(0.5);
+          doc.rect(questionColX, yPosition - 6, questionColWidth, headerHeight);
+          doc.rect(answerColX, yPosition - 6, answerColWidth, headerHeight);
+          doc.line(answerColX, yPosition - 6, answerColX, yPosition - 6 + headerHeight);
+          
+          yPosition += headerHeight - 2;
 
-          // Handle file upload fields specially - try to embed images
-          if (field.field_type === 'file_upload') {
+          // Table rows for text fields
+          for (let rowIndex = 0; rowIndex < textFields.length; rowIndex++) {
+            const field = textFields[rowIndex];
+            const answer = submission.submission_data[field.field_key];
+            
+            // Check if we need a new page
+            checkPageBreak(rowHeight * 2);
+            
+            // Row number
+            const rowNumber = rowIndex + 1;
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            
+            // Calculate row height based on content
+            const fieldTitle = field.field_title || field.field_key;
+            const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key);
+            
+            // Estimate height needed for wrapped text - use narrower widths to prevent overlap
+            const questionLines = doc.splitTextToSize(fieldTitle, questionColWidth - 10); // Reduced width with padding
+            const answerLines = doc.splitTextToSize(formattedAnswer, answerColWidth - 10); // Reduced width with padding
+            const actualRowHeight = Math.max(questionLines.length, answerLines.length) * lineHeight + 4;
+            
+            // Alternate row background
+            if (rowIndex % 2 === 0) {
+              doc.setFillColor(250, 250, 250);
+              doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight, 'F');
+              doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight, 'F');
+            }
+            
+            // Question text - no row number
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'bold');
+            doc.text(questionLines, questionColX + 3, yPosition);
+            
+            // Answer text - start with proper spacing from column border
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            doc.text(answerLines, answerColX + 3, yPosition);
+            
+            // Row borders
+            doc.setDrawColor(200, 200, 200);
+            doc.setLineWidth(0.2);
+            doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight);
+            doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight);
+            doc.line(answerColX, yPosition - 4, answerColX, yPosition - 4 + actualRowHeight);
+            
+            yPosition += actualRowHeight;
+          }
+        }
+
+        // Process file upload fields after all text fields - one image per page
+        if (fileUploadFields.length > 0) {
+          // First, collect all images from all submissions to determine the very last image
+          let allImagesAcrossSubmissions: Array<{ file: any; fieldTitle: string; imageIndex: number; totalImages: number; submissionIndex: number; fieldIndex: number }> = [];
+          
+          for (let subIndex = 0; subIndex < submissions.length; subIndex++) {
+            const sub = submissions[subIndex];
+            if (sub.form_fields && sub.form_fields.length > 0) {
+              const sortedFields = [...sub.form_fields].sort((a, b) => 
+                (a.field_order || 0) - (b.field_order || 0)
+              );
+              const subFileUploadFields = sortedFields.filter(field => field.field_type === 'file_upload');
+              
+              for (let fieldIdx = 0; fieldIdx < subFileUploadFields.length; fieldIdx++) {
+                const field = subFileUploadFields[fieldIdx];
+                const fieldTitle = field.field_title || field.field_key;
+                const fieldFiles = sub.form_submission_files?.filter(file => 
+                  file.form_field?.field_key === field.field_key
+                ) || [];
+
+                if (fieldFiles.length > 0) {
+                  const imagesToProcess = fieldFiles.filter(file => {
+                    const isImage = file.mime_type?.startsWith('image/') || 
+                                    file.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                    return isImage && file.file_url;
+                  });
+
+                  for (let imageIdx = 0; imageIdx < imagesToProcess.length; imageIdx++) {
+                    allImagesAcrossSubmissions.push({
+                      file: imagesToProcess[imageIdx],
+                      fieldTitle,
+                      imageIndex: imageIdx,
+                      totalImages: imagesToProcess.length,
+                      submissionIndex: subIndex,
+                      fieldIndex: fieldIdx
+                    });
+                  }
+                }
+              }
+            }
+          }
+          
+          let currentImageIndex = 0;
+          for (let fieldIndex = 0; fieldIndex < fileUploadFields.length; fieldIndex++) {
+            const field = fileUploadFields[fieldIndex];
+            const fieldTitle = field.field_title || field.field_key;
             const fieldFiles = submission.form_submission_files?.filter(file => 
               file.form_field?.field_key === field.field_key
             ) || [];
 
             if (fieldFiles.length > 0) {
-              doc.setFontSize(9); // Increased for better readability
-              doc.setFont('helvetica', 'normal');
-              doc.text(`(${fieldFiles.length} file(s))`, margin, yPosition);
-              yPosition += 5;
-
-              // Limit images per field to 5 to balance file size (target 1-5MB)
-              const maxImagesPerField = 5;
+              // Filter only image files
               const imagesToProcess = fieldFiles.filter(file => {
                 const isImage = file.mime_type?.startsWith('image/') || 
                                 file.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                return isImage;
+                return isImage && file.file_url;
               });
 
-              // Try to embed each image (limit to maxImagesPerField)
-              let imagesProcessed = 0;
-              for (const file of fieldFiles) {
+              // Process each image on a separate page
+              for (let imageIndex = 0; imageIndex < imagesToProcess.length; imageIndex++) {
+                const file = imagesToProcess[imageIndex];
                 const imageUrl = file.file_url;
-                if (!imageUrl) continue;
                 
-                // Check if it's an image
-                const isImage = file.mime_type?.startsWith('image/') || 
-                                imageUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-
-                if (isImage) {
-                  // Skip if we've already processed max images
-                  if (imagesProcessed >= maxImagesPerField) {
-                    continue;
-                  }
-                  
-                  checkPageBreak(70); // Increased for larger images
-                  
-                  // Set max dimensions (balanced for 1-5MB: 75% of content width, max 60mm height)
-                  const maxImageWidth = Math.min(contentWidth * 0.75, 140); // Increased for better readability
-                  const maxImageHeight = 60; // Increased for better readability
-                  
-                  try {
-                    // Fetch with balanced compression (1200x900px max, 70% quality for 1-5MB target)
-                    const imageData = await this.fetchImageAsBase64(imageUrl, 1200, 900, 0.7);
-                    if (imageData) {
-                      // Calculate dimensions maintaining aspect ratio
-                      const { width, height } = this.calculateImageDimensions(
-                        imageData.width,
-                        imageData.height,
-                        maxImageWidth,
-                        maxImageHeight
-                      );
-                      
-                      // Use JPEG format (from compressed base64) instead of PNG
-                      doc.addImage(imageData.base64, 'JPEG', margin + 4, yPosition, width, height);
-                      imagesProcessed++;
-                      yPosition += height + 5; // Increased spacing
-                      
-                      // Add file name
-                      doc.setFontSize(8); // Increased for better readability
-                      doc.setFont('helvetica', 'italic');
-                      doc.text(file.file_name || 'unnamed', margin + 4, yPosition);
-                      yPosition += 4;
-                      
-                      // If we've hit the limit, show a message
-                      if (imagesProcessed >= maxImagesPerField && imagesToProcess.length > maxImagesPerField) {
-                        const remainingCount = imagesToProcess.length - maxImagesPerField;
-                        if (remainingCount > 0) {
-                          doc.setFontSize(8);
-                          doc.setFont('helvetica', 'italic');
-                          doc.text(`... and ${remainingCount} more image(s) (omitted to keep file size < 5MB)`, margin + 4, yPosition);
-                          yPosition += 3;
-                          break; // Stop processing more images
-                        }
-                      }
-                    } else {
-                      // Fallback to URL if image can't be loaded
-                      doc.setFontSize(9); // Increased for better readability
-                      doc.setFont('helvetica', 'normal');
-                      doc.text(`Image URL: ${imageUrl}`, margin + 4, yPosition);
-                      yPosition += 5;
+                // Check if this is the very last image across all submissions
+                const isLastImage = currentImageIndex === allImagesAcrossSubmissions.length - 1;
+                
+                // Create new page for each image
+                doc.addPage();
+                yPosition = margin + 15; // Start a bit below top for question
+                
+                // Show question title at top
+                // If multiple images, add number: "Question - 1", "Question - 2", etc.
+                // If single image, just show "Question"
+                const questionText = imagesToProcess.length > 1 
+                  ? `${fieldTitle} - ${imageIndex + 1}`
+                  : fieldTitle;
+                
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                const questionWidth = doc.getTextWidth(questionText);
+                const questionX = (pageWidth - questionWidth) / 2; // Center the question
+                doc.text(questionText, questionX, yPosition);
+                yPosition += 12;
+                
+                try {
+                  // Fetch image with higher quality for full-page display
+                  const imageData = await this.fetchImageAsBase64(imageUrl, 1600, 1200, 0.75);
+                  if (imageData) {
+                    // Calculate dimensions to fit the page (with margins)
+                    // Reserve space for stamp if this is the last image
+                    const availableWidth = pageWidth - 2 * margin;
+                    const reservedBottomSpace = isLastImage ? 50 : margin + 10; // Reserve 50mm for stamp on last image
+                    const availableHeight = pageHeight - yPosition - reservedBottomSpace;
+                    
+                    // Calculate dimensions maintaining aspect ratio
+                    const { width, height } = this.calculateImageDimensions(
+                      imageData.width,
+                      imageData.height,
+                      availableWidth,
+                      availableHeight
+                    );
+                    
+                    // Center the image horizontally
+                    const imageX = (pageWidth - width) / 2;
+                    
+                    // Use JPEG format (from compressed base64)
+                    doc.addImage(imageData.base64, 'JPEG', imageX, yPosition, width, height);
+                    
+                    // Add stamp and signature below the image if this is the last image
+                    if (isLastImage) {
+                      await this.addStampAndSignature(doc, pageWidth, yPosition + height, margin);
                     }
-                  } catch (error) {
-                    // Fallback to URL on error
-                    console.error('Error embedding image:', error);
-                    doc.setFontSize(9); // Increased for better readability
+                  } else {
+                    // Fallback to URL if image can't be loaded
+                    doc.setFontSize(10);
                     doc.setFont('helvetica', 'normal');
-                    doc.text(`Image URL: ${imageUrl}`, margin + 4, yPosition);
-                    yPosition += 5;
+                    doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
+                    
+                    // Add stamp even if image failed (on last page)
+                    if (isLastImage) {
+                      await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
+                    }
                   }
-                } else {
-                  // Not an image, just show URL
-                  doc.setFontSize(9); // Increased for better readability
+                } catch (error) {
+                  // Fallback to URL on error
+                  console.error('Error embedding image:', error);
+                  doc.setFontSize(10);
                   doc.setFont('helvetica', 'normal');
-                  const urlText = `File: ${file.file_name || 'unnamed'} - ${imageUrl}`;
-                  const urlHeight = addWrappedText(urlText, margin + 4, yPosition, contentWidth - 8);
-                  yPosition += urlHeight + 4;
+                  doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
+                  
+                  // Add stamp even if image failed (on last page)
+                  if (isLastImage) {
+                    await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
+                  }
+                }
+                
+                currentImageIndex++;
+              }
+              
+              // Handle non-image files (if any)
+              const nonImageFiles = fieldFiles.filter(file => {
+                const isImage = file.mime_type?.startsWith('image/') || 
+                                file.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                return !isImage && file.file_url;
+              });
+              
+              if (nonImageFiles.length > 0) {
+                doc.addPage();
+                yPosition = margin + 15;
+                
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.text(fieldTitle, margin, yPosition);
+                yPosition += 10;
+                
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                for (const file of nonImageFiles) {
+                  const urlText = `File: ${file.file_name || 'unnamed'} - ${file.file_url}`;
+                  const urlHeight = addWrappedText(urlText, margin, yPosition, contentWidth);
+                  yPosition += urlHeight + 3;
                 }
               }
-            } else {
-              // No files
-              doc.setFontSize(10); // Increased for better readability
-              doc.setFont('helvetica', 'normal');
-              doc.text('No files uploaded', margin + 4, yPosition);
-              yPosition += 6;
             }
-          } else {
-            // Regular fields
-            doc.setFontSize(10); // Increased for better readability
-            doc.setFont('helvetica', 'normal');
-            
-            const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key);
-            
-            // Add answer with text wrapping
-            const answerHeight = addWrappedText(formattedAnswer, margin + 4, yPosition, contentWidth - 8);
-            yPosition += answerHeight + 4;
           }
         }
       }
-
-      // Add spacing between submissions
-      yPosition += 4;
     }
 
     return doc;
+  }
+
+  /**
+   * Add stamp and signature text to PDF (helper method)
+   */
+  private static async addStampAndSignature(doc: jsPDF, pageWidth: number, imageBottom: number, margin: number): Promise<void> {
+    try {
+      // Position stamp below the image with some spacing
+      const stampY = imageBottom + 10;
+      
+      // Try to load stamp from public folder
+      const stampUrl = window.location.origin + '/stamp.png';
+      const stampData = await this.fetchImageAsBase64(stampUrl, 150, 75, 0.9);
+      
+      if (stampData) {
+        // Calculate stamp dimensions (reduced size: max 25mm width, maintain aspect ratio)
+        const maxStampWidth = 25;
+        const maxStampHeight = 20;
+        const { width, height } = this.calculateImageDimensions(
+          stampData.width,
+          stampData.height,
+          maxStampWidth,
+          maxStampHeight
+        );
+        
+        // Position stamp on the left side
+        const stampX = margin;
+        
+        // Add stamp image
+        doc.addImage(stampData.base64, 'PNG', stampX, stampY, width, height);
+        
+        // Add signature text below stamp, aligned to left
+        const signatureText = 'Signature of the Agency Supervisor';
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text(signatureText, stampX, stampY + height + 8);
+      } else {
+        // If stamp not found, just add text on the left
+        const signatureText = 'Signature of the Agency Supervisor';
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text(signatureText, margin, stampY);
+      }
+    } catch (error) {
+      console.error('Error adding stamp:', error);
+      // Fallback: just add text on the left
+      const signatureText = 'Signature of the Agency Supervisor';
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(signatureText, margin, imageBottom + 20);
+    }
+  }
+
+  /**
+   * Add logo to PDF (helper method)
+   * @param doc - jsPDF document
+   * @param x - X position (right edge if alignRight is true)
+   * @param y - Y position
+   * @param maxWidth - Maximum width available
+   * @param alignRight - If true, x is the right edge, logo will be right-aligned
+   */
+  private static async addLogoToPDF(doc: jsPDF, x: number, y: number, maxWidth: number, alignRight: boolean = false): Promise<number> {
+    // Try to load logo from public folder
+    // Common logo paths to try
+    const logoPaths = [
+      '/logo.png',
+      '/logo.svg',
+      '/awign-logo.png',
+      '/awign-logo.svg',
+      '/icon-512.png' // Fallback to app icon
+    ];
+    
+    let logoHeight = 0;
+    const logoWidth = Math.min(60, maxWidth * 0.3); // Max 60mm width or 30% of content
+    
+    for (const logoPath of logoPaths) {
+      try {
+        // Try to fetch logo from public folder
+        const logoUrl = window.location.origin + logoPath;
+        const imageData = await this.fetchImageAsBase64(logoUrl, 300, 100, 0.9);
+        
+        if (imageData) {
+          const { width, height } = this.calculateImageDimensions(
+            imageData.width,
+            imageData.height,
+            logoWidth,
+            25 // Max 25mm height for logo
+          );
+          
+          // Calculate X position: if alignRight, x is right edge, so subtract width
+          const logoX = alignRight ? x - width : x;
+          
+          doc.addImage(imageData.base64, 'PNG', logoX, y, width, height);
+          logoHeight = height;
+          break;
+        }
+      } catch (error) {
+        // Try next logo path
+        continue;
+      }
+    }
+    
+    // If no logo found, add text logo
+    if (logoHeight === 0) {
+      const textWidth = 40; // Approximate width for text logo
+      const logoX = alignRight ? x - textWidth : x;
+      
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 102, 204); // Blue color for logo
+      
+      // Calculate text position for right alignment
+      const textX = alignRight ? x - textWidth : x;
+      doc.text('awign', textX, y + 8);
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('A Mynavi company', textX, y + 12);
+      doc.setTextColor(0, 0, 0); // Reset to black
+      logoHeight = 15;
+    }
+    
+    return logoHeight;
   }
 
   /**
@@ -349,9 +587,10 @@ export class PDFService {
    */
   static async convertFormSubmissionsToPDF(
     submissions: FormSubmissionData[],
-    caseNumber: string
+    caseNumber: string,
+    contractType?: string
   ): Promise<void> {
-    const doc = await this.generatePDFDocument(submissions, caseNumber);
+    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType);
     // Download the PDF
     const filename = `case-${caseNumber}-responses-${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(filename);
@@ -438,4 +677,6 @@ export class PDFService {
     doc.save(filename);
   }
 }
+
+
 
