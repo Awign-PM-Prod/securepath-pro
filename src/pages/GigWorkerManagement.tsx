@@ -538,42 +538,135 @@ export default function GigWorkerManagement() {
   };
 
   const handleDeleteWorker = async (workerId: string) => {
-    if (!window.confirm('Are you sure you want to delete this gig worker? This will also delete their profile data.')) return;
+    if (!window.confirm('Are you sure you want to delete this gig worker? This will also delete their profile data and auth account.')) return;
 
     try {
-      // First, fetch the profile_id from the gig_partners record
+      console.log('=== Starting gig worker deletion ===');
+      console.log('Worker ID:', workerId);
+
+      // First, fetch the profile_id and user_id from the gig_partners record
       const { data: gigWorker, error: fetchError } = await supabase
         .from('gig_partners')
-        .select('profile_id')
+        .select('profile_id, user_id')
         .eq('id', workerId)
         .single();
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        console.error('Error fetching gig worker:', fetchError);
+        throw fetchError;
+      }
+
+      console.log('Gig worker data:', gigWorker);
+      console.log('User ID from gig_partners:', gigWorker?.user_id);
+      console.log('Profile ID:', gigWorker?.profile_id);
+
+      if (!gigWorker) {
+        throw new Error('Gig worker not found');
+      }
+
+      // Store user_id before deletion - try gig_partners first, then profiles
+      let userIdToDelete = gigWorker.user_id;
+      
+      // If user_id is not in gig_partners, try to get it from profiles
+      if (!userIdToDelete && gigWorker.profile_id) {
+        console.log('⚠️ user_id not found in gig_partners, checking profiles table...');
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('user_id')
+          .eq('id', gigWorker.profile_id)
+          .single();
+        
+        if (!profileError && profile?.user_id) {
+          userIdToDelete = profile.user_id;
+          console.log('✅ Found user_id in profiles table:', userIdToDelete);
+        } else {
+          console.warn('⚠️ user_id not found in profiles either:', profileError);
+        }
+      }
+      console.log('=== Stored user_id for deletion ===');
+      console.log('userIdToDelete:', userIdToDelete);
+      console.log('userIdToDelete type:', typeof userIdToDelete);
+      console.log('userIdToDelete is truthy?', !!userIdToDelete);
 
       // Delete from gig_partners table
+      console.log('Deleting from gig_partners...');
       const { error: deleteError } = await supabase
         .from('gig_partners')
         .delete()
         .eq('id', workerId);
 
-      if (deleteError) throw deleteError;
+      if (deleteError) {
+        console.error('Error deleting from gig_partners:', deleteError);
+        throw deleteError;
+      }
+      console.log('✅ Deleted from gig_partners');
 
       // Delete from profiles table if profile_id exists
-      if (gigWorker?.profile_id) {
+      if (gigWorker.profile_id) {
+        console.log('Deleting from profiles...');
         const { error: profileDeleteError } = await supabase
           .from('profiles')
           .delete()
           .eq('id', gigWorker.profile_id);
 
         if (profileDeleteError) {
-          console.warn('Failed to delete profile, but gig worker was deleted:', profileDeleteError);
+          console.warn('Failed to delete profile:', profileDeleteError);
           // Don't throw here - gig worker is already deleted
+        } else {
+          console.log('✅ Deleted from profiles');
         }
       }
 
+      // NOW delete from auth.users using edge function
+      console.log('=== Checking if auth deletion needed ===');
+      console.log('userIdToDelete value:', userIdToDelete);
+      console.log('userIdToDelete exists?', !!userIdToDelete);
+      
+      if (userIdToDelete) {
+        console.log('=== Deleting auth user ===');
+        console.log('User ID to delete:', userIdToDelete);
+        
+        console.log('Calling delete-user edge function...');
+        const { data: deleteResult, error: deleteUserError } = await supabase.functions.invoke('delete-user', {
+          body: {
+            user_id: userIdToDelete
+          }
+        });
+
+        console.log('Edge function response:', deleteResult);
+        console.log('Edge function error:', deleteUserError);
+
+        // Check for invocation errors first
+        if (deleteUserError) {
+          console.error('Edge function invocation error:', deleteUserError);
+          throw new Error(`Failed to delete auth user: ${deleteUserError.message || JSON.stringify(deleteUserError)}`);
+        }
+
+        // Check if result contains an error (from edge function response)
+        if (deleteResult?.error) {
+          console.error('Edge function returned error:', deleteResult.error);
+          const errorDetails = deleteResult.details ? `: ${deleteResult.details}` : '';
+          throw new Error(`Failed to delete auth user${errorDetails}`);
+        }
+
+        // Verify success response
+        if (deleteResult?.success === true) {
+          console.log('✅ Successfully deleted auth user via edge function');
+        } else {
+          // If response doesn't have explicit success, throw error to be safe
+          console.error('Unexpected edge function response:', deleteResult);
+          throw new Error('Auth deletion failed: Unexpected response from edge function');
+        }
+      } else {
+        console.warn('⚠️ No user_id found, skipping auth deletion');
+        console.warn('gigWorker object:', gigWorker);
+        console.warn('gigWorker.user_id:', gigWorker?.user_id);
+      }
+
+      console.log('=== Deletion completed ===');
       toast({
         title: 'Success',
-        description: 'Gig worker and profile deleted successfully',
+        description: 'Gig worker, profile, and auth account deleted successfully',
       });
 
       loadData();
