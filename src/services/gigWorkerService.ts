@@ -509,6 +509,7 @@ export class GigWorkerService {
           vendor_tat_start_date,
           due_at,
           created_at,
+          status_updated_at,
           base_rate_inr,
           total_payout_inr,
           current_vendor_id,
@@ -520,7 +521,7 @@ export class GigWorkerService {
         `)
         .eq('current_assignee_id', gigWorkerId)
         .eq('current_assignee_type', 'gig')
-        .in('status', ['allocated', 'accepted', 'in_progress', 'submitted']);
+        .in('status', ['allocated', 'accepted', 'in_progress', 'submitted', 'qc_passed']);
 
       if (error) throw error;
 
@@ -555,11 +556,29 @@ export class GigWorkerService {
       }
       const { data: allocationLogs } = await supabase
         .from('allocation_logs')
-        .select('case_id, acceptance_deadline')
+        .select('case_id, acceptance_deadline, allocated_at, accepted_at, decision')
         .in('case_id', caseIds)
         .eq('candidate_id', gigWorkerId)
-        .eq('decision', 'allocated');
+        .order('allocated_at', { ascending: false });
 
+      // Get form submissions to find in_progress_at (first draft created_at)
+      const { data: formSubmissions } = await supabase
+        .from('form_submissions')
+        .select('case_id, created_at')
+        .in('case_id', caseIds)
+        .eq('gig_worker_id', gigWorkerId)
+        .order('created_at', { ascending: true });
+
+      // Get QC reviews to find rework_at and qc_passed_at
+      const { data: qcReviews } = await supabase
+        .from('qc_reviews')
+        .select('case_id, reviewed_at, result, created_at')
+        .in('case_id', caseIds)
+        .order('reviewed_at', { ascending: false });
+
+      // Get case status history to find when status changed to qc_passed
+      // We'll use status_updated_at from cases table when status is qc_passed
+      
       // Get gig worker info to determine if they're direct or vendor-connected
       const { data: gigWorker } = await supabase
         .from('gig_partners')
@@ -569,7 +588,34 @@ export class GigWorkerService {
 
       // Merge case data with acceptance deadlines and vendor info
       const casesWithDeadlines = cases?.map(caseItem => {
-        const log = allocationLogs?.find(l => l.case_id === caseItem.id);
+        // Find allocation log for this case (most recent allocated log)
+        const allocatedLog = allocationLogs?.find(l => 
+          l.case_id === caseItem.id && 
+          (l.decision === 'allocated' || l.decision === 'accepted')
+        );
+        
+        // Find accepted log (most recent accepted)
+        const acceptedLog = allocationLogs?.find(l => 
+          l.case_id === caseItem.id && 
+          l.decision === 'accepted'
+        );
+
+        // Find first form submission (in_progress_at)
+        const firstFormSubmission = formSubmissions?.find(f => f.case_id === caseItem.id);
+        
+        // Find rework review (most recent rework)
+        const reworkReview = qcReviews?.find(q => 
+          q.case_id === caseItem.id && 
+          q.result === 'rework'
+        );
+        
+        // Find qc_passed review
+        const passedReview = qcReviews?.find(q => 
+          q.case_id === caseItem.id && 
+          q.result === 'passed'
+        );
+
+        const log = allocationLogs?.find(l => l.case_id === caseItem.id && l.decision === 'allocated');
         
         // Get the actual submission timestamp (prefer form_submissions over submissions)
         let actualSubmittedAt = null;
@@ -596,13 +642,47 @@ export class GigWorkerService {
           }
         }
         
+        // Get status_updated_at for qc_passed cases
+        let qcPassedAt = null;
+        if (caseItem.status === 'qc_passed') {
+          // Use status_updated_at from cases table when status is qc_passed, fallback to QC review date
+          qcPassedAt = (caseItem as any).status_updated_at || passedReview?.reviewed_at || passedReview?.created_at;
+        }
+
+        // Get accepted_at - use allocation log accepted_at, or status_updated_at when status is accepted
+        let acceptedAt = acceptedLog?.accepted_at;
+        if (!acceptedAt && caseItem.status === 'accepted') {
+          acceptedAt = (caseItem as any).status_updated_at;
+        }
+
+        // Get allocated_at - use allocation log, or status_updated_at if status is allocated
+        let allocatedAt = null;
+        if (caseItem.status === 'allocated') {
+          allocatedAt = allocatedLog?.allocated_at || (caseItem as any).status_updated_at;
+        } else {
+          allocatedAt = allocatedLog?.allocated_at;
+        }
+
+        // Get submitted_at - use actual_submitted_at or status_updated_at when status is submitted
+        let submittedAt = actualSubmittedAt;
+        if (caseItem.status === 'submitted' && !submittedAt) {
+          submittedAt = (caseItem as any).status_updated_at;
+        }
+
         return {
           ...caseItem,
           is_direct_gig: gigWorker?.is_direct_gig ?? true,
           vendor_id: gigWorker?.vendor_id,
           acceptance_deadline: log?.acceptance_deadline || caseItem.due_at,
           actual_submitted_at: actualSubmittedAt,
-          fi_type: this.determineFiType(caseItem.contract_type)
+          fi_type: this.determineFiType(caseItem.contract_type),
+          // Date fields for month filtering
+          allocated_at: allocatedAt,
+          accepted_at: acceptedAt,
+          in_progress_at: firstFormSubmission?.created_at || ((caseItem.status === 'in_progress') ? (caseItem as any).status_updated_at : null),
+          submitted_at: submittedAt,
+          qc_passed_at: qcPassedAt,
+          rework_at: reworkReview?.reviewed_at || reworkReview?.created_at || (caseItem.QC_Response === 'Rework' ? (caseItem as any).status_updated_at : null)
         };
       }) || [];
 

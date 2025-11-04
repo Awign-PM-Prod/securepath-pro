@@ -6,8 +6,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell } from 'lucide-react';
-import { format, differenceInMinutes, addHours } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell, Filter, X } from 'lucide-react';
+import { format, differenceInMinutes, addHours, startOfMonth, endOfMonth, isSameMonth, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -44,6 +45,12 @@ interface AllocatedCase {
   actual_submitted_at?: string;
   QC_Response?: string;
   fi_type?: 'business' | 'residence' | 'office';
+  allocated_at?: string; // When case was allocated to worker
+  accepted_at?: string; // When case was accepted by worker
+  in_progress_at?: string; // When case entered in_progress status (first draft saved)
+  submitted_at?: string; // When case was submitted
+  qc_passed_at?: string; // When case was approved (qc_passed)
+  rework_at?: string; // When case was marked for rework
   clients: {
     id: string;
     name: string;
@@ -107,8 +114,28 @@ export default function GigWorkerDashboard() {
   const [isMobile, setIsMobile] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [showNotificationTest, setShowNotificationTest] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    // Default to current month in YYYY-MM format
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Check if filter is applied (not current month)
+  const isFilterApplied = () => {
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return selectedMonth !== currentMonth;
+  };
+  
+  // Clear filter - reset to current month
+  const clearFilter = () => {
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    setSelectedMonth(currentMonth);
+  };
 
   useEffect(() => {
     if (user) {
@@ -766,6 +793,8 @@ export default function GigWorkerDashboard() {
         return <Badge variant="outline" className="bg-green-100 text-green-800">In Progress</Badge>;
       case 'submitted':
         return <Badge variant="outline" className="bg-purple-100 text-purple-800">Submitted</Badge>;
+      case 'qc_passed':
+        return <Badge variant="outline" className="bg-green-100 text-green-800">Approved</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -810,7 +839,52 @@ export default function GigWorkerDashboard() {
     return new Date() > new Date(deadline);
   };
 
-  const pendingCases = allocatedCases.filter(c => c.status === 'allocated');
+  // Helper function to check if a date falls within the selected month
+  const isInSelectedMonth = (dateString: string | undefined | null): boolean => {
+    if (!dateString) return false;
+    try {
+      const date = parseISO(dateString);
+      const [year, month] = selectedMonth.split('-').map(Number);
+      return isSameMonth(date, new Date(year, month - 1));
+    } catch {
+      return false;
+    }
+  };
+
+  // Get available years (last 2 years + current year)
+  const getYearOptions = () => {
+    const years: number[] = [];
+    const currentYear = new Date().getFullYear();
+    for (let i = 0; i <= 2; i++) {
+      years.push(currentYear - i);
+    }
+    return years;
+  };
+
+  // Get current selected year
+  const selectedYear = parseInt(selectedMonth.split('-')[0]);
+  
+  // Generate month options for the selected year
+  const getMonthOptions = () => {
+    const months = [];
+    for (let i = 0; i < 12; i++) {
+      const month = String(i + 1).padStart(2, '0');
+      const value = `${selectedYear}-${month}`;
+      const date = new Date(selectedYear, i, 1);
+      months.push({
+        value,
+        label: format(date, 'MMM'),
+        fullLabel: format(date, 'MMMM')
+      });
+    }
+    return months;
+  };
+
+  const pendingCases = allocatedCases.filter(c => {
+    if (c.status !== 'allocated') return false;
+    // Filter by when case was allocated (entered allocated status)
+    return isInSelectedMonth(c.allocated_at);
+  });
   
   // Helper function to check if case has form responses
   const hasFormResponse = (caseItem: AllocatedCase) => {
@@ -819,9 +893,11 @@ export default function GigWorkerDashboard() {
   };
   
   // Accepted tab: show only accepted cases with NO form response yet (and not rework)
-  const acceptedCases = allocatedCases.filter(c =>
-    c.status === 'accepted' && c.QC_Response !== 'Rework' && !hasFormResponse(c)
-  );
+  const acceptedCases = allocatedCases.filter(c => {
+    if (c.status !== 'accepted' || c.QC_Response === 'Rework' || hasFormResponse(c)) return false;
+    // Filter by when case was accepted (entered accepted status)
+    return isInSelectedMonth(c.accepted_at);
+  });
 
   // Debug logging for accepted cases
   console.log('Accepted cases filter debug:', {
@@ -837,9 +913,11 @@ export default function GigWorkerDashboard() {
   });
   
   // In Progress tab: include normal in_progress OR accepted-with-response (and not rework)
-  const inProgressCases = allocatedCases.filter(c => (
-    (c.status === 'in_progress') || (c.status === 'accepted' && hasFormResponse(c))
-  ) && c.QC_Response !== 'Rework');
+  const inProgressCases = allocatedCases.filter(c => {
+    if ((c.status !== 'in_progress' && !(c.status === 'accepted' && hasFormResponse(c))) || c.QC_Response === 'Rework') return false;
+    // Filter by when case entered in_progress (first draft saved)
+    return isInSelectedMonth(c.in_progress_at);
+  });
 
   // Debug logging for in-progress cases
   console.log('In-progress cases filter debug:', {
@@ -853,7 +931,23 @@ export default function GigWorkerDashboard() {
     }))
   });
   const reworkCases = allocatedCases
-    .filter(c => c.QC_Response === 'Rework')
+    .filter(c => {
+      if (c.QC_Response !== 'Rework') return false;
+      // Filter by when case was marked for rework
+      return isInSelectedMonth(c.rework_at);
+    })
+    .sort((a, b) => {
+      // Sort by submitted_at field in descending order (most recent first)
+      const aSubmittedAt = a.actual_submitted_at || a.due_at;
+      const bSubmittedAt = b.actual_submitted_at || b.due_at;
+      return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
+    });
+  const approvedCases = allocatedCases
+    .filter(c => {
+      if (c.status !== 'qc_passed') return false;
+      // Filter by when case was approved (qc_passed)
+      return isInSelectedMonth(c.qc_passed_at);
+    })
     .sort((a, b) => {
       // Sort by submitted_at field in descending order (most recent first)
       const aSubmittedAt = a.actual_submitted_at || a.due_at;
@@ -861,7 +955,11 @@ export default function GigWorkerDashboard() {
       return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
     });
   const submittedCases = allocatedCases
-    .filter(c => c.status === 'submitted')
+    .filter(c => {
+      if (c.status !== 'submitted') return false;
+      // Filter by when case was submitted (entered submitted status)
+      return isInSelectedMonth(c.submitted_at || c.actual_submitted_at);
+    })
     .sort((a, b) => {
       // Sort by submitted_at field in descending order (most recent first)
       const aSubmittedAt = a.actual_submitted_at || a.due_at;
@@ -1119,8 +1217,99 @@ export default function GigWorkerDashboard() {
         <CardContent className={isMobile ? 'px-2' : ''}>
           {/* Notification Test Component - Removed duplicate, using main notification card */}
           
+          {/* Month Filter */}
+          <div className={`mb-4 ${isMobile ? 'px-1' : ''}`}>
+            <div className={`flex items-center gap-2 mb-2 ${isMobile ? 'flex-wrap' : ''}`}>
+              <Button
+                variant={isFilterApplied() ? "default" : "outline"}
+                size="sm"
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className={`${isFilterApplied() ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''} ${isMobile ? 'flex-1 min-w-0' : ''}`}
+              >
+                <Filter className={`h-4 w-4 ${isMobile ? 'mr-1' : 'mr-2'}`} />
+                {isMobile ? 'Filter' : 'Filter by Month'}
+                {isFilterApplied() && (
+                  <span className={`${isMobile ? 'ml-1' : 'ml-2'} px-1.5 py-0.5 bg-blue-700 rounded-full text-xs whitespace-nowrap`}>
+                    {format(parseISO(`${selectedMonth}-01`), 'MMM yyyy')}
+                  </span>
+                )}
+              </Button>
+              {isFilterApplied() && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearFilter}
+                  className={`text-red-600 hover:text-red-700 hover:bg-red-50 ${isMobile ? 'flex-shrink-0' : ''}`}
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  {isMobile ? 'Clear' : 'Clear Filter'}
+                </Button>
+              )}
+            </div>
+            
+            {isFilterOpen && (
+              <Card className="border-2">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">Filter by Month</CardTitle>
+                    <Select 
+                      value={selectedYear.toString()} 
+                      onValueChange={(year) => {
+                        const currentMonth = selectedMonth.split('-')[1];
+                        setSelectedMonth(`${year}-${currentMonth}`);
+                      }}
+                    >
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue>{selectedYear}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getYearOptions().map((year) => (
+                          <SelectItem key={year} value={year.toString()}>
+                            {year}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                    {getMonthOptions().map((month) => {
+                      const isSelected = selectedMonth === month.value;
+                      const [year, monthNum] = month.value.split('-').map(Number);
+                      const monthDate = new Date(year, monthNum - 1, 1);
+                      const isCurrentMonth = isSameMonth(monthDate, new Date());
+                      
+                      return (
+                        <Button
+                          key={month.value}
+                          variant={isSelected ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            setSelectedMonth(month.value);
+                            setIsFilterOpen(false); // Close filter after selection
+                          }}
+                          className={`h-12 ${isSelected ? 'bg-primary text-primary-foreground' : ''} ${
+                            isCurrentMonth && !isSelected ? 'border-primary/50' : ''
+                          }`}
+                        >
+                          <div className="flex flex-col items-center">
+                            <span className="text-xs font-medium">{month.label}</span>
+                            {isCurrentMonth && !isSelected && (
+                              <span className="text-[10px] text-muted-foreground">Current</span>
+                            )}
+                          </div>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
           <Tabs defaultValue="pending" className="w-full">
-            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-5 gap-1 h-12' : 'grid-cols-5'} ${isMobile ? 'overflow-x-auto' : ''}`}>
+            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-6 gap-1 h-12' : 'grid-cols-6'} ${isMobile ? 'overflow-x-auto' : ''}`}>
               <TabsTrigger 
                 value="pending" 
                 className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
@@ -1155,17 +1344,6 @@ export default function GigWorkerDashboard() {
                 </span>
               </TabsTrigger>
               <TabsTrigger 
-                value="submitted" 
-                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
-              >
-                <span className={isMobile ? 'text-xs font-medium' : ''}>
-                  {isMobile ? 'Submitted' : 'Submitted'}
-                </span>
-                <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
-                  ({submittedCases.length})
-                </span>
-              </TabsTrigger>
-              <TabsTrigger 
                 value="rework" 
                 className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
               >
@@ -1174,6 +1352,28 @@ export default function GigWorkerDashboard() {
                 </span>
                 <span className={isMobile ? 'text-xs font-bold text-red-600' : ''}>
                   ({reworkCases.length})
+                </span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="approved" 
+                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+              >
+                <span className={isMobile ? 'text-xs font-medium' : ''}>
+                  {isMobile ? 'Approved' : 'Approved'}
+                </span>
+                <span className={isMobile ? 'text-xs font-bold text-green-600' : ''}>
+                  ({approvedCases.length})
+                </span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="submitted" 
+                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+              >
+                <span className={isMobile ? 'text-xs font-medium' : ''}>
+                  {isMobile ? 'Submitted' : 'Submitted'}
+                </span>
+                <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
+                  ({submittedCases.length})
                 </span>
               </TabsTrigger>
             </TabsList>
@@ -1801,6 +2001,132 @@ export default function GigWorkerDashboard() {
                             <TableCell>
                               <div className="text-sm">
                                 {format(new Date(caseItem.due_at), 'MMM dd, yyyy HH:mm')}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {getStatusBadge(caseItem.status, caseItem.id)}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedSubmissionCase(caseItem);
+                                  setIsViewSubmissionDialogOpen(true);
+                                }}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                View Submission
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent value="approved" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+              {approvedCases.length === 0 ? (
+                <Alert className={isMobile ? 'mx-2' : ''}>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    No approved cases at the moment.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <>
+                  {isMobile ? (
+                    // Mobile: Card layout
+                    <div className="space-y-3 px-1">
+                      {approvedCases.map((caseItem) => (
+                        <MobileCaseCard
+                          key={caseItem.id}
+                          caseItem={caseItem}
+                          onViewSubmission={() => {
+                            setSelectedSubmissionCase(caseItem);
+                            setIsViewSubmissionDialogOpen(true);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Table layout
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Case Number</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Candidate</TableHead>
+                          <TableHead>Location</TableHead>
+                          {!shouldHidePayoutSection(approvedCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
+                          <TableHead>Submitted At</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {approvedCases.map((caseItem) => (
+                          <TableRow key={caseItem.id}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                {caseItem.case_number}
+                                {isRecreatedCase(caseItem.case_number) && (
+                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
+                                    Recreated
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>{caseItem.clients?.name}</TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{caseItem.candidate_name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.phone_primary}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 text-sm">
+                                  <MapPin className="h-3 w-3" />
+                                  {caseItem.locations?.location_url ? (
+                                    <a 
+                                      href={caseItem.locations.location_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 underline font-medium"
+                                    >
+                                      {caseItem.locations?.address_line || caseItem.address}
+                                    </a>
+                                  ) : (
+                                    <span>{caseItem.locations?.address_line || caseItem.address}</span>
+                                  )}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+                                </div>
+                              </div>
+                            </TableCell>
+                            {!shouldHidePayoutSection(caseItem) && (
+                              <TableCell>
+                                <div className="font-medium">
+                                  ₹{caseItem.total_payout_inr}
+                                </div>
+                              </TableCell>
+                            )}
+                            <TableCell>
+                              <div className="text-sm">
+                                {(() => {
+                                  if (caseItem.actual_submitted_at) {
+                                    return format(new Date(caseItem.actual_submitted_at), 'MMM dd, yyyy HH:mm');
+                                  } else {
+                                    return format(new Date(caseItem.vendor_tat_start_date), 'MMM dd, yyyy HH:mm');
+                                  }
+                                })()}
                               </div>
                             </TableCell>
                             <TableCell>
