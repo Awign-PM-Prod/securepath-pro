@@ -36,8 +36,8 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Desktop Sidebar */}
-      <div className="hidden md:flex md:w-72 md:flex-col md:min-w-72 md:max-w-72 md:flex-shrink-0">
+      {/* Desktop Sidebar - Fixed */}
+      <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-screen md:w-72 md:flex-col md:z-10">
         <div className="sidebar-container h-full">
           <Sidebar />
         </div>
@@ -50,8 +50,8 @@ export function AppLayout() {
         </SheetContent>
       </Sheet>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* Main Content - With margin to account for fixed sidebar */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden md:ml-72">
         {/* Header */}
         <header className="border-b border-border bg-card flex-shrink-0">
           <div className="flex h-16 items-center justify-between px-4">
