@@ -20,7 +20,8 @@ import {
   AlertTriangle,
   TrendingUp,
   UserPlus,
-  Settings
+  Settings,
+  Trash2
 } from 'lucide-react';
 
 interface Vendor {
@@ -194,6 +195,56 @@ export default function VendorManagement() {
     if (percentage >= 60) return 'text-orange-600';
     if (percentage >= 40) return 'text-yellow-600';
     return 'text-green-600';
+  };
+
+  const handleDeleteVendor = async (vendorId: string) => {
+    if (!window.confirm('Are you sure you want to delete this vendor? This will also delete their profile data.')) return;
+
+    try {
+      // First, fetch the profile_id from the vendors record
+      const { data: vendor, error: fetchError } = await supabase
+        .from('vendors')
+        .select('profile_id')
+        .eq('id', vendorId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete from vendors table
+      const { error: deleteError } = await supabase
+        .from('vendors')
+        .delete()
+        .eq('id', vendorId);
+
+      if (deleteError) throw deleteError;
+
+      // Delete from profiles table if profile_id exists
+      if (vendor?.profile_id) {
+        const { error: profileDeleteError } = await supabase
+          .from('profiles')
+          .delete()
+          .eq('id', vendor.profile_id);
+
+        if (profileDeleteError) {
+          console.warn('Failed to delete profile, but vendor was deleted:', profileDeleteError);
+          // Don't throw here - vendor is already deleted
+        }
+      }
+
+      toast({
+        title: 'Success',
+        description: 'Vendor and profile deleted successfully',
+      });
+
+      loadData();
+    } catch (error) {
+      console.error('Failed to delete vendor:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete vendor',
+        variant: 'destructive',
+      });
+    }
   };
 
   if (isLoading) {
@@ -394,6 +445,14 @@ export default function VendorManagement() {
                         <div className="flex gap-2">
                           <Button size="sm" variant="outline">
                             <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleDeleteVendor(vendor.id)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>

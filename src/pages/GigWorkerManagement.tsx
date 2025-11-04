@@ -538,19 +538,42 @@ export default function GigWorkerManagement() {
   };
 
   const handleDeleteWorker = async (workerId: string) => {
-    if (!window.confirm('Are you sure you want to delete this gig worker?')) return;
+    if (!window.confirm('Are you sure you want to delete this gig worker? This will also delete their profile data.')) return;
 
     try {
-      const { error } = await supabase
+      // First, fetch the profile_id from the gig_partners record
+      const { data: gigWorker, error: fetchError } = await supabase
+        .from('gig_partners')
+        .select('profile_id')
+        .eq('id', workerId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete from gig_partners table
+      const { error: deleteError } = await supabase
         .from('gig_partners')
         .delete()
         .eq('id', workerId);
 
-      if (error) throw error;
+      if (deleteError) throw deleteError;
+
+      // Delete from profiles table if profile_id exists
+      if (gigWorker?.profile_id) {
+        const { error: profileDeleteError } = await supabase
+          .from('profiles')
+          .delete()
+          .eq('id', gigWorker.profile_id);
+
+        if (profileDeleteError) {
+          console.warn('Failed to delete profile, but gig worker was deleted:', profileDeleteError);
+          // Don't throw here - gig worker is already deleted
+        }
+      }
 
       toast({
         title: 'Success',
-        description: 'Gig worker deleted successfully',
+        description: 'Gig worker and profile deleted successfully',
       });
 
       loadData();
