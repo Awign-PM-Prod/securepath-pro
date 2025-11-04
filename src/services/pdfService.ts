@@ -3,9 +3,9 @@ import type { FormSubmissionData } from './csvService';
 
 export class PDFService {
   /**
-   * Fetch image from URL and convert to base64 with dimensions
+   * Fetch image from URL and convert to base64 with dimensions (optimized for 1-5MB range)
    */
-  private static async fetchImageAsBase64(url: string): Promise<{ base64: string; width: number; height: number } | null> {
+  private static async fetchImageAsBase64(url: string, maxWidth: number = 1200, maxHeight: number = 900, quality: number = 0.7): Promise<{ base64: string; width: number; height: number } | null> {
     try {
       // First, fetch the image
       const response = await fetch(url);
@@ -22,20 +22,38 @@ export class PDFService {
         const img = new Image();
         
         img.onload = () => {
-          // Create canvas to convert to base64
+          // Calculate resized dimensions to reduce file size
+          let width = img.width;
+          let height = img.height;
+          
+          // Resize if image is too large
+          if (width > maxWidth || height > maxHeight) {
+            const aspectRatio = width / height;
+            if (width > height) {
+              width = Math.min(width, maxWidth);
+              height = width / aspectRatio;
+            } else {
+              height = Math.min(height, maxHeight);
+              width = height * aspectRatio;
+            }
+          }
+          
+          // Create canvas with resized dimensions
           const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
+          canvas.width = width;
+          canvas.height = height;
           const ctx = canvas.getContext('2d');
           
           if (ctx) {
-            ctx.drawImage(img, 0, 0);
-            const base64 = canvas.toDataURL('image/png');
+            // Draw resized image
+            ctx.drawImage(img, 0, 0, width, height);
+            // Use JPEG compression with quality setting for smaller file size
+            const base64 = canvas.toDataURL('image/jpeg', quality);
             URL.revokeObjectURL(objectUrl); // Clean up
             resolve({
               base64,
-              width: img.width,
-              height: img.height
+              width: width,
+              height: height
             });
           } else {
             URL.revokeObjectURL(objectUrl);
@@ -101,9 +119,9 @@ export class PDFService {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
+    const margin = 18; // Balanced for readability and size
     const contentWidth = pageWidth - 2 * margin;
-    const lineHeight = 7;
+    const lineHeight = 6; // Balanced for readability
 
     let yPosition = margin;
 
@@ -125,22 +143,22 @@ export class PDFService {
     };
 
     // Add header
-    doc.setFontSize(16);
+    doc.setFontSize(18); // Increased for better readability
     doc.setFont('helvetica', 'bold');
     doc.text('Case Form Submissions', margin, yPosition);
     yPosition += 10;
 
-    doc.setFontSize(10);
+    doc.setFontSize(11); // Increased for better readability
     doc.setFont('helvetica', 'normal');
     doc.text(`Case Number: ${caseNumber}`, margin, yPosition);
-    yPosition += 5;
+    yPosition += 6;
     doc.text(`Generated: ${new Date().toLocaleString()}`, margin, yPosition);
-    yPosition += 10;
+    yPosition += 9;
 
     // Add a line
-    doc.setLineWidth(0.5);
+    doc.setLineWidth(0.4);
     doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 10;
+    yPosition += 8;
 
     if (submissions.length === 0) {
       doc.setFontSize(12);
@@ -151,16 +169,16 @@ export class PDFService {
     // Process each submission
     for (let index = 0; index < submissions.length; index++) {
       const submission = submissions[index];
-      checkPageBreak(30);
+      checkPageBreak(20); // Reduced from 30
 
       // Submission header
-      doc.setFontSize(14);
+      doc.setFontSize(14); // Increased for better readability
       doc.setFont('helvetica', 'bold');
       const title = `Submission ${index + 1}`;
       doc.text(title, margin, yPosition);
       yPosition += 8;
 
-      doc.setFontSize(10);
+      doc.setFontSize(11); // Increased for better readability
       doc.setFont('helvetica', 'normal');
       
       // Submitted date
@@ -169,7 +187,7 @@ export class PDFService {
         doc.text('Submitted:', margin, yPosition);
         doc.setFont('helvetica', 'normal');
         doc.text(new Date(submission.submitted_at).toLocaleString(), margin + 25, yPosition);
-        yPosition += 6;
+        yPosition += 7;
       }
 
       yPosition += 2;
@@ -187,16 +205,16 @@ export class PDFService {
         );
 
         for (const field of sortedFields) {
-          checkPageBreak(25);
+          checkPageBreak(20); // Reduced from 25
 
           const answer = submission.submission_data[field.field_key];
           
           // Question (field title)
-          doc.setFontSize(10);
+          doc.setFontSize(11); // Increased for better readability
           doc.setFont('helvetica', 'bold');
           const fieldTitle = field.field_title || field.field_key;
           doc.text(fieldTitle, margin, yPosition);
-          yPosition += 5;
+          yPosition += 6;
 
           // Handle file upload fields specially - try to embed images
           if (field.field_type === 'file_upload') {
@@ -205,93 +223,122 @@ export class PDFService {
             ) || [];
 
             if (fieldFiles.length > 0) {
-              doc.setFontSize(8);
+              doc.setFontSize(9); // Increased for better readability
               doc.setFont('helvetica', 'normal');
               doc.text(`(${fieldFiles.length} file(s))`, margin, yPosition);
-              yPosition += 4;
+              yPosition += 5;
 
-              // Try to embed each image
+              // Limit images per field to 5 to balance file size (target 1-5MB)
+              const maxImagesPerField = 5;
+              const imagesToProcess = fieldFiles.filter(file => {
+                const isImage = file.mime_type?.startsWith('image/') || 
+                                file.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                return isImage;
+              });
+
+              // Try to embed each image (limit to maxImagesPerField)
+              let imagesProcessed = 0;
               for (const file of fieldFiles) {
                 const imageUrl = file.file_url;
-                if (imageUrl) {
-                  // Check if it's an image
-                  const isImage = file.mime_type?.startsWith('image/') || 
-                                  imageUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                if (!imageUrl) continue;
+                
+                // Check if it's an image
+                const isImage = file.mime_type?.startsWith('image/') || 
+                                imageUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i);
 
-                  if (isImage) {
-                    checkPageBreak(80); // Reserve space for image
-                    
-                    // Set max dimensions (80% of content width, max 70mm height)
-                    const maxImageWidth = Math.min(contentWidth * 0.8, 150);
-                    const maxImageHeight = 70;
-                    
-                    try {
-                      const imageData = await this.fetchImageAsBase64(imageUrl);
-                      if (imageData) {
-                        // Calculate dimensions maintaining aspect ratio
-                        const { width, height } = this.calculateImageDimensions(
-                          imageData.width,
-                          imageData.height,
-                          maxImageWidth,
-                          maxImageHeight
-                        );
-                        
-                        doc.addImage(imageData.base64, 'PNG', margin + 5, yPosition, width, height);
-                        yPosition += height + 5;
-                        
-                        // Add file name
-                        doc.setFontSize(7);
-                        doc.setFont('helvetica', 'italic');
-                        doc.text(file.file_name || 'unnamed', margin + 5, yPosition);
-                        yPosition += 3;
-                      } else {
-                        // Fallback to URL if image can't be loaded
-                        doc.setFontSize(8);
-                        doc.setFont('helvetica', 'normal');
-                        doc.text(`Image URL: ${imageUrl}`, margin + 5, yPosition);
-                        yPosition += 4;
-                      }
-                    } catch (error) {
-                      // Fallback to URL on error
-                      console.error('Error embedding image:', error);
-                      doc.setFontSize(8);
-                      doc.setFont('helvetica', 'normal');
-                      doc.text(`Image URL: ${imageUrl}`, margin + 5, yPosition);
-                      yPosition += 4;
-                    }
-                  } else {
-                    // Not an image, just show URL
-                    doc.setFontSize(8);
-                    doc.setFont('helvetica', 'normal');
-                    const urlText = `File: ${file.file_name || 'unnamed'} - ${imageUrl}`;
-                    const urlHeight = addWrappedText(urlText, margin + 5, yPosition, contentWidth - 10);
-                    yPosition += urlHeight + 3;
+                if (isImage) {
+                  // Skip if we've already processed max images
+                  if (imagesProcessed >= maxImagesPerField) {
+                    continue;
                   }
+                  
+                  checkPageBreak(70); // Increased for larger images
+                  
+                  // Set max dimensions (balanced for 1-5MB: 75% of content width, max 60mm height)
+                  const maxImageWidth = Math.min(contentWidth * 0.75, 140); // Increased for better readability
+                  const maxImageHeight = 60; // Increased for better readability
+                  
+                  try {
+                    // Fetch with balanced compression (1200x900px max, 70% quality for 1-5MB target)
+                    const imageData = await this.fetchImageAsBase64(imageUrl, 1200, 900, 0.7);
+                    if (imageData) {
+                      // Calculate dimensions maintaining aspect ratio
+                      const { width, height } = this.calculateImageDimensions(
+                        imageData.width,
+                        imageData.height,
+                        maxImageWidth,
+                        maxImageHeight
+                      );
+                      
+                      // Use JPEG format (from compressed base64) instead of PNG
+                      doc.addImage(imageData.base64, 'JPEG', margin + 4, yPosition, width, height);
+                      imagesProcessed++;
+                      yPosition += height + 5; // Increased spacing
+                      
+                      // Add file name
+                      doc.setFontSize(8); // Increased for better readability
+                      doc.setFont('helvetica', 'italic');
+                      doc.text(file.file_name || 'unnamed', margin + 4, yPosition);
+                      yPosition += 4;
+                      
+                      // If we've hit the limit, show a message
+                      if (imagesProcessed >= maxImagesPerField && imagesToProcess.length > maxImagesPerField) {
+                        const remainingCount = imagesToProcess.length - maxImagesPerField;
+                        if (remainingCount > 0) {
+                          doc.setFontSize(8);
+                          doc.setFont('helvetica', 'italic');
+                          doc.text(`... and ${remainingCount} more image(s) (omitted to keep file size < 5MB)`, margin + 4, yPosition);
+                          yPosition += 3;
+                          break; // Stop processing more images
+                        }
+                      }
+                    } else {
+                      // Fallback to URL if image can't be loaded
+                      doc.setFontSize(9); // Increased for better readability
+                      doc.setFont('helvetica', 'normal');
+                      doc.text(`Image URL: ${imageUrl}`, margin + 4, yPosition);
+                      yPosition += 5;
+                    }
+                  } catch (error) {
+                    // Fallback to URL on error
+                    console.error('Error embedding image:', error);
+                    doc.setFontSize(9); // Increased for better readability
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(`Image URL: ${imageUrl}`, margin + 4, yPosition);
+                    yPosition += 5;
+                  }
+                } else {
+                  // Not an image, just show URL
+                  doc.setFontSize(9); // Increased for better readability
+                  doc.setFont('helvetica', 'normal');
+                  const urlText = `File: ${file.file_name || 'unnamed'} - ${imageUrl}`;
+                  const urlHeight = addWrappedText(urlText, margin + 4, yPosition, contentWidth - 8);
+                  yPosition += urlHeight + 4;
                 }
               }
             } else {
               // No files
-              doc.setFontSize(9);
+              doc.setFontSize(10); // Increased for better readability
               doc.setFont('helvetica', 'normal');
-              doc.text('No files uploaded', margin + 5, yPosition);
-              yPosition += 5;
+              doc.text('No files uploaded', margin + 4, yPosition);
+              yPosition += 6;
             }
           } else {
             // Regular fields
-            doc.setFontSize(9);
+            doc.setFontSize(10); // Increased for better readability
             doc.setFont('helvetica', 'normal');
             
             const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key);
             
             // Add answer with text wrapping
-            const answerHeight = addWrappedText(formattedAnswer, margin + 5, yPosition, contentWidth - 10);
-            yPosition += answerHeight + 3;
+            const answerHeight = addWrappedText(formattedAnswer, margin + 4, yPosition, contentWidth - 8);
+            yPosition += answerHeight + 4;
           }
         }
       }
 
       // Add spacing between submissions
-      yPosition += 5;
+      yPosition += 4;
     }
 
     return doc;
