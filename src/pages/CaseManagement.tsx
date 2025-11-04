@@ -222,16 +222,15 @@ export default function CaseManagement() {
         loadContractTypes()
       ]);
       
-      // Filter out cases created before today (hide all cases created till yesterday)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
+      // Filter cases created after November 2nd, 2025
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       
       const filteredCases = casesData.filter(caseItem => {
         const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= today;
+        return caseCreatedDate >= cutoffDate;
       });
       
-      console.log(`Filtered cases: ${filteredCases.length} out of ${casesData.length} total cases (hiding all cases created till yesterday)`);
+      console.log(`Filtered cases: ${filteredCases.length} out of ${casesData.length} total cases (showing cases created after November 2nd, 2025)`);
       
       setCases(filteredCases);
       setClients(clientsData);

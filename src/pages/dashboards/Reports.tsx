@@ -175,10 +175,9 @@ export default function Reports() {
     try {
       setIsLoading(true);
       
-      // Get today's date at 00:00:00
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayISOString = today.toISOString();
+      // Filter cases created after November 2nd, 2025
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+      const cutoffDateISOString = cutoffDate.toISOString();
       
       const { data, error } = await supabase
         .from('cases')
@@ -188,7 +187,7 @@ export default function Reports() {
           locations(id, address_line, city, state, pincode, pincode_tier, lat, lng, location_url)
         `)
         .in('status', ['submitted', 'qc_passed'])
-        .gte('created_at', todayISOString)
+        .gte('created_at', cutoffDateISOString)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -226,8 +225,8 @@ export default function Reports() {
         submitted_at: caseItem.submitted_at
       })) || [];
 
-      // Show only cases created today and onwards
-      console.log(`Reports loaded ${formattedCases.length} cases with status 'submitted' or 'qc_passed' (created from today onwards)`);
+      // Show only cases created after November 2nd, 2025
+      console.log(`Reports loaded ${formattedCases.length} cases with status 'submitted' or 'qc_passed' (created after November 2nd, 2025)`);
 
       setCases(formattedCases);
     } catch (error) {

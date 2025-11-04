@@ -606,12 +606,11 @@ export class GigWorkerService {
         };
       }) || [];
 
-      // Filter: only show cases created today and after today
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      // Filter: only show cases created after November 2nd, 2025
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       const filteredCases = casesWithDeadlines.filter(c => {
         const created = new Date((c as any).created_at);
-        return created >= todayStart;
+        return created >= cutoffDate;
       });
 
       return { success: true, cases: filteredCases };

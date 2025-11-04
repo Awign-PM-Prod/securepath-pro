@@ -240,16 +240,15 @@ export default function QCDashboard() {
       setIsLoading(true);
       const cases = await caseService.getCases();
       
-      // Filter out cases created before today (hide all cases created till yesterday)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
+      // Filter cases created after November 2nd, 2025
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       
       const filteredCases = cases.filter(caseItem => {
         const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= today;
+        return caseCreatedDate >= cutoffDate;
       });
       
-      console.log(`QC filtered cases: ${filteredCases.length} out of ${cases.length} total cases (hiding all cases created till yesterday)`);
+      console.log(`QC filtered cases: ${filteredCases.length} out of ${cases.length} total cases (showing cases created after November 2nd, 2025)`);
       
       // Sort cases by submitted_at field (most recent first)
       const sortedCases = filteredCases.sort((a, b) => {

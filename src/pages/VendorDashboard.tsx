@@ -352,12 +352,11 @@ const VendorDashboard: React.FC = () => {
       // Combine both datasets
       const allCases = [...(allocatedData || []), ...(acceptedData || [])];
 
-      // Filter: only show cases created today and after today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Filter: only show cases created after November 2nd, 2025
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       const filteredCases = allCases.filter(caseItem => {
         const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= today;
+        return caseCreatedDate >= cutoffDate;
       });
 
       // Resolve client names using client_id in case relational payload is missing
