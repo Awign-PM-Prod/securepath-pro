@@ -13,16 +13,15 @@ export class DashboardStatsService {
    */
   static async getOpsDashboardStats(): Promise<DashboardStats> {
     try {
-      // Restrict to cases shown in ops/cases page: created today (>= start of today)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayIso = today.toISOString();
+      // Restrict to cases shown in ops/cases page: created after November 2nd, 2025
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+      const cutoffDateISOString = cutoffDate.toISOString();
 
       // Get total cases count
       const { count: totalCases } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
-        .gte('created_at', todayIso);
+        .gte('created_at', cutoffDateISOString);
 
       // Get active clients count (clients with cases or active contracts)
       const { count: activeClients } = await supabase
@@ -35,14 +34,14 @@ export class DashboardStatsService {
         .from('cases')
         .select('*', { count: 'exact', head: true })
         .in('status', ['new', 'pending_allocation'])
-        .gte('created_at', todayIso);
+        .gte('created_at', cutoffDateISOString);
 
       // Get completed cases (cases that are completed/passed QC)
       const { count: completedCases } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
         .in('status', ['qc_passed', 'reported', 'payment_complete'])
-        .gte('created_at', todayIso);
+        .gte('created_at', cutoffDateISOString);
 
       return {
         totalCases: totalCases || 0,
