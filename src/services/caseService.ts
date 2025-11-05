@@ -156,8 +156,12 @@ export class CaseService {
         .filter(c => c.current_assignee_id)
         .map(c => c.current_assignee_id);
 
+      // Filter cases that have been submitted
+      // Logic: Only fetch submitted_at when case has form_submissions (was submitted at some point)
+      // When status is 'submitted', we fetch the submitted_at from form_submissions
+      // Once fetched, we always display that time regardless of what the status changes to next
       // Batch fetch all assignee information
-      const [gigWorkersData, vendorsData, allocationLogsData, submissionsData, formSubmissionsData] = await Promise.all([
+      const [gigWorkersData, vendorsData, allocationLogsData, formSubmissionsData] = await Promise.all([
         // Get all gig workers in one query
         assigneeIds.length > 0 ? supabase
           .from('gig_partners')
@@ -185,20 +189,18 @@ export class CaseService {
           .in('case_id', caseIds)
           .order('accepted_at', { ascending: false }),
         
-        // Get all submissions in one query
-        supabase
-          .from('submissions')
-          .select('case_id, submitted_at')
-          .in('case_id', caseIds)
-          .order('submitted_at', { ascending: false }),
-        
-        // Get all form submissions in one query
-        supabase
+        // Query form_submissions for all cases to identify which ones have been submitted
+        // We'll use updated_at instead of submitted_at for time tracking
+        caseIds.length > 0 ? supabase
           .from('form_submissions')
-          .select('case_id, submitted_at')
+          .select('case_id, updated_at')
           .in('case_id', caseIds)
-          .order('submitted_at', { ascending: false })
+          .order('updated_at', { ascending: false })
+          : Promise.resolve({ data: [] })
       ]);
+
+      // Create a set of case IDs that have form_submissions (indicating they were submitted at some point)
+      const submittedCaseIds = new Set((formSubmissionsData.data || []).map(s => s.case_id));
 
       // Create lookup maps for efficient data access
       const gigWorkersMap = new Map();
@@ -228,19 +230,19 @@ export class CaseService {
         allocationLogsMap.get(log.case_id).push(log);
       });
 
-      // Group submissions by case_id
-      const submissionsMap = new Map();
-      (submissionsData.data || []).forEach(submission => {
-        if (!submissionsMap.has(submission.case_id)) {
-          submissionsMap.set(submission.case_id, submission.submitted_at);
-        }
-      });
-
-      // Group form submissions by case_id
+      // Group form submissions by case_id - use updated_at (last update time)
+      // This captures when the form submission was last updated, which reflects the actual submission time
       const formSubmissionsMap = new Map();
       (formSubmissionsData.data || []).forEach(submission => {
+        // Store the updated_at for each case (most recent update)
         if (!formSubmissionsMap.has(submission.case_id)) {
-          formSubmissionsMap.set(submission.case_id, submission.submitted_at);
+          formSubmissionsMap.set(submission.case_id, submission.updated_at);
+        } else {
+          // Compare and keep the most recent (largest) timestamp
+          const current = formSubmissionsMap.get(submission.case_id);
+          if (new Date(submission.updated_at) > new Date(current!)) {
+            formSubmissionsMap.set(submission.case_id, submission.updated_at);
+          }
         }
       });
 
@@ -262,7 +264,7 @@ export class CaseService {
         // Get assignment date from allocation logs
         const caseAllocationLogs = allocationLogsMap.get(caseItem.id) || [];
         if (caseAllocationLogs.length > 0) {
-          // First try to find accepted allocation with current assignee
+          // Priority 1: Find accepted allocation with current assignee
           const acceptedLog = caseAllocationLogs.find(log => 
             log.candidate_id === caseItem.current_assignee_id && log.decision === 'accepted'
           );
@@ -270,16 +272,43 @@ export class CaseService {
           if (acceptedLog) {
             assignedAt = acceptedLog.accepted_at || acceptedLog.allocated_at;
           } else {
-            // Fallback to any accepted allocation
-            const anyAcceptedLog = caseAllocationLogs.find(log => log.decision === 'accepted');
-            if (anyAcceptedLog) {
-              assignedAt = anyAcceptedLog.accepted_at || anyAcceptedLog.allocated_at;
+            // Priority 2: Find allocated allocation with current assignee (for cases with status 'allocated')
+            const allocatedLog = caseAllocationLogs.find(log => 
+              log.candidate_id === caseItem.current_assignee_id && log.decision === 'allocated'
+            );
+            
+            if (allocatedLog) {
+              assignedAt = allocatedLog.allocated_at;
+            } else {
+              // Priority 3: Fallback to any accepted allocation
+              const anyAcceptedLog = caseAllocationLogs.find(log => log.decision === 'accepted');
+              if (anyAcceptedLog) {
+                assignedAt = anyAcceptedLog.accepted_at || anyAcceptedLog.allocated_at;
+              } else {
+                // Priority 4: Fallback to any allocated allocation (most recent)
+                const anyAllocatedLog = caseAllocationLogs
+                  .filter(log => log.decision === 'allocated')
+                  .sort((a, b) => new Date(b.allocated_at).getTime() - new Date(a.allocated_at).getTime())[0];
+                if (anyAllocatedLog) {
+                  assignedAt = anyAllocatedLog.allocated_at;
+                }
+              }
             }
           }
         }
 
-        // Get submission date
-        submittedAt = submissionsMap.get(caseItem.id) || formSubmissionsMap.get(caseItem.id);
+        // Get submission date - only fetch from form_submissions if case has been submitted
+        // Logic: When status is 'submitted', we fetch the updated_at from form_submissions
+        // We use updated_at instead of submitted_at because it reflects when the form was actually submitted/updated
+        // Once a case has form_submissions (was submitted), we always display that updated_at time
+        // regardless of what the status changes to next (e.g., qc_passed, qc_rework, etc.)
+        // However, if status is 'new', 'allocated', or 'in_progress', always show N/A (don't show submitted_at)
+        const statusesToShowNA = ['new', 'allocated', 'in_progress'];
+        if (statusesToShowNA.includes(caseItem.status)) {
+          submittedAt = null; // Explicitly set to null to show N/A in UI
+        } else if (submittedCaseIds.has(caseItem.id)) {
+          submittedAt = formSubmissionsMap.get(caseItem.id);
+        }
 
         // If still no assignment found, but case has submissions, use case creation time as fallback
         if (!assignedAt && submittedAt) {
@@ -399,7 +428,7 @@ export class CaseService {
           ),
           form_submissions (
             id,
-            submitted_at,
+            updated_at,
             created_at
           )
         `)
@@ -459,25 +488,41 @@ export class CaseService {
 
           // Get allocation logs to find when case was assigned
           if (caseItem.current_assignee_id) {
-            const { data: allocationLogs } = await supabase
+            // First try to find accepted allocation
+            const { data: acceptedLogs } = await supabase
               .from('allocation_logs')
-              .select('allocated_at, accepted_at')
+              .select('allocated_at, accepted_at, decision')
               .eq('case_id', caseItem.id)
               .eq('candidate_id', caseItem.current_assignee_id)
               .eq('decision', 'accepted')
               .order('accepted_at', { ascending: false })
               .limit(1);
 
-            if (allocationLogs && allocationLogs.length > 0) {
-              assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
+            if (acceptedLogs && acceptedLogs.length > 0) {
+              assignedAt = acceptedLogs[0].accepted_at || acceptedLogs[0].allocated_at;
+            } else {
+              // If no accepted allocation, try to find allocated allocation (for cases with status 'allocated')
+              const { data: allocatedLogs } = await supabase
+                .from('allocation_logs')
+                .select('allocated_at, decision')
+                .eq('case_id', caseItem.id)
+                .eq('candidate_id', caseItem.current_assignee_id)
+                .eq('decision', 'allocated')
+                .order('allocated_at', { ascending: false })
+                .limit(1);
+
+              if (allocatedLogs && allocatedLogs.length > 0) {
+                assignedAt = allocatedLogs[0].allocated_at;
+              }
             }
           }
 
           // Get submission date from either submissions or form_submissions
+          // Use updated_at from form_submissions instead of submitted_at
           if (caseItem.submissions && Array.isArray(caseItem.submissions) && caseItem.submissions.length > 0) {
             submittedAt = caseItem.submissions[0].submitted_at;
           } else if (caseItem.form_submissions && Array.isArray(caseItem.form_submissions) && caseItem.form_submissions.length > 0) {
-            submittedAt = caseItem.form_submissions[0].submitted_at;
+            submittedAt = caseItem.form_submissions[0].updated_at;
           }
 
           return {
@@ -595,9 +640,9 @@ export class CaseService {
       let submittedAt = null;
 
       // Get allocation logs to find when case was assigned
-      // First try to get accepted allocation logs
+      // First try to get accepted allocation logs with current assignee
       if ((data as any).current_assignee_id) {
-        const { data: allocationLogs } = await supabase
+        const { data: acceptedLogs } = await supabase
           .from('allocation_logs')
           .select('allocated_at, accepted_at, decision')
           .eq('case_id', data.id)
@@ -606,26 +651,56 @@ export class CaseService {
           .order('accepted_at', { ascending: false })
           .limit(1);
 
-        if (allocationLogs && allocationLogs.length > 0) {
-          assignedAt = allocationLogs[0].accepted_at || allocationLogs[0].allocated_at;
+        if (acceptedLogs && acceptedLogs.length > 0) {
+          assignedAt = acceptedLogs[0].accepted_at || acceptedLogs[0].allocated_at;
+        } else {
+          // If no accepted allocation, try to find allocated allocation (for cases with status 'allocated')
+          const { data: allocatedLogs } = await supabase
+            .from('allocation_logs')
+            .select('allocated_at, decision')
+            .eq('case_id', data.id)
+            .eq('candidate_id', (data as any).current_assignee_id)
+            .eq('decision', 'allocated')
+            .order('allocated_at', { ascending: false })
+            .limit(1);
+
+          if (allocatedLogs && allocatedLogs.length > 0) {
+            assignedAt = allocatedLogs[0].allocated_at;
+          }
         }
       }
 
       // If no assignment found with current assignee, try to find any allocation logs for this case
       if (!assignedAt) {
-        const { data: anyAllocationLogs } = await supabase
+        // First try any accepted allocation
+        const { data: anyAcceptedLogs } = await supabase
           .from('allocation_logs')
           .select('allocated_at, accepted_at, decision')
           .eq('case_id', data.id)
+          .eq('decision', 'accepted')
           .order('accepted_at', { ascending: false })
           .limit(1);
 
-        if (anyAllocationLogs && anyAllocationLogs.length > 0) {
-          assignedAt = anyAllocationLogs[0].accepted_at || anyAllocationLogs[0].allocated_at;
+        if (anyAcceptedLogs && anyAcceptedLogs.length > 0) {
+          assignedAt = anyAcceptedLogs[0].accepted_at || anyAcceptedLogs[0].allocated_at;
+        } else {
+          // Fallback to any allocated allocation
+          const { data: anyAllocatedLogs } = await supabase
+            .from('allocation_logs')
+            .select('allocated_at, decision')
+            .eq('case_id', data.id)
+            .eq('decision', 'allocated')
+            .order('allocated_at', { ascending: false })
+            .limit(1);
+
+          if (anyAllocatedLogs && anyAllocatedLogs.length > 0) {
+            assignedAt = anyAllocatedLogs[0].allocated_at;
+          }
         }
       }
 
       // Get submission date from either submissions or form_submissions
+      // Use updated_at from form_submissions instead of submitted_at
       const { data: submissions } = await supabase
         .from('submissions')
         .select('submitted_at')
@@ -638,13 +713,13 @@ export class CaseService {
       } else {
         const { data: formSubmissions } = await supabase
           .from('form_submissions')
-          .select('submitted_at')
+          .select('updated_at')
           .eq('case_id', data.id)
-          .order('submitted_at', { ascending: false })
+          .order('updated_at', { ascending: false })
           .limit(1);
 
         if (formSubmissions && formSubmissions.length > 0) {
-          submittedAt = formSubmissions[0].submitted_at;
+          submittedAt = formSubmissions[0].updated_at;
         }
       }
 

@@ -516,7 +516,7 @@ export class GigWorkerService {
           "QC_Response",
           clients (id, name),
           locations (address_line, city, state, pincode, location_url),
-          form_submissions (id, submitted_at, created_at),
+          form_submissions (id, updated_at, created_at),
           submissions (id, submitted_at, created_at)
         `)
         .eq('current_assignee_id', gigWorkerId)
@@ -548,7 +548,7 @@ export class GigWorkerService {
         console.log('Querying form_submissions directly for submitted cases:', submittedCaseIds);
         const { data: formSubmissions, error: formError } = await supabase
           .from('form_submissions')
-          .select('case_id, submitted_at, created_at')
+          .select('case_id, updated_at, created_at')
           .in('case_id', submittedCaseIds);
         
         console.log('Direct form_submissions query result:', formSubmissions, 'error:', formError);
@@ -626,8 +626,8 @@ export class GigWorkerService {
         });
         
         if (caseItem.form_submissions && caseItem.form_submissions.length > 0) {
-          actualSubmittedAt = caseItem.form_submissions[0].submitted_at;
-          console.log('Found form submission timestamp:', actualSubmittedAt, 'for case:', caseItem.case_number);
+          actualSubmittedAt = caseItem.form_submissions[0].updated_at;
+          console.log('Found form submission timestamp (updated_at):', actualSubmittedAt, 'for case:', caseItem.case_number);
         } else if (caseItem.submissions && caseItem.submissions.length > 0) {
           actualSubmittedAt = caseItem.submissions[0].submitted_at;
           console.log('Found legacy submission timestamp:', actualSubmittedAt, 'for case:', caseItem.case_number);
@@ -635,8 +635,8 @@ export class GigWorkerService {
           // Try direct query results as fallback
           const directSubmission = directFormSubmissions.find(s => s.case_id === caseItem.id);
           if (directSubmission) {
-            actualSubmittedAt = directSubmission.submitted_at;
-            console.log('Found direct form submission timestamp:', actualSubmittedAt, 'for case:', caseItem.case_number);
+            actualSubmittedAt = directSubmission.updated_at;
+            console.log('Found direct form submission timestamp (updated_at):', actualSubmittedAt, 'for case:', caseItem.case_number);
           } else {
             console.log('No submission timestamp found for case:', caseItem.case_number, 'status:', caseItem.status);
           }

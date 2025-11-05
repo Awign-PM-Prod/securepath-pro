@@ -243,22 +243,33 @@ export class FormService {
       // Check if submission already exists
       const { data: existingSubmission } = await supabase
         .from('form_submissions')
-        .select('id, status')
+        .select('id, status, submitted_at')
         .eq('case_id', caseId)
         .maybeSingle();
 
       let submission;
+      const currentTime = new Date().toISOString();
+      
       if (existingSubmission) {
         // Update existing submission
+        // If changing from draft to final, update submitted_at to current time
+        const updateData: any = {
+          template_id: templateId,
+          gig_partner_id: gigWorkerId,
+          submission_data: submissionData,
+          status: isDraft ? 'draft' : 'final',
+          updated_at: currentTime
+        };
+        
+        // If submitting (not draft), update submitted_at to current time
+        // Only update if it wasn't already set (i.e., was previously a draft)
+        if (!isDraft && (!existingSubmission.submitted_at || existingSubmission.status === 'draft')) {
+          updateData.submitted_at = currentTime;
+        }
+        
         const { data: updatedSubmission, error: updateError } = await supabase
           .from('form_submissions')
-          .update({
-            template_id: templateId,
-            gig_partner_id: gigWorkerId,
-            submission_data: submissionData,
-            status: isDraft ? 'draft' : 'final',
-            updated_at: new Date().toISOString()
-          })
+          .update(updateData)
           .eq('id', existingSubmission.id)
           .select()
           .single();
@@ -267,15 +278,22 @@ export class FormService {
         submission = updatedSubmission;
       } else {
         // Create new submission
+        const insertData: any = {
+          case_id: caseId,
+          template_id: templateId,
+          gig_partner_id: gigWorkerId,
+          submission_data: submissionData,
+          status: isDraft ? 'draft' : 'final'
+        };
+        
+        // Only set submitted_at if it's a final submission (not a draft)
+        if (!isDraft) {
+          insertData.submitted_at = currentTime;
+        }
+        
         const { data: newSubmission, error: submissionError } = await supabase
           .from('form_submissions')
-          .insert({
-            case_id: caseId,
-            template_id: templateId,
-            gig_partner_id: gigWorkerId,
-            submission_data: submissionData,
-            status: isDraft ? 'draft' : 'final'
-          })
+          .insert(insertData)
           .select()
           .single();
 
