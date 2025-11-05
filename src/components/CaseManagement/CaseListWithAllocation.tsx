@@ -616,11 +616,7 @@ export default function CaseListWithAllocation({
 
   const formatTime = (dateString?: string) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+    return format(new Date(dateString), 'MMM dd, yyyy HH:mm');
   };
 
   const getTimeTaken = (assignedAt?: string, submittedAt?: string) => {

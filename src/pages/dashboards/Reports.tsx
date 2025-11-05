@@ -192,6 +192,30 @@ export default function Reports() {
 
       if (error) throw error;
 
+      // Get case IDs to fetch form_submissions
+      const caseIds = data?.map(c => c.id) || [];
+      
+      // Fetch form_submissions to get updated_at (submission time)
+      const { data: formSubmissionsData } = await supabase
+        .from('form_submissions')
+        .select('case_id, updated_at')
+        .in('case_id', caseIds.length > 0 ? caseIds : [])
+        .order('updated_at', { ascending: false });
+
+      // Create a map of case_id to updated_at
+      const formSubmissionsMap = new Map();
+      (formSubmissionsData || []).forEach(submission => {
+        // Store the most recent updated_at for each case
+        if (!formSubmissionsMap.has(submission.case_id)) {
+          formSubmissionsMap.set(submission.case_id, submission.updated_at);
+        } else {
+          const current = formSubmissionsMap.get(submission.case_id);
+          if (new Date(submission.updated_at) > new Date(current)) {
+            formSubmissionsMap.set(submission.case_id, submission.updated_at);
+          }
+        }
+      });
+
       const formattedCases = data?.map(caseItem => ({
         id: caseItem.id,
         case_number: caseItem.case_number,
@@ -222,7 +246,8 @@ export default function Reports() {
         total_payout_inr: caseItem.total_payout_inr,
         QC_Response: caseItem.QC_Response as any,
         assigned_at: caseItem.assigned_at,
-        submitted_at: caseItem.submitted_at
+        // Use updated_at from form_submissions instead of submitted_at
+        submitted_at: formSubmissionsMap.get(caseItem.id) || null
       })) || [];
 
       // Show only cases created after November 2nd, 2025
@@ -1092,10 +1117,10 @@ export default function Reports() {
                       <div>
                         <p className="text-muted-foreground">Submitted At</p>
                         <p className="font-medium">
-                          {caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'MMM dd, yyyy') : 'N/A'}
+                          {caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm') : 'N/A'}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'HH:mm') : ''}
+                          {caseItem.submitted_at ? 'Submission time' : 'Not submitted'}
                         </p>
                       </div>
                     </div>
