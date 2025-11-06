@@ -301,8 +301,40 @@ export class FormService {
         submission = newSubmission;
       }
 
-            // Upload files if any
-            if (filesToUpload.length > 0) {
+      // Upload signature file if present
+      const signatureData = formData['signature_of_person_met'];
+      if (signatureData?.files && signatureData.files.length > 0) {
+        const signatureFile = signatureData.files.find((f: any) => f instanceof File);
+        if (signatureFile) {
+          console.log('Uploading signature file...');
+          try {
+            await this.uploadSignatureFile(submission.id, signatureFile, templateId);
+            // Get signature URL and update submission_data
+            const signatureFieldId = await this.getOrCreateSignatureField(templateId);
+            const { data: signatureFileRecord } = await supabase
+              .from('form_submission_files')
+              .select('file_url')
+              .eq('submission_id', submission.id)
+              .eq('field_id', signatureFieldId)
+              .single();
+            
+            if (signatureFileRecord) {
+              submissionData['signature_of_person_met'] = signatureFileRecord.file_url;
+              // Update submission with signature URL in submission_data
+              await supabase
+                .from('form_submissions')
+                .update({ submission_data: submissionData })
+                .eq('id', submission.id);
+            }
+          } catch (signatureError) {
+            console.error('Error uploading signature:', signatureError);
+            // Continue with other file uploads even if signature fails
+          }
+        }
+      }
+
+      // Upload files if any
+      if (filesToUpload.length > 0) {
               console.log(`Auto-save: Starting file upload process for ${filesToUpload.length} field groups`);
               console.log('Files to upload details:', filesToUpload.map(f => ({
                 fieldId: f.fieldId,
@@ -427,6 +459,113 @@ export class FormService {
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       };
+    }
+  }
+
+  /**
+   * Get or create signature field for a template
+   */
+  private async getOrCreateSignatureField(templateId: string): Promise<string> {
+    try {
+      // Try to find existing signature field
+      const { data: existingField, error: findError } = await supabase
+        .from('form_fields')
+        .select('id')
+        .eq('template_id', templateId)
+        .eq('field_key', 'signature_of_person_met')
+        .maybeSingle();
+
+      if (findError && findError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Error finding signature field:', findError);
+        throw findError;
+      }
+
+      if (existingField) {
+        return existingField.id;
+      }
+
+      // Create signature field if it doesn't exist
+      const { data: newField, error: createError } = await supabase
+        .from('form_fields')
+        .insert({
+          template_id: templateId,
+          field_key: 'signature_of_person_met',
+          field_title: 'Signature of the Person Met',
+          field_type: 'file_upload',
+          validation_type: 'mandatory',
+          field_order: 9999, // High order to ensure it's last
+          max_files: 1,
+          allowed_file_types: ['image/png'],
+          max_file_size_mb: 2
+        })
+        .select('id')
+        .single();
+
+      if (createError) {
+        console.error('Error creating signature field:', createError);
+        throw createError;
+      }
+
+      return newField.id;
+    } catch (error) {
+      console.error('Error in getOrCreateSignatureField:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload signature file
+   */
+  private async uploadSignatureFile(
+    submissionId: string,
+    signatureFile: File,
+    templateId: string
+  ): Promise<void> {
+    try {
+      // Get or create signature field
+      const signatureFieldId = await this.getOrCreateSignatureField(templateId);
+
+      // Generate filename
+      const uploadTime = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `${submissionId}/signature_of_person_met/signature-${uploadTime}.png`;
+
+      // Upload to storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('form_submissions')
+        .upload(fileName, signatureFile);
+
+      if (uploadError) {
+        console.error('Failed to upload signature:', uploadError);
+        throw uploadError;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('form_submissions')
+        .getPublicUrl(fileName);
+
+      // Save file record
+      const { error: insertError } = await supabase
+        .from('form_submission_files')
+        .insert({
+          submission_id: submissionId,
+          field_id: signatureFieldId,
+          file_url: urlData.publicUrl,
+          file_name: 'signature.png',
+          file_size: signatureFile.size,
+          mime_type: 'image/png',
+          uploaded_at: new Date().toISOString()
+        });
+
+      if (insertError) {
+        console.error('Failed to save signature file record:', insertError);
+        throw insertError;
+      }
+
+      console.log('Signature uploaded successfully');
+    } catch (error) {
+      console.error('Error uploading signature:', error);
+      throw error;
     }
   }
 

@@ -604,6 +604,7 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
             <div className="space-y-6">
               {/* Render all form fields, including file upload fields */}
               {submission.form_fields
+                ?.filter(field => field.field_key !== 'signature_of_person_met') // Exclude signature from regular fields
                 ?.sort((a, b) => (a.field_order || 0) - (b.field_order || 0))
                 ?.map((fieldInfo) => {
                 const fieldKey = fieldInfo.field_key;
@@ -635,6 +636,77 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
                   </div>
                 );
               })}
+              
+              {/* Display Signature Canvas Image if exists */}
+              {(() => {
+                // Check if signature exists in submission_data or form_submission_files
+                const signatureUrl = submission.submission_data['signature_of_person_met'];
+                const signatureFile = submission.form_submission_files?.find(file => 
+                  file.form_field?.field_key === 'signature_of_person_met'
+                );
+                const signatureImageUrl = signatureFile?.file_url || signatureUrl;
+                
+                if (signatureImageUrl) {
+                  return (
+                    <div className="border rounded-lg p-4 border-t-2 border-t-blue-500 bg-gray-50">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-medium text-lg">Signature of the Person Met</h4>
+                        <Badge variant="outline" className="capitalize bg-blue-50 text-blue-700 border-blue-200">
+                          Signature
+                        </Badge>
+                      </div>
+                      <div className="mt-4">
+                        {/* Display signature as canvas-style image */}
+                        <div className="border-2 border-gray-300 rounded-lg bg-white p-6 flex items-center justify-center min-h-[200px]">
+                          <img
+                            src={signatureImageUrl}
+                            alt="Signature of the Person Met"
+                            className="max-w-full max-h-[300px] object-contain"
+                            style={{ 
+                              imageRendering: 'auto',
+                              mixBlendMode: 'normal'
+                            }}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const errorDiv = target.nextElementSibling as HTMLElement;
+                              if (errorDiv) {
+                                errorDiv.classList.remove('hidden');
+                              }
+                            }}
+                          />
+                          <div className="hidden text-muted-foreground text-sm">
+                            Failed to load signature image
+                          </div>
+                        </div>
+                        <div className="mt-4 flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            asChild
+                          >
+                            <a href={signatureImageUrl} target="_blank" rel="noopener noreferrer">
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Full Size
+                            </a>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            asChild
+                          >
+                            <a href={signatureImageUrl} download="signature.png">
+                              <Download className="h-4 w-4 mr-2" />
+                              Download
+                            </a>
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
           </CardContent>
         </Card>

@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Upload, X, FileText, Camera, Trash2 } from 'lucide-react';
 import { CameraCapture } from '@/components/CameraCapture';
 import { addImageOverlay, isImageFile } from '@/utils/imageOverlayUtils';
+import { SignatureCanvas } from '@/components/SignatureCanvas';
 
 interface DynamicFormProps {
   contractTypeId: string;
@@ -91,6 +92,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   
   // Track uploaded files to prevent duplicates in auto-save
   const [uploadedFileHashes, setUploadedFileHashes] = useState<Set<string>>(new Set());
+  
+  // Signature state
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
   
   // Debug text fields
   const textFields = ['additional_notes', 'contact_person_designation', 'contact_person_name', 'business_name', 'premises_other'];
@@ -424,7 +429,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
 
       // Update updatedData with files (transform database format to form format)
       Object.entries(filesByField).forEach(([fieldKey, fieldFiles]) => {
-        if (updatedData[fieldKey]) {
+        // Handle signature field specially - it might not be in initialData
+        if (fieldKey === 'signature_of_person_met') {
+          const signatureFile = fieldFiles[0]; // Signature should have only one file
+          if (signatureFile) {
+            updatedData[fieldKey] = {
+              value: signatureFile.file_url,
+              files: []
+            };
+            setSignatureUrl(signatureFile.file_url);
+          }
+        } else if (updatedData[fieldKey]) {
           // Transform database file format to form file format
           const transformedFiles = fieldFiles.map(file => ({
             ...file,
@@ -658,6 +673,18 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         // Load files from draft data (now included in the draft)
         const updatedFormData = await loadDraftFilesFromDraft(draftData, initialData);
+        
+        // Load signature from draft files if exists
+        const signatureFile = draftData.form_submission_files?.find((file: any) => 
+          file.form_field?.field_key === 'signature_of_person_met'
+        );
+        if (signatureFile) {
+          setSignatureUrl(signatureFile.file_url);
+          // Initialize signature field in formData
+          if (!updatedFormData['signature_of_person_met']) {
+            updatedFormData['signature_of_person_met'] = { value: signatureFile.file_url, files: [] };
+          }
+        }
         
         // Auto-fill coordinates for draft data if not already present
         try {
@@ -1431,6 +1458,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       }
     });
 
+    // Validate signature (always mandatory)
+    if (!signatureFile && !signatureUrl) {
+      newErrors['signature_of_person_met'] = 'Signature of the Person Met is required';
+    }
+
     console.log('Validation errors:', newErrors);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -1439,7 +1471,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   const isFormComplete = () => {
     if (!template?.form_fields) return false;
     
-    return template.form_fields.every(field => {
+    const allFieldsComplete = template.form_fields.every(field => {
       const fieldData = formData[field.field_key];
       
       if (field.validation_type === 'mandatory') {
@@ -1453,6 +1485,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       }
       return true;
     });
+    
+    // Signature is always mandatory
+    const signatureComplete = signatureFile !== null || signatureUrl !== null;
+    
+    return allFieldsComplete && signatureComplete;
   };
 
   const handleSubmit = async () => {
@@ -1981,6 +2018,36 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       <CardContent className="p-0 flex flex-col h-[70vh]">
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
           {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
+          
+          {/* Signature Canvas - Always at the end */}
+          <div className="border-t pt-6 mt-6">
+            <SignatureCanvas
+              onSignatureChange={(file) => {
+                setSignatureFile(file);
+                // Update formData with signature
+                setFormData(prev => ({
+                  ...prev,
+                  signature_of_person_met: file ? { value: '', files: [file] } : { value: '', files: [] }
+                }));
+              }}
+              onSignatureUploaded={(url) => {
+                // Update signature URL when auto-saved
+                setSignatureUrl(url);
+                setFormData(prev => ({
+                  ...prev,
+                  signature_of_person_met: { value: url, files: [] }
+                }));
+              }}
+              initialSignature={signatureUrl || undefined}
+              disabled={loading}
+              caseId={caseId}
+              templateId={template?.id}
+              submissionId={draftData?.id}
+            />
+            {errors['signature_of_person_met'] && (
+              <p className="text-sm text-red-500 mt-1">{errors['signature_of_person_met']}</p>
+            )}
+          </div>
         </div>
         
         {/* Sticky Footer */}

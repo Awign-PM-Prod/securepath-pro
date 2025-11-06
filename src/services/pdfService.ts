@@ -76,6 +76,85 @@ export class PDFService {
   }
 
   /**
+   * Fetch signature image and convert to base64 with white background preserved
+   */
+  private static async fetchSignatureImageAsBase64(url: string, maxWidth: number = 1600, maxHeight: number = 1200): Promise<{ base64: string; width: number; height: number } | null> {
+    try {
+      // First, fetch the image
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error(`Failed to fetch signature image: ${url}`);
+        return null;
+      }
+      const blob = await response.blob();
+      
+      // Create object URL for the blob
+      const objectUrl = URL.createObjectURL(blob);
+      
+      return new Promise((resolve) => {
+        const img = new Image();
+        
+        img.onload = () => {
+          // Calculate resized dimensions to reduce file size
+          let width = img.width;
+          let height = img.height;
+          
+          // Resize if image is too large
+          if (width > maxWidth || height > maxHeight) {
+            const aspectRatio = width / height;
+            if (width > height) {
+              width = Math.min(width, maxWidth);
+              height = width / aspectRatio;
+            } else {
+              height = Math.min(height, maxHeight);
+              width = height * aspectRatio;
+            }
+          }
+          
+          // Create canvas with resized dimensions
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx) {
+            // Fill with white background first (ensures no black background)
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the signature image on top of white background
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Use PNG format to preserve white background (not JPEG)
+            const base64 = canvas.toDataURL('image/png', 1.0);
+            URL.revokeObjectURL(objectUrl); // Clean up
+            resolve({
+              base64,
+              width: width,
+              height: height
+            });
+          } else {
+            URL.revokeObjectURL(objectUrl);
+            resolve(null);
+          }
+        };
+        
+        img.onerror = () => {
+          console.error('Failed to load signature image:', url);
+          URL.revokeObjectURL(objectUrl);
+          resolve(null);
+        };
+        
+        // Set source to load the image
+        img.src = objectUrl;
+      });
+    } catch (error) {
+      console.error('Error fetching signature image:', error);
+      return null;
+    }
+  }
+
+  /**
    * Calculate dimensions while maintaining aspect ratio
    */
   private static calculateImageDimensions(
@@ -200,8 +279,11 @@ export class PDFService {
         );
         
         // Separate non-file-upload fields and file-upload fields
+        // Exclude signature field from regular file uploads (will be added at the end)
         const textFields = sortedFields.filter(field => field.field_type !== 'file_upload');
-        const fileUploadFields = sortedFields.filter(field => field.field_type === 'file_upload');
+        const fileUploadFields = sortedFields.filter(field => 
+          field.field_type === 'file_upload' && field.field_key !== 'signature_of_person_met'
+        );
 
         // Create table with Question and Answer columns
         const questionColWidth = contentWidth * 0.4; // 40% for questions (increased from 35%)
@@ -274,7 +356,9 @@ export class PDFService {
               const sortedFields = [...sub.form_fields].sort((a, b) => 
                 (a.field_order || 0) - (b.field_order || 0)
               );
-              const subFileUploadFields = sortedFields.filter(field => field.field_type === 'file_upload');
+              const subFileUploadFields = sortedFields.filter(field => 
+                field.field_type === 'file_upload' && field.field_key !== 'signature_of_person_met'
+              );
               
               for (let fieldIdx = 0; fieldIdx < subFileUploadFields.length; fieldIdx++) {
                 const field = subFileUploadFields[fieldIdx];
@@ -326,78 +410,61 @@ export class PDFService {
                 const file = imagesToProcess[imageIndex];
                 const imageUrl = file.file_url;
                 
-                // Check if this is the very last image across all submissions
-                const isLastImage = currentImageIndex === allImagesAcrossSubmissions.length - 1;
-                
-                // Create new page for each image
-                doc.addPage();
-                yPosition = margin + 15; // Start a bit below top for question
-                
-                // Show question title at top
-                // If multiple images, add number: "Question - 1", "Question - 2", etc.
-                // If single image, just show "Question"
-                const questionText = imagesToProcess.length > 1 
-                  ? `${fieldTitle} - ${imageIndex + 1}`
-                  : fieldTitle;
-                
-                doc.setFontSize(14);
-                doc.setFont('helvetica', 'bold');
-                const questionWidth = doc.getTextWidth(questionText);
-                const questionX = (pageWidth - questionWidth) / 2; // Center the question
-                doc.text(questionText, questionX, yPosition);
-                yPosition += 12;
-                
-                try {
-                  // Fetch image with higher quality for full-page display
-                  const imageData = await this.fetchImageAsBase64(imageUrl, 1600, 1200, 0.75);
-                  if (imageData) {
-                    // Calculate dimensions to fit the page (with margins)
-                    // Reserve space for stamp if this is the last image
-                    const availableWidth = pageWidth - 2 * margin;
-                    const reservedBottomSpace = isLastImage ? 50 : margin + 10; // Reserve 50mm for stamp on last image
-                    const availableHeight = pageHeight - yPosition - reservedBottomSpace;
+                    // Regular images don't get stamp (signature will be last with stamp)
+                    const isLastImage = false; // Never true for regular images now
                     
-                    // Calculate dimensions maintaining aspect ratio
-                    const { width, height } = this.calculateImageDimensions(
-                      imageData.width,
-                      imageData.height,
-                      availableWidth,
-                      availableHeight
-                    );
+                    // Create new page for each image
+                    doc.addPage();
+                    yPosition = margin + 15; // Start a bit below top for question
                     
-                    // Center the image horizontally
-                    const imageX = (pageWidth - width) / 2;
+                    // Show question title at top
+                    // If multiple images, add number: "Question - 1", "Question - 2", etc.
+                    // If single image, just show "Question"
+                    const questionText = imagesToProcess.length > 1 
+                      ? `${fieldTitle} - ${imageIndex + 1}`
+                      : fieldTitle;
                     
-                    // Use JPEG format (from compressed base64)
-                    doc.addImage(imageData.base64, 'JPEG', imageX, yPosition, width, height);
+                    doc.setFontSize(14);
+                    doc.setFont('helvetica', 'bold');
+                    const questionWidth = doc.getTextWidth(questionText);
+                    const questionX = (pageWidth - questionWidth) / 2; // Center the question
+                    doc.text(questionText, questionX, yPosition);
+                    yPosition += 12;
                     
-                    // Add stamp and signature below the image if this is the last image
-                    if (isLastImage) {
-                      await this.addStampAndSignature(doc, pageWidth, yPosition + height, margin);
+                    try {
+                      // Fetch image with higher quality for full-page display
+                      const imageData = await this.fetchImageAsBase64(imageUrl, 1600, 1200, 0.75);
+                      if (imageData) {
+                        // Calculate dimensions to fit the page (with margins)
+                        const availableWidth = pageWidth - 2 * margin;
+                        const availableHeight = pageHeight - yPosition - margin - 10;
+                        
+                        // Calculate dimensions maintaining aspect ratio
+                        const { width, height } = this.calculateImageDimensions(
+                          imageData.width,
+                          imageData.height,
+                          availableWidth,
+                          availableHeight
+                        );
+                        
+                        // Center the image horizontally
+                        const imageX = (pageWidth - width) / 2;
+                        
+                        // Use JPEG format (from compressed base64)
+                        doc.addImage(imageData.base64, 'JPEG', imageX, yPosition, width, height);
+                      } else {
+                        // Fallback to URL if image can't be loaded
+                        doc.setFontSize(10);
+                        doc.setFont('helvetica', 'normal');
+                        doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
+                      }
+                    } catch (error) {
+                      // Fallback to URL on error
+                      console.error('Error embedding image:', error);
+                      doc.setFontSize(10);
+                      doc.setFont('helvetica', 'normal');
+                      doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
                     }
-                  } else {
-                    // Fallback to URL if image can't be loaded
-                    doc.setFontSize(10);
-                    doc.setFont('helvetica', 'normal');
-                    doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
-                    
-                    // Add stamp even if image failed (on last page)
-                    if (isLastImage) {
-                      await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
-                    }
-                  }
-                } catch (error) {
-                  // Fallback to URL on error
-                  console.error('Error embedding image:', error);
-                  doc.setFontSize(10);
-                  doc.setFont('helvetica', 'normal');
-                  doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
-                  
-                  // Add stamp even if image failed (on last page)
-                  if (isLastImage) {
-                    await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
-                  }
-                }
                 
                 currentImageIndex++;
               }
@@ -429,6 +496,84 @@ export class PDFService {
             }
           }
         }
+      }
+    }
+
+    // Add signature image as the very last image, after all other images
+    // Check all submissions for signature
+    let signatureFound = false;
+    for (const submission of submissions) {
+      // Check for signature in submission_data or form_submission_files
+      const signatureUrl = submission.submission_data['signature_of_person_met'];
+      const signatureFile = submission.form_submission_files?.find(file => 
+        file.form_field?.field_key === 'signature_of_person_met'
+      );
+      const signatureImageUrl = signatureFile?.file_url || signatureUrl;
+      
+      if (signatureImageUrl && !signatureFound) {
+        signatureFound = true;
+        
+        // Create new page for signature
+        doc.addPage();
+        yPosition = margin + 15;
+        
+        // Show signature title
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        const signatureTitle = 'Signature of the Person Met';
+        const titleWidth = doc.getTextWidth(signatureTitle);
+        const titleX = (pageWidth - titleWidth) / 2; // Center the title
+        doc.text(signatureTitle, titleX, yPosition);
+        yPosition += 12;
+        
+        try {
+          // Fetch signature image with special handling for PNG format
+          const imageData = await this.fetchSignatureImageAsBase64(signatureImageUrl, 1600, 1200);
+          if (imageData) {
+            // Calculate dimensions to fit the page (with margins)
+            // Reserve space for stamp below signature
+            const availableWidth = pageWidth - 2 * margin;
+            const reservedBottomSpace = 50; // Reserve 50mm for stamp
+            const availableHeight = pageHeight - yPosition - reservedBottomSpace;
+            
+            // Calculate dimensions maintaining aspect ratio
+            const { width, height } = this.calculateImageDimensions(
+              imageData.width,
+              imageData.height,
+              availableWidth,
+              availableHeight
+            );
+            
+            // Center the image horizontally
+            const imageX = (pageWidth - width) / 2;
+            
+            // Use PNG format for signature (preserves white background)
+            doc.addImage(imageData.base64, 'PNG', imageX, yPosition, width, height);
+            
+            // Add stamp and signature below the signature image
+            await this.addStampAndSignature(doc, pageWidth, yPosition + height, margin);
+          } else {
+            // Fallback to URL if image can't be loaded
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Signature URL: ${signatureImageUrl}`, margin, yPosition);
+            
+            // Add stamp even if signature image failed
+            await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
+          }
+        } catch (error) {
+          // Fallback to URL on error
+          console.error('Error embedding signature image:', error);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`Signature URL: ${signatureImageUrl}`, margin, yPosition);
+          
+          // Add stamp even if signature image failed
+          await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
+        }
+        
+        // Only process first signature found (should be only one)
+        break;
       }
     }
 
