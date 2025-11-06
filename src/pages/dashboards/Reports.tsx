@@ -64,6 +64,7 @@ interface Case {
   QC_Response?: 'Rework' | 'Approved' | 'Rejected' | 'New';
   assigned_at?: string;
   submitted_at?: string;
+  is_positive?: boolean;
 }
 
 const STATUS_COLORS = {
@@ -183,6 +184,7 @@ export default function Reports() {
         .from('cases')
         .select(`
           *,
+          is_positive,
           clients(id, name, contact_person, phone, email),
           locations(id, address_line, city, state, pincode, pincode_tier, lat, lng, location_url)
         `)
@@ -246,6 +248,7 @@ export default function Reports() {
         total_payout_inr: caseItem.total_payout_inr,
         QC_Response: caseItem.QC_Response as any,
         assigned_at: caseItem.assigned_at,
+        is_positive: caseItem.is_positive,
         // Use updated_at from form_submissions instead of submitted_at
         submitted_at: formSubmissionsMap.get(caseItem.id) || null
       })) || [];
@@ -381,12 +384,14 @@ export default function Reports() {
           
           const submissions = await fetchFormSubmissions(caseItem.id);
           
-          // Add case number to each submission for identification
+          // Add case number and case info to each submission for identification
           submissions.forEach(sub => {
             allSubmissions.push({
               ...sub,
               case_number: caseItem.case_number,
-            } as FormSubmissionData & { case_number?: string });
+              _contract_type: caseItem.contract_type,
+              _is_positive: caseItem.is_positive,
+            } as FormSubmissionData & { case_number?: string; _contract_type?: string; _is_positive?: boolean });
           });
         }
 
@@ -402,7 +407,7 @@ export default function Reports() {
         }
 
         // Generate CSV with case number column
-        const csvContent = generateBulkCSV(allSubmissions);
+        const csvContent = await generateBulkCSV(allSubmissions);
         
         if (!csvContent) {
           toast({
@@ -434,7 +439,12 @@ export default function Reports() {
           if (submissions.length > 0) {
             try {
               // Generate PDF as blob
-              const pdfBlob = await PDFService.convertFormSubmissionsToPDFBlob(submissions, caseItem.case_number, caseItem.contract_type);
+              const pdfBlob = await PDFService.convertFormSubmissionsToPDFBlob(
+                submissions, 
+                caseItem.case_number, 
+                caseItem.contract_type,
+                caseItem.is_positive
+              );
               pdfBlobs.push({ blob: pdfBlob, caseNumber: caseItem.case_number });
             } catch (error) {
               console.error(`Error generating PDF for case ${caseItem.case_number}:`, error);
@@ -603,52 +613,76 @@ export default function Reports() {
   };
 
   // Generate CSV with case number for bulk download
-  const generateBulkCSV = (submissions: Array<FormSubmissionData & { case_number?: string }>): string => {
+  const generateBulkCSV = async (submissions: Array<FormSubmissionData & { case_number?: string; _contract_type?: string; _is_positive?: boolean }>): Promise<string> => {
     if (submissions.length === 0) {
       return '';
     }
 
-    // Use the existing CSVService to generate base CSV
-    const baseCSV = CSVService.convertFormSubmissionsToCSV(submissions);
-    
-    // Check if we have multiple cases
-    const uniqueCases = new Set(submissions.map(s => s.case_number).filter(Boolean));
-    const hasMultipleCases = uniqueCases.size > 1;
-
-    if (!hasMultipleCases) {
-      return baseCSV;
-    }
-
-    // Parse the CSV and add case number column
-    const lines = baseCSV.split('\n').filter(line => line.trim());
-    if (lines.length === 0) {
-      return baseCSV;
-    }
-
-    // Add "Case Number" as first column in header
-    const headerLine = 'Case Number,' + lines[0];
-    
-    // Add case number to each data row (one row per submission)
-    const dataLines = lines.slice(1).map((line, index) => {
-      if (index >= submissions.length) return line; // Safety check
-      const submission = submissions[index];
-      const caseNumber = submission?.case_number || '';
-      // Escape case number if it contains commas/quotes
-      const escapedCaseNumber = (caseNumber.includes(',') || caseNumber.includes('"') || caseNumber.includes('\n')) 
-        ? `"${caseNumber.replace(/"/g, '""')}"` 
-        : caseNumber;
-      return escapedCaseNumber + ',' + line;
+    // Group submissions by case
+    const submissionsByCase = new Map<string, Array<FormSubmissionData & { case_number?: string; _contract_type?: string; _is_positive?: boolean }>>();
+    submissions.forEach(sub => {
+      const caseNum = sub.case_number || 'unknown';
+      if (!submissionsByCase.has(caseNum)) {
+        submissionsByCase.set(caseNum, []);
+      }
+      submissionsByCase.get(caseNum)!.push(sub);
     });
 
-    return [headerLine, ...dataLines].join('\n');
+    // Process each case separately to handle negative cases correctly
+    const csvRows: string[] = [];
+    let headers: string[] = [];
+    const allHeaders = new Set<string>();
+
+    for (const [caseNumber, caseSubmissions] of submissionsByCase.entries()) {
+      const firstSubmission = caseSubmissions[0];
+      const contractType = firstSubmission._contract_type;
+      const isPositive = firstSubmission._is_positive;
+
+      // Clean submissions (remove metadata)
+      const cleanSubmissions = caseSubmissions.map(sub => {
+        const { case_number, _contract_type, _is_positive, ...clean } = sub;
+        return clean as FormSubmissionData;
+      });
+
+      // Generate CSV for this case
+      const caseCSV = await CSVService.convertFormSubmissionsToCSV(cleanSubmissions, contractType, isPositive);
+      const lines = caseCSV.split('\n').filter(line => line.trim());
+      
+      if (lines.length === 0) continue;
+
+      // First line is headers
+      if (headers.length === 0) {
+        headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, ''));
+        headers.forEach(h => allHeaders.add(h));
+        // Add "Case Number" as first column
+        csvRows.push('Case Number,' + lines[0]);
+      } else {
+        // Collect all headers from this case
+        const caseHeaders = lines[0].split(',').map(h => h.replace(/^"|"$/g, ''));
+        caseHeaders.forEach(h => allHeaders.add(h));
+      }
+
+      // Add data rows with case number
+      const dataLines = lines.slice(1);
+      dataLines.forEach(line => {
+        const escapedCaseNumber = (caseNumber.includes(',') || caseNumber.includes('"') || caseNumber.includes('\n')) 
+          ? `"${caseNumber.replace(/"/g, '""')}"` 
+          : caseNumber;
+        csvRows.push(escapedCaseNumber + ',' + line);
+      });
+    }
+
+    // If we have multiple cases with different headers, we need to normalize
+    // For now, return the combined CSV
+    return csvRows.join('\n');
   };
 
   const fetchFormSubmissions = async (caseId: string): Promise<FormSubmissionData[]> => {
     try {
       console.log('Fetching form submissions for case:', caseId);
       
-      // Fetch form submissions for the case
-      const { data, error } = await supabase
+      // First try to get final submissions (same logic as CaseDetail/DynamicFormSubmission)
+      let { data, error } = await supabase
         .from('form_submissions' as any)
         .select(`
           *,
@@ -669,11 +703,12 @@ export default function Reports() {
           )
         `)
         .eq('case_id', caseId)
+        .eq('status', 'final')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
       
-      console.log('Form submissions query result:', {
+      console.log('Form submissions query result (final):', {
         data,
         error,
         count: data?.length || 0
@@ -685,7 +720,46 @@ export default function Reports() {
         form_fields: submission.form_template?.form_fields || []
       })) || [];
       
-      // If no form submissions found, try legacy submissions table
+      // If no final submissions found, try to get draft submissions (same as CaseDetail)
+      if (!transformedData || transformedData.length === 0) {
+        console.log('No final submissions found, checking draft submissions...');
+        
+        const { data: draftData, error: draftError } = await supabase
+          .from('form_submissions' as any)
+          .select(`
+            *,
+            form_template:form_templates(
+              template_name, 
+              template_version,
+              form_fields(field_key, field_title, field_type, field_order)
+            ),
+            form_submission_files(
+              id,
+              field_id,
+              file_url,
+              file_name,
+              file_size,
+              mime_type,
+              uploaded_at,
+              form_field:form_fields(field_title, field_type, field_key)
+            )
+          `)
+          .eq('case_id', caseId)
+          .eq('status', 'draft')
+          .order('created_at', { ascending: false });
+
+        if (draftError) {
+          console.error('Error fetching draft submissions:', draftError);
+        } else if (draftData && draftData.length > 0) {
+          console.log('Found draft submissions:', draftData);
+          transformedData = draftData.map((submission: any) => ({
+            ...submission,
+            form_fields: submission.form_template?.form_fields || []
+          }));
+        }
+      }
+      
+      // If still no form submissions found, try legacy submissions table
       if (transformedData.length === 0) {
         console.log('No form submissions found, checking legacy submissions table...');
         
@@ -836,7 +910,12 @@ export default function Reports() {
       }
 
       setDownloadProgress(60);
-      await PDFService.convertFormSubmissionsToPDF(submissions, caseItem.case_number, caseItem.contract_type);
+      await PDFService.convertFormSubmissionsToPDF(
+        submissions, 
+        caseItem.case_number, 
+        caseItem.contract_type,
+        caseItem.is_positive
+      );
       setDownloadProgress(100);
       
       toast({

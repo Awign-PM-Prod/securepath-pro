@@ -542,8 +542,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         };
       });
 
-      // Auto-fill case data for specific fields
-      if (caseData) {
+      // Auto-fill case data for specific fields (skip for negative cases)
+      if (caseData && !isNegative) {
         console.log('DynamicForm: Auto-filling case data:', caseData);
         
         // Define the mapping of case data to form fields
@@ -589,12 +589,15 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         });
         
         console.log('Final initial data after auto-fill:', initialData);
+      } else if (isNegative) {
+        console.log('DynamicForm: Skipping auto-fill for negative case template');
       }
 
-      // Auto-fill latitude/longitude coordinates
-      try {
-        const location = await getCurrentLocation();
-        console.log('DynamicForm: Auto-filling coordinates:', location);
+      // Auto-fill latitude/longitude coordinates (skip for negative cases)
+      if (!isNegative) {
+        try {
+          const location = await getCurrentLocation();
+          console.log('DynamicForm: Auto-filling coordinates:', location);
         
         // Define coordinate field mappings
         const coordinateFields = [
@@ -619,10 +622,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         });
         
         console.log('Coordinates auto-filled successfully');
-      } catch (error) {
-        console.warn('Could not auto-fill coordinates:', error);
-        // Don't show error to user as this is optional functionality
-      }
+          } catch (error) {
+            console.warn('Could not auto-fill coordinates:', error);
+            // Don't show error to user as this is optional functionality
+          }
+        } else {
+          console.log('DynamicForm: Skipping coordinate auto-fill for negative case template');
+        }
 
       // Helper function to format date-time in local timezone for datetime-local input
       const formatLocalDateTime = (date: Date): string => {
@@ -807,10 +813,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         }
         
-        // Auto-fill coordinates for draft data if not already present
-        try {
-          const location = await getCurrentLocation();
-          console.log('DynamicForm: Auto-filling coordinates for draft:', location);
+        // Auto-fill coordinates for draft data if not already present (skip for negative cases)
+        if (!isNegative) {
+          try {
+            const location = await getCurrentLocation();
+            console.log('DynamicForm: Auto-filling coordinates for draft:', location);
           
           // Define coordinate field mappings
           const coordinateFields = [
@@ -835,9 +842,12 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           });
           
           console.log('Coordinates auto-filled for draft successfully');
-        } catch (error) {
-          console.warn('Could not auto-fill coordinates for draft:', error);
-          // Don't show error to user as this is optional functionality
+          } catch (error) {
+            console.warn('Could not auto-fill coordinates for draft:', error);
+            // Don't show error to user as this is optional functionality
+          }
+        } else {
+          console.log('DynamicForm: Skipping coordinate auto-fill for draft in negative case template');
         }
         
         // Auto-fill date and time fields for draft data if empty

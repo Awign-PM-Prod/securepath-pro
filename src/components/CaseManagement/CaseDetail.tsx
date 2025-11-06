@@ -79,6 +79,7 @@ interface CaseDetailProps {
     bonus_inr?: number;
     penalty_inr?: number;
     total_payout_inr?: number;
+    is_positive?: boolean;
     notes?: string;
     attachments?: Array<{
       id: string;
@@ -201,7 +202,11 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       setDownloadType('csv');
       setDownloadProgress(30);
 
-      const csvContent = CSVService.convertFormSubmissionsToCSV(formSubmissions);
+      const csvContent = await CSVService.convertFormSubmissionsToCSV(
+        formSubmissions, 
+        caseData.contract_type, 
+        caseData.is_positive
+      );
       setDownloadProgress(70);
 
       const filename = `case-${caseData.case_number}-responses-${new Date().toISOString().split('T')[0]}.csv`;
@@ -236,7 +241,12 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       setDownloadProgress(10);
 
       setDownloadProgress(40);
-      await PDFService.convertFormSubmissionsToPDF(formSubmissions, caseData.case_number, caseData.contract_type);
+      await PDFService.convertFormSubmissionsToPDF(
+        formSubmissions, 
+        caseData.case_number, 
+        caseData.contract_type,
+        caseData.is_positive
+      );
       
       setDownloadProgress(100);
       toast.success('PDF file downloaded successfully');

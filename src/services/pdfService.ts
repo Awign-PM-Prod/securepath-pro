@@ -183,9 +183,10 @@ export class PDFService {
   static async convertFormSubmissionsToPDFBlob(
     submissions: FormSubmissionData[],
     caseNumber: string,
-    contractType?: string
+    contractType?: string,
+    isPositive?: boolean
   ): Promise<Blob> {
-    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType);
+    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive);
     return doc.output('blob');
   }
 
@@ -213,7 +214,8 @@ export class PDFService {
   private static async generatePDFDocument(
     submissions: FormSubmissionData[],
     caseNumber: string,
-    contractType?: string
+    contractType?: string,
+    isPositive?: boolean
   ): Promise<jsPDF> {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -263,7 +265,46 @@ export class PDFService {
 
     // Process each submission
     for (let index = 0; index < submissions.length; index++) {
-      const submission = submissions[index];
+      let submission = submissions[index];
+      
+      // For negative cases, merge original contract template with negative template
+      // Show original contract fields first (with "Not provided"), then negative template fields (with actual responses)
+      if (isPositive === false && contractType && submission.form_fields) {
+        const { formService } = await import('./formService');
+        const mergeResult = await formService.mergeTemplatesForNegativeCase(contractType, submission);
+        
+        if (mergeResult.success && mergeResult.mergedFields) {
+          // Create merged submission data
+          const mergedSubmissionData: Record<string, any> = {};
+          
+          // Process fields: original fields get "Not provided", negative fields get actual responses
+          mergeResult.mergedFields.forEach(field => {
+            if (field._isOriginalField) {
+              // Original contract fields - show "Not provided"
+              mergedSubmissionData[field._uniqueKey] = 'Not provided';
+            } else if (field._isNegativeField && field._isNegativeOnly) {
+              // Negative-only fields - use actual response
+              mergedSubmissionData[field._uniqueKey] = submission.submission_data[field._negativeFieldKey || field.field_key];
+            }
+          });
+          
+          // Create modified submission with merged fields
+          submission = {
+            ...submission,
+            form_fields: mergeResult.mergedFields.map(field => ({
+              field_key: field._uniqueKey,
+              field_title: field.field_title,
+              field_type: field.field_type,
+              field_order: field.field_order,
+              // Keep original field_key for reference
+              _originalFieldKey: field._originalFieldKey || field.field_key,
+              _negativeFieldKey: field._negativeFieldKey || field.field_key,
+              _isNegativeOnly: field._isNegativeOnly || false
+            })),
+            submission_data: mergedSubmissionData
+          };
+        }
+      }
       
       // For subsequent submissions, just add spacing (no title/logo on new pages)
       if (index > 0) {
@@ -273,10 +314,18 @@ export class PDFService {
 
       // Process form fields and answers in table format
       if (submission.form_fields && submission.form_fields.length > 0) {
-        // Sort fields by order and separate file uploads from other fields
-        const sortedFields = [...submission.form_fields].sort((a, b) => 
-          (a.field_order || 0) - (b.field_order || 0)
-        );
+        // For negative cases, preserve the merged order (original fields first, then negative fields)
+        // For positive cases, sort by field_order
+        let sortedFields: any[];
+        if (isPositive === false) {
+          // Negative case: preserve the order from merge (original fields first, then negative fields)
+          sortedFields = [...submission.form_fields];
+        } else {
+          // Positive case: sort by field_order
+          sortedFields = [...submission.form_fields].sort((a, b) => 
+            (a.field_order || 0) - (b.field_order || 0)
+          );
+        }
         
         // Separate non-file-upload fields and file-upload fields
         // Exclude signature field from regular file uploads (will be added at the end)
@@ -709,9 +758,10 @@ export class PDFService {
   static async convertFormSubmissionsToPDF(
     submissions: FormSubmissionData[],
     caseNumber: string,
-    contractType?: string
+    contractType?: string,
+    isPositive?: boolean
   ): Promise<void> {
-    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType);
+    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive);
     // Download the PDF
     const filename = `case-${caseNumber}-responses-${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(filename);

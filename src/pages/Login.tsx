@@ -40,13 +40,13 @@ export default function Login() {
     resolver: zodResolver(loginSchema),
   });
 
-  // Redirect if already logged in
+  // Redirect if already logged in (but not if OTP verification is pending)
   useEffect(() => {
-    if (user) {
+    if (user && !showOTP) {
       const redirectPath = getRoleRedirectPath(user.profile.role);
       navigate(redirectPath, { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, showOTP]);
 
   const getRoleRedirectPath = (role: UserRole) => {
     switch (role) {
@@ -148,11 +148,12 @@ export default function Login() {
   };
 
   const handleOTPVerified = () => {
+    setShowOTP(false);
     toast({
       title: 'Success',
       description: 'Login successful!',
     });
-    // The auth context will handle the redirect
+    // The useEffect will handle the redirect now that showOTP is false
   };
 
   const handleCancelOTP = async () => {

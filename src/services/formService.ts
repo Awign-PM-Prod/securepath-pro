@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { FormTemplate, FormField, FormSubmission, FormData, FormBuilderTemplate } from '@/types/form';
+import type { FormSubmissionData } from './csvService';
 
 export class FormService {
   /**
@@ -1108,6 +1109,62 @@ export class FormService {
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
+   * Merge original contract template fields with negative template fields for PDF/CSV export
+   * For negative cases, shows original contract fields with "Not provided" and negative fields with actual responses
+   */
+  async mergeTemplatesForNegativeCase(
+    contractTypeKey: string,
+    negativeSubmission: FormSubmissionData
+  ): Promise<{ success: boolean; mergedFields?: any[]; error?: string }> {
+    try {
+      // Get the original contract type template (positive template)
+      const originalTemplateResult = await this.getFormTemplate(contractTypeKey, false);
+      
+      if (!originalTemplateResult.success || !originalTemplateResult.template) {
+        return {
+          success: false,
+          error: `Could not find original template for contract type: ${contractTypeKey}`
+        };
+      }
+
+      const originalFields = originalTemplateResult.template.form_fields || [];
+      const negativeFields = negativeSubmission.form_fields || [];
+
+      // Simple merge: All original fields first, then all negative fields
+      const mergedFields: any[] = [];
+      
+      // 1. Add ALL original contract fields first (with "Not provided")
+      originalFields.forEach((field, index) => {
+        mergedFields.push({
+          ...field,
+          _originalFieldKey: field.field_key,
+          _uniqueKey: `original_${field.field_key}_${index}`, // Use unique key to prevent conflicts
+          _isOriginalField: true
+        });
+      });
+      
+      // 2. Add ALL negative template fields after (with actual responses)
+      negativeFields.forEach((field, index) => {
+        mergedFields.push({
+          ...field,
+          _negativeFieldKey: field.field_key,
+          _uniqueKey: `negative_${field.field_key}_${index}`, // Use unique key to prevent conflicts
+          _isNegativeField: true,
+          _isNegativeOnly: true
+        });
+      });
+
+      return { success: true, mergedFields };
+    } catch (error) {
+      console.error('Error merging templates for negative case:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }

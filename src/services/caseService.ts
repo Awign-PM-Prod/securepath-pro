@@ -127,6 +127,7 @@ export class CaseService {
           last_updated_by,
           status_updated_at,
           "QC_Response",
+          is_positive,
           clients!inner (
             id,
             name,

@@ -49,15 +49,64 @@ export class CSVService {
   /**
    * Convert form submission data to CSV format
    * Questions in row 1, Answers in row 2
+   * @param submissions - Form submission data
+   * @param contractType - Contract type key (for negative case merging)
+   * @param isPositive - Whether the case is positive (for negative case merging)
    */
-  static convertFormSubmissionsToCSV(submissions: FormSubmissionData[]): string {
+  static async convertFormSubmissionsToCSV(
+    submissions: FormSubmissionData[], 
+    contractType?: string, 
+    isPositive?: boolean
+  ): Promise<string> {
     if (submissions.length === 0) {
       return '';
     }
 
+    // For negative cases, merge original contract template with negative template
+    // Show original contract fields first (with "Not provided"), then negative template fields (with actual responses)
+    let processedSubmissions = submissions;
+    if (isPositive === false && contractType && submissions.length > 0) {
+      const { formService } = await import('./formService');
+      const negativeSubmission = submissions[0]; // Usually only one submission for negative cases
+      
+      const mergeResult = await formService.mergeTemplatesForNegativeCase(contractType, negativeSubmission);
+      
+      if (mergeResult.success && mergeResult.mergedFields) {
+        // Create merged submission data
+        const mergedSubmissionData: Record<string, any> = {};
+        
+        // Process fields: original fields get "Not provided", negative fields get actual responses
+        mergeResult.mergedFields.forEach(field => {
+          if (field._isOriginalField) {
+            // Original contract fields - show "Not provided"
+            mergedSubmissionData[field._uniqueKey] = 'Not provided';
+          } else if (field._isNegativeField && field._isNegativeOnly) {
+            // Negative-only fields - use actual response
+            mergedSubmissionData[field._uniqueKey] = negativeSubmission.submission_data[field._negativeFieldKey || field.field_key];
+          }
+        });
+        
+        // Create modified submission with merged fields
+        processedSubmissions = [{
+          ...negativeSubmission,
+          form_fields: mergeResult.mergedFields.map(field => ({
+            field_key: field._uniqueKey,
+            field_title: field.field_title,
+            field_type: field.field_type,
+            field_order: field.field_order,
+            // Keep original field_key for reference
+            _originalFieldKey: field._originalFieldKey || field.field_key,
+            _negativeFieldKey: field._negativeFieldKey || field.field_key,
+            _isNegativeOnly: field._isNegativeOnly || false
+          })),
+          submission_data: mergedSubmissionData
+        }];
+      }
+    }
+
     // Get all unique field keys from all submissions
     const allFieldKeys = new Set<string>();
-    submissions.forEach(submission => {
+    processedSubmissions.forEach(submission => {
       submission.form_fields?.forEach(field => {
         allFieldKeys.add(field.field_key);
       });
@@ -65,7 +114,7 @@ export class CSVService {
 
     // Create field mapping with titles
     const fieldMapping = new Map<string, string>();
-    submissions.forEach(submission => {
+    processedSubmissions.forEach(submission => {
       submission.form_fields?.forEach(field => {
         fieldMapping.set(field.field_key, field.field_title);
       });
@@ -73,8 +122,8 @@ export class CSVService {
 
     // Convert field keys to array and sort by field order
     const sortedFieldKeys = Array.from(allFieldKeys).sort((a, b) => {
-      const fieldA = submissions.find(s => s.form_fields?.some(f => f.field_key === a))?.form_fields?.find(f => f.field_key === a);
-      const fieldB = submissions.find(s => s.form_fields?.some(f => f.field_key === b))?.form_fields?.find(f => f.field_key === b);
+      const fieldA = processedSubmissions.find(s => s.form_fields?.some(f => f.field_key === a))?.form_fields?.find(f => f.field_key === a);
+      const fieldB = processedSubmissions.find(s => s.form_fields?.some(f => f.field_key === b))?.form_fields?.find(f => f.field_key === b);
       const orderA = fieldA?.field_order || 0;
       const orderB = fieldB?.field_order || 0;
       return orderA - orderB;
@@ -89,7 +138,7 @@ export class CSVService {
     // Create CSV rows for each submission
     const rows: string[] = [];
     
-    submissions.forEach((submission, submissionIndex) => {
+    processedSubmissions.forEach((submission, submissionIndex) => {
       const rowValues = sortedFieldKeys.map(fieldKey => {
         const value = submission.submission_data[fieldKey];
         const fieldType = submission.form_fields?.find(f => f.field_key === fieldKey)?.field_type || 'text';
