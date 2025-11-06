@@ -125,6 +125,7 @@ export default function Reports() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadType, setDownloadType] = useState<'csv' | 'pdf' | null>(null);
   const [downloadingCase, setDownloadingCase] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -434,11 +435,12 @@ export default function Reports() {
           setDownloadProgress(Math.round(((i + 1) / totalCases) * 80));
           setDownloadingCase(caseItem.id);
           
+          // Use exact same process as CaseDetail page
           const submissions = await fetchFormSubmissions(caseItem.id);
           
           if (submissions.length > 0) {
             try {
-              // Generate PDF as blob
+              // Generate PDF as blob (same as single PDF, but returns blob instead of downloading)
               const pdfBlob = await PDFService.convertFormSubmissionsToPDFBlob(
                 submissions, 
                 caseItem.case_number, 
@@ -677,11 +679,13 @@ export default function Reports() {
     return csvRows.join('\n');
   };
 
-  const fetchFormSubmissions = async (caseId: string): Promise<FormSubmissionData[]> => {
+  const fetchFormSubmissions = async (caseId: string): Promise<any[]> => {
+    // Use EXACT same logic as DynamicFormSubmission component
+    // This ensures we get the exact same data structure that CaseDetail uses
     try {
-      console.log('Fetching form submissions for case:', caseId);
+      console.log('DynamicFormSubmission: Fetching submissions for case:', caseId);
       
-      // First try to get final submissions (same logic as CaseDetail/DynamicFormSubmission)
+      // First try to get final submissions
       let { data, error } = await supabase
         .from('form_submissions' as any)
         .select(`
@@ -708,22 +712,14 @@ export default function Reports() {
 
       if (error) throw error;
       
-      console.log('Form submissions query result (final):', {
+      console.log('DynamicFormSubmission: Form submissions query result:', {
         data,
         error,
         count: data?.length || 0
       });
       
-      // Transform the data to include form_fields at the submission level
-      let transformedData = data?.map((submission: any) => ({
-        ...submission,
-        form_fields: submission.form_template?.form_fields || []
-      })) || [];
-      
-      // If no final submissions found, try to get draft submissions (same as CaseDetail)
-      if (!transformedData || transformedData.length === 0) {
-        console.log('No final submissions found, checking draft submissions...');
-        
+      // If no final submissions found, try to get draft submissions
+      if (!data || data.length === 0) {
         const { data: draftData, error: draftError } = await supabase
           .from('form_submissions' as any)
           .select(`
@@ -748,18 +744,24 @@ export default function Reports() {
           .eq('status', 'draft')
           .order('created_at', { ascending: false });
 
-        if (draftError) {
-          console.error('Error fetching draft submissions:', draftError);
-        } else if (draftData && draftData.length > 0) {
-          console.log('Found draft submissions:', draftData);
-          transformedData = draftData.map((submission: any) => ({
-            ...submission,
-            form_fields: submission.form_template?.form_fields || []
-          }));
-        }
+        if (draftError) throw draftError;
+        
+        console.log('DynamicFormSubmission: Draft submissions query result:', {
+          data: draftData,
+          error: draftError,
+          count: draftData?.length || 0
+        });
+        
+        data = draftData;
       }
       
-      // If still no form submissions found, try legacy submissions table
+      // Transform the data to include form_fields at the submission level
+      let transformedData = data?.map((submission: any) => ({
+        ...submission,
+        form_fields: submission.form_template?.form_fields || []
+      })) || [];
+      
+      // If no form submissions found, try legacy submissions table
       if (transformedData.length === 0) {
         console.log('No form submissions found, checking legacy submissions table...');
         
@@ -799,27 +801,39 @@ export default function Reports() {
           }));
         }
       }
-
-      // Transform to FormSubmissionData format
-      return transformedData.map((submission: any) => ({
-        id: submission.id,
-        template_name: submission.form_template?.template_name || 'Unknown',
-        template_version: submission.form_template?.template_version || 1,
-        status: 'final', // All submissions are considered final
-        submitted_at: submission.submitted_at || submission.created_at || undefined,
-        form_fields: submission.form_fields || [],
-        submission_data: submission.submission_data || {},
-        form_submission_files: submission.form_submission_files?.map((file: any) => ({
-          id: file.id,
-          field_id: file.field_id,
-          file_url: file.file_url,
-          file_name: file.file_name,
-          file_size: file.file_size,
-          mime_type: file.mime_type,
-          uploaded_at: file.uploaded_at,
-          form_field: file.form_field
-        })) || []
-      }));
+      
+      // Debug logging for file uploads (EXACT same as DynamicFormSubmission)
+      if (transformedData.length > 0) {
+        console.log('Form submission data:', {
+          submissionId: transformedData[0].id,
+          status: transformedData[0].status,
+          files: transformedData[0].form_submission_files,
+          fileCount: transformedData[0].form_submission_files?.length || 0,
+          rawData: transformedData[0]
+        });
+        
+        // Check if there are any file upload fields
+        const fileUploadFields = transformedData[0].form_fields?.filter(f => f.field_type === 'file_upload') || [];
+        console.log('File upload fields:', fileUploadFields);
+        
+        // Direct database query to check for files
+        const { data: directFiles, error: directFilesError } = await supabase
+          .from('form_submission_files' as any)
+          .select('*')
+          .eq('submission_id', transformedData[0].id);
+        
+        console.log('Direct database query for files:', {
+          directFiles,
+          directFilesError,
+          directFileCount: directFiles?.length || 0
+        });
+      } else {
+        console.log('No submissions found in either form_submissions or submissions table for case:', caseId);
+      }
+      
+      // Return EXACT same format as DynamicFormSubmission returns to CaseDetail
+      // This is what CaseDetail receives via onSubmissionsLoaded callback
+      return transformedData;
     } catch (error) {
       console.error('Error fetching form submissions:', error);
       return [];
@@ -889,53 +903,70 @@ export default function Reports() {
   };
 
   const handleDownloadPDF = async (caseItem: Case) => {
+    // Use exact same process as CaseDetail's handlePDFDownload
+    // First fetch submissions (same as DynamicFormSubmission does)
+    const submissions = await fetchFormSubmissions(caseItem.id);
+    
+    // Debug: Log the submissions data structure
+    console.log('Reports: Submissions data structure:', {
+      count: submissions.length,
+      firstSubmission: submissions[0] ? {
+        id: submissions[0].id,
+        hasFormFields: !!submissions[0].form_fields,
+        formFieldsCount: submissions[0].form_fields?.length || 0,
+        hasSubmissionData: !!submissions[0].submission_data,
+        submissionDataKeys: Object.keys(submissions[0].submission_data || {}),
+        hasFormTemplate: !!submissions[0].form_template,
+        formTemplate: submissions[0].form_template,
+        hasFormSubmissionFiles: !!submissions[0].form_submission_files,
+        formSubmissionFilesCount: submissions[0].form_submission_files?.length || 0,
+        fullStructure: submissions[0]
+      } : null
+    });
+    
+    if (submissions.length === 0) {
+      toast({
+        title: 'No Data',
+        description: 'No form submissions available to download',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Exact same logic as CaseDetail's handlePDFDownload
     try {
       setIsDownloading(true);
-      setDownloadingCase(caseItem.id);
-      setDownloadProgress(20);
-      
-      const submissions = await fetchFormSubmissions(caseItem.id);
-      setDownloadProgress(40);
-      
-      if (submissions.length === 0) {
-        setIsDownloading(false);
-        setDownloadingCase(null);
-        setDownloadProgress(0);
-        toast({
-          title: 'No Data',
-          description: 'No form submissions found for this case',
-          variant: 'destructive',
-        });
-        return;
-      }
+      setDownloadType('pdf');
+      setDownloadProgress(10);
 
-      setDownloadProgress(60);
+      setDownloadProgress(40);
+      // Generate normal PDF without negative case merging (like before)
       await PDFService.convertFormSubmissionsToPDF(
         submissions, 
         caseItem.case_number, 
-        caseItem.contract_type,
-        caseItem.is_positive
+        caseItem.contract_type
+        // Not passing is_positive to skip negative case merging logic
       );
-      setDownloadProgress(100);
       
+      setDownloadProgress(100);
       toast({
         title: 'Success',
         description: 'PDF file downloaded successfully',
       });
-      
+
       setTimeout(() => {
         setIsDownloading(false);
-        setDownloadingCase(null);
+        setDownloadType(null);
         setDownloadProgress(0);
       }, 500);
     } catch (error) {
-      console.error('Error downloading PDF:', error);
+      console.error('Error generating PDF:', error);
       setIsDownloading(false);
-      setDownloadingCase(null);
+      setDownloadType(null);
       setDownloadProgress(0);
       toast({
         title: 'Error',
-        description: 'Failed to generate PDF',
+        description: 'Failed to generate PDF file',
         variant: 'destructive',
       });
     }

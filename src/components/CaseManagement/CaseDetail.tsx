@@ -235,6 +235,23 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       return;
     }
 
+    // Debug: Log the submissions data structure
+    console.log('CaseDetail: Submissions data structure:', {
+      count: formSubmissions.length,
+      firstSubmission: formSubmissions[0] ? {
+        id: formSubmissions[0].id,
+        hasFormFields: !!formSubmissions[0].form_fields,
+        formFieldsCount: formSubmissions[0].form_fields?.length || 0,
+        hasSubmissionData: !!formSubmissions[0].submission_data,
+        submissionDataKeys: Object.keys(formSubmissions[0].submission_data || {}),
+        hasFormTemplate: !!formSubmissions[0].form_template,
+        formTemplate: formSubmissions[0].form_template,
+        hasFormSubmissionFiles: !!formSubmissions[0].form_submission_files,
+        formSubmissionFilesCount: formSubmissions[0].form_submission_files?.length || 0,
+        fullStructure: formSubmissions[0]
+      } : null
+    });
+
     try {
       setIsDownloading(true);
       setDownloadType('pdf');
