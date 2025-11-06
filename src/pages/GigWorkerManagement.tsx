@@ -30,6 +30,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import VendorAssociationBadge from '@/components/VendorAssociationBadge';
+import { otpService } from '@/services/otpService';
 
 interface GigWorker {
   id: string;
@@ -331,30 +332,35 @@ export default function GigWorkerManagement() {
         throw new Error('Failed to create gig worker: ' + data.error);
       }
 
-      // Send password reset email so gig worker can set their own password
+      // Send SMS OTP for account setup
+      console.log('📱 Sending OTP to phone:', formData.phone, 'for user:', data.user?.id);
       try {
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(formData.email, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
+        const otpResult = await otpService.sendOTP(
+          formData.phone,
+          'account_setup',
+          formData.email
+        );
 
-        if (resetError) {
-          console.warn('Failed to send password reset email:', resetError);
-          toast({
-            title: 'User Created',
-            description: 'Gig worker created but failed to send setup email. Please send password reset manually.',
-            variant: 'default',
-          });
-        } else {
+        if (otpResult.success) {
+          console.log('✅ OTP sent successfully to:', formData.phone);
           toast({
             title: 'Success',
-            description: `${formData.first_name} ${formData.last_name} has been created. Setup email sent to ${formData.email}`,
+            description: `${formData.first_name} ${formData.last_name} has been created. SMS OTP sent to ${formData.phone} for account setup.`,
+          });
+        } else {
+          console.warn('❌ OTP send failed:', otpResult.error);
+          toast({
+            title: 'User Created',
+            description: `Gig worker created but SMS failed: ${otpResult.error}. Please resend OTP manually.`,
+            variant: 'destructive',
           });
         }
-      } catch (emailError) {
-        console.warn('Error sending setup email:', emailError);
+      } catch (otpError) {
+        console.error('Error sending OTP:', otpError);
         toast({
           title: 'User Created',
-          description: 'Gig worker created successfully. Please send password reset email manually.',
+          description: 'Gig worker created but failed to send SMS. Please resend OTP manually.',
+          variant: 'destructive',
         });
       }
 
