@@ -78,10 +78,11 @@ serve(async (req) => {
     )
 
     // Create the user
+    // For gig workers, don't confirm email automatically (they'll use SMS OTP instead)
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true,
+      email_confirm: role !== 'gig_worker', // Don't send email to gig workers
       user_metadata: {
         first_name,
         last_name,
