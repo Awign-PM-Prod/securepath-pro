@@ -25,6 +25,8 @@ import VendorDashboard from "./pages/VendorDashboard";
 import GigWorkerDashboard from "./pages/GigWorkerDashboard";
 import GigWorkerAuth from "./pages/GigWorkerAuth";
 import GigWorkerResetPassword from "./pages/GigWorkerResetPassword";
+import VerifyPhone from "./pages/VerifyPhone";
+import VerificationSuccess from "./pages/VerificationSuccess";
 import Notifications from "./pages/Notifications";
 import ClientDashboard from "./pages/dashboards/ClientDashboard";
 import Reports from "./pages/dashboards/Reports";
@@ -166,6 +168,10 @@ const App = () => {
                 {/* Public gig worker auth routes */}
                 <Route path="/gig/setup" element={<GigWorkerAuth />} />
                 <Route path="/gig/reset-password" element={<GigWorkerResetPassword />} />
+                
+                {/* Phone verification routes */}
+                <Route path="/verify-phone/:phoneNumber" element={<VerifyPhone />} />
+                <Route path="/verification-success" element={<VerificationSuccess />} />
 
                 <Route path="/client" element={
                   <ProtectedRoute allowedRoles={['client']}>
