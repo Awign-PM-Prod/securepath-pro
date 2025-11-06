@@ -119,7 +119,11 @@ serve(async (req) => {
     const verificationUrl = `https://preview--securepath-pro.lovable.app/verify-phone/${phone_number}?purpose=${purpose}`;
     const message = `${otpCode} is the OTP for your verification.\n\nVerify here: ${verificationUrl}\n\nCheers!\nTeam AWIGN`;
 
+    // Format phone number with country code if not present
+    const formattedPhone = phone_number.startsWith('+') ? phone_number : `+91${phone_number}`;
+    
     console.log('Attempting to resend SMS to:', phone_number);
+    console.log('Formatted phone number:', formattedPhone);
     console.log('Verification URL:', verificationUrl);
 
     try {
@@ -134,7 +138,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           sms: {
-            mobile_number: phone_number,
+            mobile_number: formattedPhone,
             template_id: '1107160412653314461',
             message: message,
             sender_id: 'IAWIGN',
