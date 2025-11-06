@@ -479,6 +479,44 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     }
   };
 
+  // Helper function to check if a field is a date-time field
+  const isDateTimeField = (field: FormField): boolean => {
+    const fieldKeyLower = field.field_key.toLowerCase();
+    const fieldTitleLower = (field.field_title || '').toLowerCase();
+    
+    const hasDate = field.field_type === 'date' || 
+                   fieldKeyLower.includes('date') || 
+                   fieldTitleLower.includes('date');
+    
+    const hasTime = fieldKeyLower.includes('time') || 
+                   fieldTitleLower.includes('time');
+    
+    const hasVisit = fieldKeyLower.includes('visit') || 
+                    fieldTitleLower.includes('visit');
+    
+    // Check for explicit datetime patterns
+    if (fieldKeyLower.includes('datetime') || 
+        fieldKeyLower.includes('date_time') || 
+        fieldKeyLower.includes('dateandtime') ||
+        fieldKeyLower.includes('date_and_time') ||
+        fieldTitleLower.includes('date and time') ||
+        fieldTitleLower.includes('date & time')) {
+      return true;
+    }
+    
+    // Check if field has both date and time indicators
+    if (hasDate && hasTime) {
+      return true;
+    }
+    
+    // Check if it's a visit field with both date and time
+    if (hasVisit && hasDate && hasTime) {
+      return true;
+    }
+    
+    return false;
+  };
+
   const loadFormTemplate = async () => {
     setLoadingTemplate(true);
     setDraftLoaded(false);
@@ -583,6 +621,87 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         console.warn('Could not auto-fill coordinates:', error);
         // Don't show error to user as this is optional functionality
       }
+
+      // Helper function to format date-time in local timezone for datetime-local input
+      const formatLocalDateTime = (date: Date): string => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      };
+
+      // Helper function to auto-fill date and time fields
+      const autoFillDateTimeFields = (formData: FormData, templateFields: FormField[]) => {
+        const now = new Date();
+        const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; // YYYY-MM-DD format (local)
+        const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; // HH:MM format (local)
+        const currentDateTime = formatLocalDateTime(now); // YYYY-MM-DDTHH:MM format (local)
+        const currentDateTimeFormatted = `${currentDate} ${currentTime}`; // Alternative format: YYYY-MM-DD HH:MM
+
+        templateFields.forEach(field => {
+          if (!formData[field.field_key]) return;
+
+          const fieldKeyLower = field.field_key.toLowerCase();
+          const fieldTitleLower = (field.field_title || '').toLowerCase();
+
+          // Check if field is related to date/time/visit
+          const isDateField = field.field_type === 'date' || 
+                             fieldKeyLower.includes('date') || 
+                             fieldTitleLower.includes('date');
+          
+          const isTimeField = fieldKeyLower.includes('time') || 
+                             fieldTitleLower.includes('time');
+          
+          const isVisitField = fieldKeyLower.includes('visit') || 
+                              fieldTitleLower.includes('visit');
+          
+          // Use the helper function to check if it's a datetime field
+          const fieldIsDateTime = isDateTimeField(field);
+
+          // Only auto-fill if field is empty (not already filled)
+          const currentValue = formData[field.field_key]?.value;
+          if (currentValue && currentValue !== '' && currentValue !== false) {
+            return; // Skip if already has value
+          }
+
+          // Auto-fill based on field type and name
+          if (fieldIsDateTime) {
+            // Date and time field - use datetime-local format (YYYY-MM-DDTHH:MM)
+            // This format works for both datetime-local inputs and can be converted for text fields
+            let dateTimeValue = currentDateTime; // Default: YYYY-MM-DDTHH:MM for datetime-local inputs
+            
+            // If field is a text field (not date type), use space-separated format
+            if (field.field_type !== 'date') {
+              dateTimeValue = currentDateTimeFormatted; // YYYY-MM-DD HH:MM
+            }
+            
+            console.log(`Auto-filling date-time field "${field.field_title}" (${field.field_key}, type: ${field.field_type}) with:`, dateTimeValue);
+            formData[field.field_key] = {
+              ...formData[field.field_key],
+              value: dateTimeValue
+            };
+          } else if (isDateField || (isVisitField && !isTimeField)) {
+            // Date only field
+            console.log(`Auto-filling date field ${field.field_key} (${field.field_type}) with:`, currentDate);
+            formData[field.field_key] = {
+              ...formData[field.field_key],
+              value: currentDate
+            };
+          } else if (isTimeField) {
+            // Time only field
+            console.log(`Auto-filling time field ${field.field_key} (${field.field_type}) with:`, currentTime);
+            formData[field.field_key] = {
+              ...formData[field.field_key],
+              value: currentTime
+            };
+          }
+        });
+      };
+
+      // Auto-fill date and time fields initially
+      autoFillDateTimeFields(initialData, result.template.form_fields || []);
       
       if (draftData && draftData.submission_data) {
         console.log('DynamicForm: Loading draft data:', draftData);
@@ -718,6 +837,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           console.warn('Could not auto-fill coordinates for draft:', error);
           // Don't show error to user as this is optional functionality
         }
+        
+        // Auto-fill date and time fields for draft data if empty
+        autoFillDateTimeFields(updatedFormData, result.template.form_fields || []);
         
         // Update form data with loaded files
         console.log('DynamicForm: Setting form data to:', updatedFormData);
@@ -1910,6 +2032,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           );
 
         case 'date':
+          // Check if this is a date-time field using the helper function
+          const fieldIsDateTime = isDateTimeField(field);
+          
           return (
             <div key={field.id} className="space-y-2">
               <Label htmlFor={field.field_key}>
@@ -1918,11 +2043,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               </Label>
               <Input
                 id={field.field_key}
-                type="date"
+                type={fieldIsDateTime ? "datetime-local" : "date"}
                 value={fieldData.value as string}
                 onChange={(e) => handleFieldChange(field.field_key, e.target.value)}
                 min={field.field_config.minDate}
                 max={field.field_config.maxDate}
+                disabled={fieldIsDateTime}
+                readOnly={fieldIsDateTime}
+                className={fieldIsDateTime ? "bg-gray-100 cursor-not-allowed" : ""}
               />
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>

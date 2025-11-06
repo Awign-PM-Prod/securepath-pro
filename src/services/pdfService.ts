@@ -310,7 +310,7 @@ export class PDFService {
             
             // Calculate row height based on content
             const fieldTitle = field.field_title || field.field_key;
-            const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key);
+            const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key, field.field_title);
             
             // Estimate height needed for wrapped text - use narrower widths to prevent overlap
             const questionLines = doc.splitTextToSize(fieldTitle, questionColWidth - 10); // Reduced width with padding
@@ -724,7 +724,8 @@ export class PDFService {
     value: any, 
     fieldType: string, 
     submission: FormSubmissionData, 
-    fieldKey?: string
+    fieldKey?: string,
+    fieldTitle?: string
   ): string {
     if (value === null || value === undefined || value === '') {
       return 'Not provided';
@@ -760,7 +761,72 @@ export class PDFService {
 
       case 'date': {
         try {
-          return new Date(value).toLocaleDateString();
+          // Check if this is a datetime field based on field title or key
+          const fieldKeyLower = (fieldKey || '').toLowerCase();
+          const fieldTitleLower = (fieldTitle || '').toLowerCase();
+          
+          const hasDate = fieldKeyLower.includes('date') || fieldTitleLower.includes('date');
+          const hasTime = fieldKeyLower.includes('time') || fieldTitleLower.includes('time');
+          const hasVisit = fieldKeyLower.includes('visit') || fieldTitleLower.includes('visit');
+          
+          const isDateTimeField = fieldKeyLower.includes('datetime') || 
+                                 fieldKeyLower.includes('date_time') || 
+                                 fieldKeyLower.includes('dateandtime') ||
+                                 fieldKeyLower.includes('date_and_time') ||
+                                 fieldTitleLower.includes('date and time') ||
+                                 fieldTitleLower.includes('date & time') ||
+                                 (hasDate && hasTime) ||
+                                 (hasVisit && hasDate && hasTime);
+          
+          // Check if value contains time information
+          const dateValue = typeof value === 'string' ? value : String(value);
+          const hasTimeInValue = dateValue.includes('T') || /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(dateValue);
+          
+          if (isDateTimeField && hasTimeInValue) {
+            // Parse the date value - handle both datetime-local format (YYYY-MM-DDTHH:MM) and space-separated format
+            // datetime-local format doesn't include timezone, so we need to parse it as local time
+            let date: Date;
+            if (dateValue.includes('T')) {
+              // datetime-local format: YYYY-MM-DDTHH:MM (local time, no timezone)
+              // Parse manually to ensure it's treated as local time
+              const match = dateValue.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+              if (match) {
+                const [, year, month, day, hours, minutes] = match;
+                date = new Date(
+                  parseInt(year),
+                  parseInt(month) - 1, // Month is 0-indexed
+                  parseInt(day),
+                  parseInt(hours),
+                  parseInt(minutes)
+                );
+              } else {
+                date = new Date(dateValue);
+              }
+            } else if (/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(dateValue)) {
+              // Space-separated format: YYYY-MM-DD HH:MM (local time)
+              const match = dateValue.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+              if (match) {
+                const [, year, month, day, hours, minutes] = match;
+                date = new Date(
+                  parseInt(year),
+                  parseInt(month) - 1, // Month is 0-indexed
+                  parseInt(day),
+                  parseInt(hours),
+                  parseInt(minutes)
+                );
+              } else {
+                date = new Date(dateValue.replace(' ', 'T'));
+              }
+            } else {
+              date = new Date(dateValue);
+            }
+            
+            // Format with date and time using local timezone
+            return date.toLocaleString(); // e.g., "1/15/2024, 2:30:00 PM"
+          } else {
+            // Regular date field or datetime field without time - show date only
+            return new Date(value).toLocaleDateString();
+          }
         } catch (e) {
           return 'Invalid date';
         }

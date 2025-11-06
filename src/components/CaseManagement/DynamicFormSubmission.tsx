@@ -484,7 +484,52 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
       case 'date':
         if (value === null || value === undefined) return <span className="text-muted-foreground">Not provided</span>;
         try {
-          return <span>{format(new Date(value), 'PPP')}</span>;
+          // Check if this is a datetime field based on field title or key
+          const fieldKeyLower = fieldKey.toLowerCase();
+          const fieldTitleLower = (fieldTitle || '').toLowerCase();
+          
+          const hasDate = fieldKeyLower.includes('date') || fieldTitleLower.includes('date');
+          const hasTime = fieldKeyLower.includes('time') || fieldTitleLower.includes('time');
+          const hasVisit = fieldKeyLower.includes('visit') || fieldTitleLower.includes('visit');
+          
+          const isDateTimeField = fieldKeyLower.includes('datetime') || 
+                                 fieldKeyLower.includes('date_time') || 
+                                 fieldKeyLower.includes('dateandtime') ||
+                                 fieldKeyLower.includes('date_and_time') ||
+                                 fieldTitleLower.includes('date and time') ||
+                                 fieldTitleLower.includes('date & time') ||
+                                 (hasDate && hasTime) ||
+                                 (hasVisit && hasDate && hasTime);
+          
+          // Format based on whether it's a datetime field
+          if (isDateTimeField) {
+            // Check if value contains time (has 'T' or space with time pattern)
+            const dateValue = typeof value === 'string' ? value : String(value);
+            const hasTimeInValue = dateValue.includes('T') || /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(dateValue);
+            
+            if (hasTimeInValue) {
+              // Parse the date value - handle both datetime-local format (YYYY-MM-DDTHH:MM) and space-separated format
+              let date: Date;
+              if (dateValue.includes('T')) {
+                // datetime-local format: YYYY-MM-DDTHH:MM
+                date = new Date(dateValue);
+              } else if (/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(dateValue)) {
+                // Space-separated format: YYYY-MM-DD HH:MM
+                date = new Date(dateValue.replace(' ', 'T'));
+              } else {
+                date = new Date(dateValue);
+              }
+              
+              // Format with date and time
+              return <span>{format(date, 'PPP p')}</span>; // e.g., "January 1, 2024 2:30 PM"
+            } else {
+              // Just date, but field is datetime - show date only
+              return <span>{format(new Date(value), 'PPP')}</span>;
+            }
+          } else {
+            // Regular date field - show date only
+            return <span>{format(new Date(value), 'PPP')}</span>;
+          }
         } catch (e) {
           console.warn('Invalid date value:', value);
           return <span className="text-muted-foreground">Invalid date</span>;
