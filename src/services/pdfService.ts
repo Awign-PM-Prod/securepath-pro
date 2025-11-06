@@ -213,31 +213,7 @@ export class PDFService {
 
         // Process text fields first
         if (textFields.length > 0) {
-          // Table header - only check for header space, not entire table
-          checkPageBreak(headerHeight + 15);
-          
-          doc.setFontSize(11);
-          doc.setFont('helvetica', 'bold');
-          
-          // Header background
-          doc.setFillColor(240, 240, 240);
-          doc.rect(questionColX, yPosition - 6, questionColWidth, headerHeight, 'F');
-          doc.rect(answerColX, yPosition - 6, answerColWidth, headerHeight, 'F');
-          
-          // Header text
-          doc.text('Question', questionColX + 3, yPosition);
-          doc.text('Answer', answerColX + 3, yPosition);
-          
-          // Header border
-          doc.setDrawColor(0, 0, 0);
-          doc.setLineWidth(0.5);
-          doc.rect(questionColX, yPosition - 6, questionColWidth, headerHeight);
-          doc.rect(answerColX, yPosition - 6, answerColWidth, headerHeight);
-          doc.line(answerColX, yPosition - 6, answerColX, yPosition - 6 + headerHeight);
-          
-          yPosition += headerHeight - 2;
-
-          // Table rows for text fields
+          // Table rows for text fields (header removed)
           for (let rowIndex = 0; rowIndex < textFields.length; rowIndex++) {
             const field = textFields[rowIndex];
             const answer = submission.submission_data[field.field_key];
