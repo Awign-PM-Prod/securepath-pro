@@ -109,7 +109,7 @@ serve(async (req) => {
       );
     }
 
-    const message = `${otpCode} is the OTP for your verification.\n\nCheers!\nTeam AWIGN`;
+    const message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
