@@ -109,9 +109,6 @@ serve(async (req) => {
 
     const message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
 
-    console.log('Sending SMS to:', phone_number);
-    console.log('SMS API URL:', 'https://core-api.awign.com/api/v1/sms/to_number');
-    
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
       headers: {
@@ -132,30 +129,11 @@ serve(async (req) => {
       }),
     });
 
-    const smsResponseBody = await smsResponse.text();
-    console.log('SMS API status:', smsResponse.status);
-    console.log('SMS API response body:', smsResponseBody);
-
-    // Parse response to check actual delivery status
-    let smsResult: any = null;
-    try {
-      smsResult = JSON.parse(smsResponseBody);
-      console.log('SMS API parsed result:', JSON.stringify(smsResult));
-    } catch (e) {
-      console.error('Failed to parse SMS response:', e);
-    }
-
-    // Check if SMS API returned an error even with 200 status
-    if (!smsResponse.ok || (smsResult && (smsResult.error || smsResult.errors))) {
-      const errorDetails = smsResult?.error || smsResult?.errors || smsResponseBody;
-      console.error('SMS API error - Status:', smsResponse.status, 'Error:', errorDetails);
+    if (!smsResponse.ok) {
+      const errorText = await smsResponse.text();
+      console.error('SMS API error:', errorText);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Failed to send OTP SMS', 
-          sms_api_status: smsResponse.status,
-          sms_api_response: smsResult || smsResponseBody 
-        }),
+        JSON.stringify({ success: false, error: 'Failed to send OTP SMS' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -166,12 +144,7 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: 'OTP sent successfully',
-        expires_in_seconds: 300,
-        debug: {
-          otp_stored: true,
-          sms_api_status: smsResponse.status,
-          sms_api_response: smsResult
-        }
+        expires_in_seconds: 300 
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
