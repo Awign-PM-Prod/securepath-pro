@@ -161,7 +161,7 @@ export type Database = {
           entity_id: string
           entity_type: string
           id: string
-          ip_address: unknown | null
+          ip_address: unknown
           metadata: Json
           new_values: Json | null
           old_values: Json | null
@@ -176,7 +176,7 @@ export type Database = {
           entity_id: string
           entity_type: string
           id?: string
-          ip_address?: unknown | null
+          ip_address?: unknown
           metadata?: Json
           new_values?: Json | null
           old_values?: Json | null
@@ -191,7 +191,7 @@ export type Database = {
           entity_id?: string
           entity_type?: string
           id?: string
-          ip_address?: unknown | null
+          ip_address?: unknown
           metadata?: Json
           new_values?: Json | null
           old_values?: Json | null
@@ -334,6 +334,7 @@ export type Database = {
           case_number: string
           client_case_id: string
           client_id: string
+          company_name: string | null
           contract_type: string
           created_at: string
           created_by: string
@@ -374,6 +375,7 @@ export type Database = {
           case_number: string
           client_case_id: string
           client_id: string
+          company_name?: string | null
           contract_type: string
           created_at?: string
           created_by: string
@@ -414,6 +416,7 @@ export type Database = {
           case_number?: string
           client_case_id?: string
           client_id?: string
+          company_name?: string | null
           contract_type?: string
           created_at?: string
           created_by?: string
@@ -2661,18 +2664,35 @@ export type Database = {
         }
         Returns: boolean
       }
-      allocate_cases_sequentially: {
-        Args:
-          | { p_case_ids: string[] }
-          | { p_case_ids: string[]; p_pincode: string; p_pincode_tier: string }
-        Returns: Json
-      }
-      allocate_cases_with_vendors: {
-        Args:
-          | { p_case_ids: string[]; p_pincode: string }
-          | { p_case_ids: string[]; p_pincode: string; p_pincode_tier: string }
-        Returns: Json
-      }
+      allocate_cases_sequentially:
+        | {
+            Args: {
+              p_case_ids: string[]
+              p_pincode: string
+              p_pincode_tier: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: { p_case_ids: string[] }
+            Returns: {
+              assignee_email: string
+              assignee_id: string
+              case_id: string
+              error_message: string
+              success: boolean
+            }[]
+          }
+      allocate_cases_with_vendors:
+        | {
+            Args: {
+              p_case_ids: string[]
+              p_pincode: string
+              p_pincode_tier: string
+            }
+            Returns: Json
+          }
+        | { Args: { p_case_ids: string[]; p_pincode: string }; Returns: Json }
       assign_case_to_gig_worker: {
         Args: {
           p_case_id: string
@@ -2681,10 +2701,7 @@ export type Database = {
         }
         Returns: boolean
       }
-      auto_assign_qc_reviewer: {
-        Args: { p_case_id: string }
-        Returns: string
-      }
+      auto_assign_qc_reviewer: { Args: { p_case_id: string }; Returns: string }
       calculate_bonus_amount: {
         Args: {
           p_bonuses: Json
@@ -2735,22 +2752,13 @@ export type Database = {
         Args: { p_cycle_id: string }
         Returns: number
       }
-      can_access_case: {
-        Args: { p_case_id: string }
-        Returns: boolean
-      }
+      can_access_case: { Args: { p_case_id: string }; Returns: boolean }
       can_manage_user: {
         Args: { _target_role: Database["public"]["Enums"]["app_role"] }
         Returns: boolean
       }
-      can_modify_case: {
-        Args: { p_case_id: string }
-        Returns: boolean
-      }
-      cleanup_expired_setup_tokens: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      can_modify_case: { Args: { p_case_id: string }; Returns: boolean }
+      cleanup_expired_setup_tokens: { Args: never; Returns: undefined }
       consume_capacity: {
         Args: { p_case_id: string; p_gig_partner_id: string }
         Returns: boolean
@@ -2791,7 +2799,8 @@ export type Database = {
       }
       create_user_complete: {
         Args: {
-          created_by_user_id: string
+          client_data?: Json
+          gig_worker_data?: Json
           user_email: string
           user_first_name: string
           user_last_name: string
@@ -2827,6 +2836,18 @@ export type Database = {
         }
         Returns: Json
       }
+      create_user_simple: {
+        Args: {
+          created_by_user_id: string
+          user_email: string
+          user_first_name: string
+          user_last_name: string
+          user_phone: string
+          user_role: string
+          vendor_data?: Json
+        }
+        Returns: Json
+      }
       create_user_with_auth: {
         Args: {
           created_by_user_id: string
@@ -2840,10 +2861,7 @@ export type Database = {
         }
         Returns: Json
       }
-      fix_capacity_for_submitted_cases: {
-        Args: Record<PropertyKey, never>
-        Returns: Json
-      }
+      fix_capacity_for_submitted_cases: { Args: never; Returns: Json }
       free_capacity: {
         Args: { p_case_id: string; p_gig_partner_id: string }
         Returns: undefined
@@ -2852,26 +2870,14 @@ export type Database = {
         Args: { p_cases_count?: number; p_vendor_id: string }
         Returns: undefined
       }
-      generate_auth_user_id: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      generate_case_number: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
+      generate_auth_user_id: { Args: never; Returns: string }
+      generate_case_number: { Args: never; Returns: string }
       generate_password_setup_token: {
         Args: { p_created_by: string; p_email: string; p_user_id: string }
         Returns: string
       }
-      generate_payment_cycle_tag: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      generate_payment_lines: {
-        Args: { p_cycle_id: string }
-        Returns: number
-      }
+      generate_payment_cycle_tag: { Args: never; Returns: string }
+      generate_payment_lines: { Args: { p_cycle_id: string }; Returns: number }
       get_allocation_candidates: {
         Args: { p_case_id: string; p_pincode: string; p_pincode_tier: string }
         Returns: {
@@ -2903,28 +2909,62 @@ export type Database = {
           vendor_quality_score: number
         }[]
       }
-      get_allocation_candidates_safe: {
-        Args:
-          | {
+      get_allocation_candidates_safe:
+        | {
+            Args: {
               p_case_id: string
               p_pincode: string
               p_pincode_tier: Database["public"]["Enums"]["pincode_tier"]
             }
-          | { p_case_id: string; p_pincode: string; p_pincode_tier: string }
-        Returns: {
-          acceptance_rate: number
-          actual_assigned_cases: number
-          assignment_type: string
-          capacity_available: number
-          completion_rate: number
-          coverage_pincodes: string[]
-          gig_partner_id: string
-          last_assignment_at: string
-          max_daily_capacity: number
-          ontime_completion_rate: number
-          quality_score: number
-        }[]
-      }
+            Returns: {
+              acceptance_rate: number
+              actual_assigned_cases: number
+              assignment_type: string
+              capacity_available: number
+              completion_rate: number
+              coverage_pincodes: string[]
+              gig_partner_id: string
+              last_assignment_at: string
+              max_daily_capacity: number
+              ontime_completion_rate: number
+              quality_score: number
+            }[]
+          }
+        | {
+            Args: {
+              p_case_id: string
+              p_pincode: string
+              p_pincode_tier: string
+            }
+            Returns: {
+              acceptance_rate: number
+              active_cases_count: number
+              candidate_id: string
+              candidate_name: string
+              candidate_type: string
+              capacity_available: number
+              completion_rate: number
+              coverage_pincodes: string[]
+              distance_km: number
+              email: string
+              is_active: boolean
+              is_available: boolean
+              is_direct_gig: boolean
+              last_assignment_at: string
+              max_daily_capacity: number
+              ontime_completion_rate: number
+              performance_score: number
+              phone: string
+              pincode: string
+              qc_pass_count: number
+              quality_score: number
+              total_cases_completed: number
+              vendor_id: string
+              vendor_name: string
+              vendor_performance_score: number
+              vendor_quality_score: number
+            }[]
+          }
       get_allocation_candidates_with_vendors: {
         Args: { p_case_count?: number; p_pincode: string }
         Returns: {
@@ -2944,28 +2984,46 @@ export type Database = {
           vendor_id: string
         }[]
       }
-      get_case_defaults: {
-        Args:
-          | {
+      get_case_defaults:
+        | {
+            Args: {
+              p_client_id: string
+              p_pincode: string
+              p_tat_hours?: number
+            }
+            Returns: {
+              base_rate_inr: number
+              bonuses: Json
+              city: string
+              penalties: Json
+              state: string
+              tat_hours: number
+              tier: Database["public"]["Enums"]["pincode_tier"]
+              total_rate_inr: number
+              working_hours_end: string
+              working_hours_start: string
+            }[]
+          }
+        | {
+            Args: {
               p_client_id: string
               p_contract_type: string
               p_pincode: string
               p_tat_hours?: number
             }
-          | { p_client_id: string; p_pincode: string; p_tat_hours?: number }
-        Returns: {
-          base_rate_inr: number
-          bonuses: Json
-          city: string
-          penalties: Json
-          state: string
-          tat_hours: number
-          tier: Database["public"]["Enums"]["pincode_tier"]
-          total_rate_inr: number
-          working_hours_end: string
-          working_hours_start: string
-        }[]
-      }
+            Returns: {
+              base_rate_inr: number
+              bonuses: Json
+              city: string
+              penalties: Json
+              state: string
+              tat_hours: number
+              tier: Database["public"]["Enums"]["pincode_tier"]
+              total_rate_inr: number
+              working_hours_end: string
+              working_hours_start: string
+            }[]
+          }
       get_client_contract_pricing: {
         Args: {
           p_client_id: string
@@ -2981,12 +3039,9 @@ export type Database = {
           working_hours_start: string
         }[]
       }
-      get_current_user_id: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
+      get_current_user_id: { Args: never; Returns: string }
       get_current_user_role: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: Database["public"]["Enums"]["app_role"]
       }
       get_location_from_pincode: {
@@ -3028,6 +3083,7 @@ export type Database = {
           travel_allowance_inr: number
         }[]
       }
+      get_user_creation_data: { Args: { profile_id: string }; Returns: Json }
       get_vendor_assigned_cases: {
         Args: { vendor_uuid: string }
         Returns: {
@@ -3114,16 +3170,14 @@ export type Database = {
           vendor_id: string
         }[]
       }
-      gig_has_capacity: {
-        Args: { p_gig_id: string }
-        Returns: boolean
-      }
-      has_role: {
-        Args:
-          | { _role: Database["public"]["Enums"]["app_role"] }
-          | { role_name: string }
-        Returns: boolean
-      }
+      gig_has_capacity: { Args: { p_gig_id: string }; Returns: boolean }
+      handle_case_timeouts: { Args: never; Returns: undefined }
+      has_role:
+        | { Args: { role_name: string }; Returns: boolean }
+        | {
+            Args: { _role: Database["public"]["Enums"]["app_role"] }
+            Returns: boolean
+          }
       link_auth_user_to_profile: {
         Args: { auth_user_id: string; profile_id: string }
         Returns: Json
@@ -3171,14 +3225,8 @@ export type Database = {
         Args: { p_qc_review_id: string; p_result: string }
         Returns: undefined
       }
-      reset_daily_capacity: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
-      reset_vendor_capacity: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      reset_daily_capacity: { Args: never; Returns: undefined }
+      reset_vendor_capacity: { Args: never; Returns: undefined }
       send_notification: {
         Args: {
           p_case_id?: string
