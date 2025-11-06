@@ -109,6 +109,9 @@ serve(async (req) => {
 
     const message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
 
+    console.log('Sending SMS to:', phone_number);
+    console.log('SMS API URL:', 'https://core-api.awign.com/api/v1/sms/to_number');
+    
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
       headers: {
@@ -129,13 +132,29 @@ serve(async (req) => {
       }),
     });
 
+    console.log('SMS API status:', smsResponse.status);
+    const smsResponseBody = await smsResponse.text();
+    console.log('SMS API response body:', smsResponseBody);
+
     if (!smsResponse.ok) {
-      const errorText = await smsResponse.text();
-      console.error('SMS API error:', errorText);
+      console.error('SMS API error - Status:', smsResponse.status, 'Body:', smsResponseBody);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to send OTP SMS' }),
+        JSON.stringify({ success: false, error: 'Failed to send OTP SMS', details: smsResponseBody }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Parse response to check actual delivery status
+    try {
+      const smsResult = JSON.parse(smsResponseBody);
+      console.log('SMS API parsed result:', JSON.stringify(smsResult));
+      
+      // Log any errors or warnings in the response
+      if (smsResult.error || smsResult.errors) {
+        console.error('SMS API returned errors:', smsResult.error || smsResult.errors);
+      }
+    } catch (e) {
+      console.error('Failed to parse SMS response:', e);
     }
 
     console.log(`OTP sent successfully to ${phone_number} for ${purpose}`);
