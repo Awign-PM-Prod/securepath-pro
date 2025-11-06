@@ -382,6 +382,10 @@ export default function CaseListWithAllocation({
           id,
           capacity_available,
           max_daily_capacity,
+          quality_score,
+          completion_rate,
+          ontime_completion_rate,
+          acceptance_rate,
           profiles (
             first_name,
             last_name
@@ -390,7 +394,8 @@ export default function CaseListWithAllocation({
             quality_score,
             completion_rate,
             ontime_completion_rate,
-            acceptance_rate
+            acceptance_rate,
+            period_end
           )
         `)
         .eq('is_active', true)
@@ -400,6 +405,80 @@ export default function CaseListWithAllocation({
         .order('capacity_available', { ascending: false });
 
       if (gigError) throw gigError;
+
+      // Fetch performance_metrics separately for all gig workers (most recent period)
+      const gigWorkerIds = (gigWorkers || []).map(w => w.id);
+      let performanceMetricsMap = new Map();
+      
+      console.log('Fetching performance_metrics for gig worker IDs:', gigWorkerIds);
+      
+      if (gigWorkerIds.length > 0) {
+        // First, let's check if there are ANY performance_metrics records for these workers
+        const { data: allMetricsCheck, error: checkError } = await supabase
+          .from('performance_metrics')
+          .select('gig_partner_id, quality_score')
+          .in('gig_partner_id', gigWorkerIds)
+          .limit(5);
+        
+        console.log('Quick check - Any performance_metrics found?', allMetricsCheck?.length || 0, 'records');
+        if (allMetricsCheck && allMetricsCheck.length > 0) {
+          console.log('Sample records from check:', JSON.stringify(allMetricsCheck, null, 2));
+        }
+        
+        // Now fetch all performance_metrics with full details
+        const { data: performanceMetricsData, error: perfError } = await supabase
+          .from('performance_metrics')
+          .select('gig_partner_id, quality_score, completion_rate, ontime_completion_rate, acceptance_rate, period_end, period_start')
+          .in('gig_partner_id', gigWorkerIds);
+
+        if (perfError) {
+          console.error('Error fetching performance metrics:', perfError);
+        } else {
+          console.log('Fetched performance_metrics count:', performanceMetricsData?.length || 0);
+          if (performanceMetricsData && performanceMetricsData.length > 0) {
+            console.log('All performance_metrics records:', JSON.stringify(performanceMetricsData, null, 2));
+            console.log('Sample performance_metrics record:', JSON.stringify(performanceMetricsData[0], null, 2));
+          } else {
+            console.warn('No performance_metrics records found for any of the gig workers!');
+            console.log('Gig worker IDs queried:', gigWorkerIds);
+          }
+          
+          // Group by gig_partner_id and get the most recent one for each
+          const groupedByGigPartner = new Map();
+          (performanceMetricsData || []).forEach(metric => {
+            const existing = groupedByGigPartner.get(metric.gig_partner_id);
+            if (!existing) {
+              groupedByGigPartner.set(metric.gig_partner_id, metric);
+            } else {
+              // Compare period_end dates to get the most recent
+              const existingDate = existing.period_end ? new Date(existing.period_end).getTime() : 0;
+              const currentDate = metric.period_end ? new Date(metric.period_end).getTime() : 0;
+              if (currentDate > existingDate) {
+                groupedByGigPartner.set(metric.gig_partner_id, metric);
+              }
+            }
+          });
+          
+          performanceMetricsMap = groupedByGigPartner;
+          console.log('Performance metrics map size:', performanceMetricsMap.size);
+          console.log('Performance metrics map keys (gig_partner_ids):', Array.from(performanceMetricsMap.keys()));
+        }
+      }
+
+      // Merge performance_metrics into gig workers
+      const enrichedGigWorkers = (gigWorkers || []).map(worker => {
+        const metrics = performanceMetricsMap.get(worker.id);
+        if (metrics) {
+          console.log(`Worker ${worker.id} (${worker.profiles?.first_name}): quality_score = ${metrics.quality_score} (type: ${typeof metrics.quality_score})`);
+          console.log(`  Raw value: ${JSON.stringify(metrics.quality_score)}, After Number(): ${Number(metrics.quality_score)}, After * 100: ${Number(metrics.quality_score) * 100}`);
+        } else {
+          console.log(`Worker ${worker.id} (${worker.profiles?.first_name}): No performance_metrics found, using gig_partners.quality_score = ${worker.quality_score} (type: ${typeof worker.quality_score})`);
+        }
+        return {
+          ...worker,
+          performance_metrics: metrics ? [metrics] : [] // Convert to array format for consistency
+        };
+      });
 
       // Load available vendors
       const { data: vendors, error: vendorError } = await supabase
@@ -418,7 +497,7 @@ export default function CaseListWithAllocation({
 
       if (vendorError) throw vendorError;
 
-      setAvailableGigWorkers(gigWorkers || []);
+      setAvailableGigWorkers(enrichedGigWorkers);
       setAvailableVendors(vendors || []);
       setIsManualAllocationDialogOpen(true);
       setIsAllocationDialogOpen(false);
@@ -1559,9 +1638,33 @@ export default function CaseListWithAllocation({
                                 </span>
                                 <div className="flex items-center space-x-2 text-xs text-muted-foreground ml-4">
                                   <span>Capacity: {worker.capacity_available}/{worker.max_daily_capacity}</span>
-                                  {worker.performance_metrics && (
-                                    <span>Quality: {Math.round(worker.performance_metrics.quality_score * 100)}%</span>
-                                  )}
+                                  {(() => {
+                                    // Start with gig_partners quality_score, convert to number
+                                    let qualityScore = Number(worker.quality_score) || 0;
+                                    
+                                    // Try to get quality_score from performance_metrics (most recent if array)
+                                    if (worker.performance_metrics) {
+                                      if (Array.isArray(worker.performance_metrics) && worker.performance_metrics.length > 0) {
+                                        // Get the most recent one (sorted by period_end if available, otherwise first)
+                                        const sorted = [...worker.performance_metrics].sort((a, b) => {
+                                          if (a.period_end && b.period_end) {
+                                            return new Date(b.period_end).getTime() - new Date(a.period_end).getTime();
+                                          }
+                                          return 0;
+                                        });
+                                        const metricsScore = sorted[0]?.quality_score;
+                                        if (metricsScore != null && metricsScore !== undefined) {
+                                          qualityScore = Number(metricsScore) || 0;
+                                        }
+                                      } else if (!Array.isArray(worker.performance_metrics) && worker.performance_metrics.quality_score != null) {
+                                        qualityScore = Number(worker.performance_metrics.quality_score) || 0;
+                                      }
+                                    }
+                                    
+                                    // Always display quality score (multiply by 100 since DB stores decimals < 1)
+                                    // qualityScore should be like 0.8840, so 0.8840 * 100 = 88.4, rounded = 88
+                                    return <span>Quality: {Math.round(qualityScore * 100)}%</span>;
+                                  })()}
                                 </div>
                               </div>
                             </SelectItem>
@@ -1632,22 +1735,56 @@ export default function CaseListWithAllocation({
                             <div>
                               <span className="font-medium">Capacity:</span> {worker.capacity_available}/{worker.max_daily_capacity}
                             </div>
-                            {worker.performance_metrics && (
-                              <>
-                                <div>
-                                  <span className="font-medium">Quality Score:</span> {Math.round(worker.performance_metrics.quality_score * 100)}%
-                                </div>
-                                <div>
-                                  <span className="font-medium">Completion Rate:</span> {Math.round(worker.performance_metrics.completion_rate * 100)}%
-                                </div>
-                                <div>
-                                  <span className="font-medium">On-time Rate:</span> {Math.round(worker.performance_metrics.ontime_completion_rate * 100)}%
-                                </div>
-                                <div>
-                                  <span className="font-medium">Acceptance Rate:</span> {Math.round(worker.performance_metrics.acceptance_rate * 100)}%
-                                </div>
-                              </>
-                            )}
+                            {(() => {
+                              // Start with gig_partners values as fallback, convert to numbers
+                              let qualityScore = Number(worker.quality_score) || 0;
+                              let completionRate = Number(worker.completion_rate) || 0;
+                              let ontimeRate = Number(worker.ontime_completion_rate) || 0;
+                              let acceptanceRate = Number(worker.acceptance_rate) || 0;
+                              
+                              // Try to get values from performance_metrics (most recent if array)
+                              if (worker.performance_metrics) {
+                                if (Array.isArray(worker.performance_metrics) && worker.performance_metrics.length > 0) {
+                                  // Get the most recent one (sorted by period_end if available, otherwise first)
+                                  const sorted = [...worker.performance_metrics].sort((a, b) => {
+                                    if (a.period_end && b.period_end) {
+                                      return new Date(b.period_end).getTime() - new Date(a.period_end).getTime();
+                                    }
+                                    return 0;
+                                  });
+                                  const metrics = sorted[0];
+                                  if (metrics) {
+                                    qualityScore = Number(metrics.quality_score) || qualityScore;
+                                    completionRate = Number(metrics.completion_rate) || completionRate;
+                                    ontimeRate = Number(metrics.ontime_completion_rate) || ontimeRate;
+                                    acceptanceRate = Number(metrics.acceptance_rate) || acceptanceRate;
+                                  }
+                                } else if (!Array.isArray(worker.performance_metrics)) {
+                                  const metrics = worker.performance_metrics;
+                                  if (metrics.quality_score != null) qualityScore = Number(metrics.quality_score) || 0;
+                                  if (metrics.completion_rate != null) completionRate = Number(metrics.completion_rate) || 0;
+                                  if (metrics.ontime_completion_rate != null) ontimeRate = Number(metrics.ontime_completion_rate) || 0;
+                                  if (metrics.acceptance_rate != null) acceptanceRate = Number(metrics.acceptance_rate) || 0;
+                                }
+                              }
+                              
+                              return (
+                                <>
+                                  <div>
+                                    <span className="font-medium">Quality Score:</span> {Math.round(qualityScore * 100)}%
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">Completion Rate:</span> {Math.round(completionRate * 100)}%
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">On-time Rate:</span> {Math.round(ontimeRate * 100)}%
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">Acceptance Rate:</span> {Math.round(acceptanceRate * 100)}%
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         );
                       })()}
