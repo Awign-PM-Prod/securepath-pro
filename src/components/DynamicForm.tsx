@@ -225,7 +225,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       
       if (hasFileChanges || hasNonFileChanges) {
         // Prepare form data with location information for save
-        const formDataWithLocation = {
+        const formDataWithLocation: any = {
           ...saveFormData,
           _metadata: {
             file_locations: fileLocations,
@@ -621,7 +621,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               // Standard structure: {value: "", files: []}
               if (value.value !== undefined) {
                 initialData[key] = {
-                  value: value.value,
+                  value: value.value as string | number | boolean | string[],
                   files: initialData[key].files // Keep existing files array, don't merge from draft data
                 };
                 console.log(`Merging field ${key} with draft value:`, value.value);
@@ -913,7 +913,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         // Trigger Save Draft flow so files are persisted just like manual draft save
         if (onSaveDraft) {
-          const formDataWithLocation = {
+          const formDataWithLocation: any = {
             ...updatedFormData,
             _metadata: {
               file_locations: fileLocations,
@@ -984,7 +984,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         // Trigger Save Draft flow so files are persisted just like manual draft save
         if (onSaveDraft) {
-          const formDataWithLocation = {
+          const formDataWithLocation: any = {
             ...updatedFormData,
             _metadata: {
               file_locations: fileLocations,
@@ -1129,7 +1129,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         updatedIndividualFileLocations[fieldKey] = reindexedLocations;
         
         // Add location metadata for save
-        const formDataWithLocation = {
+        const formDataWithLocation: any = {
           ...updatedFormData,
           _metadata: {
             file_locations: currentFileLocations,
@@ -1223,7 +1223,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       setFileLocations(prev => {
         const newLocations = {
           ...prev,
-          [cameraFieldKey]: location
+          [cameraFieldKey]: {
+            lat: location.lat,
+            lng: location.lng,
+            address: location.address,
+            pincode: (location as any).pincode || caseData?.location?.pincode || '',
+            accuracy: location.accuracy
+          }
         };
         console.log('Updated fileLocations state:', newLocations);
         return newLocations;
@@ -1234,7 +1240,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         const fieldLocations = prev[cameraFieldKey] || {};
         const newFieldLocations = {
           ...fieldLocations,
-          [fileIndex]: location
+          [fileIndex]: {
+            lat: location.lat,
+            lng: location.lng,
+            address: location.address,
+            pincode: (location as any).pincode || caseData?.location?.pincode || '',
+            accuracy: location.accuracy
+          }
         };
         console.log('Storing individual file location:', { fieldKey: cameraFieldKey, fileIndex, location });
         console.log('Previous individualFileLocations:', prev);
@@ -1254,7 +1266,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         const parsedLocation = {
           lat,
           lng,
-          address: `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+          address: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+          pincode: caseData?.location?.pincode || ''
         };
         
         console.log('Parsed location from filename:', parsedLocation);
@@ -1322,14 +1335,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           files: [...currentFiles, processedFile]
         }
       } as FormData;
-      const formDataWithLocation = {
+      const formDataWithLocation: any = {
         ...updated,
         _metadata: {
           file_locations: fileLocations,
           individual_file_locations: individualFileLocations,
           submission_timestamp: new Date().toISOString(),
         }
-      } as FormData;
+      };
       setTimeout(() => onSaveDraft(formDataWithLocation), 0);
     } else {
       // Fallback to auto-save
@@ -1466,7 +1479,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       
       console.log('Submitting form with individual file locations:', individualFileLocations);
       console.log('Submitting form with submission location:', submissionLocation);
-      onSubmit(formDataWithLocation);
+      onSubmit(formDataWithLocation as any);
     }
   };
 
@@ -1493,7 +1506,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     
     console.log('Saving draft with data:', formDataWithLocation);
     if (onSaveDraft) {
-      onSaveDraft(formDataWithLocation);
+      onSaveDraft(formDataWithLocation as any);
     }
   };
 
@@ -1600,7 +1613,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
               </Label>
               <div className={`space-y-2 ${isReadOnly ? 'opacity-60' : ''}`}>
-                {field.field_config.options?.map((option, index) => {
+                {field.field_config.options?.map((option: any, index: number) => {
                   // Handle both string and object options
                   const optionValue = typeof option === 'string' ? option : option.value || option.label || String(option);
                   const optionLabel = typeof option === 'string' ? option : option.label || option.value || String(option);

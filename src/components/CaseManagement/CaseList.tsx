@@ -109,7 +109,7 @@ export default function CaseList({
       caseItem.location.city.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || caseItem.status === statusFilter;
-    const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
+    const matchesTier = tierFilter === 'all' || (caseItem.location as any).pincode_tier === tierFilter;
     
     return matchesSearch && matchesStatus && matchesTier;
   });

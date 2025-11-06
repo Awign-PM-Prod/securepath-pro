@@ -58,6 +58,7 @@ interface CaseDetailProps {
       country: string;
       lat?: number;
       lng?: number;
+      location_url?: string;
     };
     assignee?: {
       id: string;
@@ -806,7 +807,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
           </div>
           <DynamicFormSubmission 
             caseId={caseData.id} 
-            onSubmissionsLoaded={setFormSubmissions}
+            onSubmissionsLoaded={(submissions: any[]) => setFormSubmissions(submissions as FormSubmissionData[])}
           />
         </TabsContent>
 

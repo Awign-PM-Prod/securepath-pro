@@ -224,7 +224,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
     if (!formData.city.trim()) newErrors.city = 'City is required';
     if (!formData.state.trim()) newErrors.state = 'State is required';
     if (!formData.pincode.trim()) newErrors.pincode = 'Pincode is required';
-    if (!formData.vendor_tat_start_date) newErrors.vendor_tat_start_date = 'Vendor TAT Start Date is required';
+    if (!formData.vendor_tat_start_date) (newErrors as any).vendor_tat_start_date = 'Vendor TAT Start Date is required';
     // If business verification, Company Name is required
     if ((formData.contract_type || '').toLowerCase().includes('business')) {
       if (!formData.company_name || !formData.company_name.trim()) {
@@ -496,7 +496,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                     />
                   </PopoverContent>
                 </Popover>
-                {errors.vendor_tat_start_date && <p className="text-sm text-red-500">{errors.vendor_tat_start_date}</p>}
+                {(errors as any).vendor_tat_start_date && <p className="text-sm text-red-500">{String((errors as any).vendor_tat_start_date)}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="vendor_tat_start_time">Start Time <span className="text-red-500">*</span></Label>
@@ -504,7 +504,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                   id="vendor_tat_start_time"
                   type="time"
                   value={formData.vendor_tat_start_date ? format(formData.vendor_tat_start_date, "HH:mm") : ""}
-                  onChange={(e) => {
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                     if (formData.vendor_tat_start_date) {
                       const [hours, minutes] = e.target.value.split(':');
                       const newDate = new Date(formData.vendor_tat_start_date);
@@ -512,9 +512,9 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                       handleInputChange('vendor_tat_start_date', newDate);
                     }
                   }}
-                  className={errors.vendor_tat_start_date ? 'border-red-500' : ''}
+                  className={(errors as any).vendor_tat_start_date ? 'border-red-500' : ''}
                 />
-                {errors.vendor_tat_start_date && <p className="text-sm text-red-500">{errors.vendor_tat_start_date}</p>}
+                {(errors as any).vendor_tat_start_date && <p className="text-sm text-red-500">{typeof (errors as any).vendor_tat_start_date === 'string' ? (errors as any).vendor_tat_start_date : 'Invalid date'}</p>}
               </div>
             </div>
             <p className="text-sm text-muted-foreground">

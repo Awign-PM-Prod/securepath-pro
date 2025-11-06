@@ -306,8 +306,8 @@ export default function ClientContractForm({
 
       const contractData = {
         ...formData,
-        bonuses,
-        penalties,
+        bonuses: bonuses as any,
+        penalties: penalties as any,
         is_active: true,
         created_by: (await supabase.auth.getUser()).data.user?.id
       };

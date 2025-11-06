@@ -109,7 +109,7 @@ export default function AllocationConfig() {
 
       const loadedConfig: Partial<AllocationConfig> = {};
       data?.forEach(item => {
-        loadedConfig[item.config_key as keyof AllocationConfig] = item.config_value;
+        loadedConfig[item.config_key as keyof AllocationConfig] = item.config_value as any;
       });
 
       if (Object.keys(loadedConfig).length > 0) {
