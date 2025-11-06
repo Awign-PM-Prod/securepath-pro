@@ -47,7 +47,7 @@ serve(async (req) => {
     // Get current user's profile to check role
     const { data: currentProfile, error: profileError } = await supabaseClient
       .from('profiles')
-      .select('role')
+      .select('role, phone')
       .eq('user_id', currentUser.id)
       .single()
 
@@ -93,6 +93,29 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     )
+
+    // Get the target user's phone number for OTP cleanup
+    const { data: targetProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('phone')
+      .eq('user_id', user_id)
+      .single()
+
+    // Clean up OTP tokens if phone number exists
+    if (targetProfile?.phone) {
+      console.log('Cleaning up OTP tokens for phone:', targetProfile.phone)
+      const { error: otpDeleteError, count } = await supabaseAdmin
+        .from('otp_tokens')
+        .delete({ count: 'exact' })
+        .eq('phone_number', targetProfile.phone)
+
+      if (otpDeleteError) {
+        console.error('Error cleaning up OTP tokens:', otpDeleteError)
+        // Continue with user deletion even if OTP cleanup fails
+      } else {
+        console.log(`✅ Cleaned up ${count || 0} OTP token(s)`)
+      }
+    }
 
     // Delete the auth user
     console.log('Attempting to delete auth user:', user_id)
