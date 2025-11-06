@@ -51,6 +51,7 @@ interface AllocatedCase {
   submitted_at?: string; // When case was submitted
   qc_passed_at?: string; // When case was approved (qc_passed)
   rework_at?: string; // When case was marked for rework
+  is_positive?: boolean; // Whether this case is positive (true) or negative (false)
   clients: {
     id: string;
     name: string;
@@ -119,6 +120,9 @@ export default function GigWorkerDashboard() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [isPositiveNegativeDialogOpen, setIsPositiveNegativeDialogOpen] = useState(false);
+  const [pendingCaseForForm, setPendingCaseForForm] = useState<AllocatedCase | null>(null);
+  const [isNegativeForm, setIsNegativeForm] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
@@ -551,6 +555,7 @@ export default function GigWorkerDashboard() {
         caseId: caseId,
         gigWorkerId,
         formData: formData,
+        isNegative: isNegativeForm, // Pass the isNegative flag for negative cases
       });
 
       if (result.success) {
@@ -596,8 +601,9 @@ export default function GigWorkerDashboard() {
     }
   };
 
-  const handleSubmitResponse = async (caseItem: AllocatedCase) => {
+  const openFormForCase = async (caseItem: AllocatedCase, isNegative: boolean = false) => {
     setSelectedCase(caseItem);
+    setIsNegativeForm(isNegative);
     
     try {
       const { formService } = await import('@/services/formService');
@@ -615,7 +621,20 @@ export default function GigWorkerDashboard() {
           description: "Viewing your previous submission for this rework case.",
         });
       } else {
-        // Regular case - check for draft
+        // Determine if this is a negative case based on is_positive flag
+        // If is_positive is false, it's negative. If true or undefined, it's positive
+        const caseIsNegative = caseItem.is_positive === false;
+        
+        // If explicitly opening as negative, or if case is marked as negative, set negative flag
+        if (isNegative || caseIsNegative) {
+          setIsNegativeForm(true);
+          console.log('Case is negative, loading negative form');
+        } else {
+          setIsNegativeForm(false);
+          console.log('Case is positive, loading positive form');
+        }
+        
+        // Check for draft
         console.log('Checking for draft for case:', caseItem.id);
         const draftResult = await formService.getDraftSubmission(caseItem.id);
         
@@ -627,8 +646,8 @@ export default function GigWorkerDashboard() {
           setDraftData(draftResult.draft);
           setIsSubmissionDialogOpen(true);
         } else {
-          console.log('No draft exists, starting fresh');
           // No draft exists - start fresh
+          console.log('No draft exists, starting fresh');
           setDraftData(null);
           setIsSubmissionDialogOpen(true);
         }
@@ -637,6 +656,76 @@ export default function GigWorkerDashboard() {
       console.error('Error checking for draft or previous submission:', error);
       setDraftData(null);
       setIsSubmissionDialogOpen(true);
+    }
+  };
+
+  const handleSubmitResponse = async (caseItem: AllocatedCase) => {
+    // Check if case is in accepted status (from accepted tab)
+    if (caseItem.status === 'accepted' && caseItem.QC_Response !== 'Rework') {
+      // Show Positive/Negative popup first
+      setPendingCaseForForm(caseItem);
+      setIsPositiveNegativeDialogOpen(true);
+    } else {
+      // For other cases (in_progress, etc.), open form directly
+      await openFormForCase(caseItem);
+    }
+  };
+
+  const handlePositiveSelection = async () => {
+    setIsPositiveNegativeDialogOpen(false);
+    if (pendingCaseForForm) {
+      // Update case to set is_positive = true
+      const { error } = await supabase
+        .from('cases')
+        .update({ is_positive: true })
+        .eq('id', pendingCaseForForm.id);
+
+      if (error) {
+        console.error('Error updating case is_positive:', error);
+        toast({
+          title: "Error",
+          description: "Failed to update case status.",
+          variant: "destructive",
+        });
+      } else {
+        // Update local state
+        setAllocatedCases(prev => prev.map(c => 
+          c.id === pendingCaseForForm.id ? { ...c, is_positive: true } : c
+        ));
+        // Update pending case
+        const updatedCase = { ...pendingCaseForForm, is_positive: true };
+        await openFormForCase(updatedCase);
+      }
+      setPendingCaseForForm(null);
+    }
+  };
+
+  const handleNegativeSelection = async () => {
+    setIsPositiveNegativeDialogOpen(false);
+    if (pendingCaseForForm) {
+      // Update case to set is_positive = false
+      const { error } = await supabase
+        .from('cases')
+        .update({ is_positive: false })
+        .eq('id', pendingCaseForForm.id);
+
+      if (error) {
+        console.error('Error updating case is_positive:', error);
+        toast({
+          title: "Error",
+          description: "Failed to update case status.",
+          variant: "destructive",
+        });
+      } else {
+        // Update local state
+        setAllocatedCases(prev => prev.map(c => 
+          c.id === pendingCaseForForm.id ? { ...c, is_positive: false } : c
+        ));
+        // Update pending case
+        const updatedCase = { ...pendingCaseForForm, is_positive: false };
+        await openFormForCase(updatedCase, true); // true = isNegative
+      }
+      setPendingCaseForForm(null);
     }
   };
 
@@ -2248,13 +2337,71 @@ export default function GigWorkerDashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* Positive/Negative Selection Dialog */}
+      <Dialog 
+        open={isPositiveNegativeDialogOpen} 
+        onOpenChange={(open) => {
+          setIsPositiveNegativeDialogOpen(open);
+          if (!open) {
+            setPendingCaseForForm(null);
+          }
+        }}
+      >
+        <DialogContent className={isMobile ? 'max-w-[95vw] mx-2 my-2' : 'max-w-md'}>
+          <DialogHeader>
+            <DialogTitle>Case Type Selection</DialogTitle>
+            <DialogDescription>
+              Please select the case type before proceeding.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="text-center">
+              <p className="text-lg font-medium mb-6">Positive/Negative</p>
+            </div>
+            <div className="flex gap-4 justify-center">
+              <Button
+                onClick={handlePositiveSelection}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                size="lg"
+              >
+                Positive
+              </Button>
+              <Button
+                onClick={handleNegativeSelection}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                size="lg"
+              >
+                Negative
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsPositiveNegativeDialogOpen(false);
+                setPendingCaseForForm(null);
+              }} 
+              className={isMobile ? 'w-full' : ''}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Submit Case Dialog */}
       <Dialog open={isSubmissionDialogOpen} onOpenChange={setIsSubmissionDialogOpen}>
         <DialogContent className={`${isMobile ? 'max-w-[95vw] max-h-[95vh] mx-2' : 'max-w-4xl max-h-[90vh]'} flex flex-col`}>
           <DialogHeader className="flex-shrink-0">
-            <DialogTitle>Submit Case</DialogTitle>
+            <DialogTitle>
+              {isNegativeForm ? 'Submit Negative Case' : 'Submit Case'}
+            </DialogTitle>
             <DialogDescription>
-              Fill in the verification details and submit your findings.
+              {isNegativeForm 
+                ? 'Fill in the negative case verification details and submit your findings.'
+                : 'Fill in the verification details and submit your findings.'
+              }
             </DialogDescription>
           </DialogHeader>
            <div className="flex-1 overflow-y-auto">
@@ -2327,11 +2474,13 @@ export default function GigWorkerDashboard() {
                    onCancel={() => {
                      setIsSubmissionDialogOpen(false);
                      setDraftData(null);
+                     setIsNegativeForm(false);
                    }}
                    loading={isSubmitting}
                    draftData={draftData}
                    isAutoSaving={isSaving}
                    lastAutoSaveTime={lastSaveTime}
+                   isNegative={isNegativeForm}
                    caseData={{
                      id: selectedCase.id,
                      case_number: selectedCase.case_number,

@@ -276,7 +276,16 @@ export default function CaseManagement() {
         ];
       }
 
-      return data || [];
+      // Filter out "Negative Case Contract" - exclude contract types with "negative" in display_name or type_key
+      const filteredData = (data || []).filter(contractType => {
+        const displayNameLower = contractType.display_name?.toLowerCase() || '';
+        const typeKeyLower = contractType.type_key?.toLowerCase() || '';
+        return !displayNameLower.includes('negative') && 
+               !typeKeyLower.includes('negative_case') &&
+               typeKeyLower !== 'negative_case';
+      });
+
+      return filteredData;
     } catch (error) {
       console.error('Failed to load contract types:', error);
       return [];

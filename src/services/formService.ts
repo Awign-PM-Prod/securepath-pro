@@ -4,57 +4,148 @@ import { FormTemplate, FormField, FormSubmission, FormData, FormBuilderTemplate 
 export class FormService {
   /**
    * Get form template for a contract type
+   * @param contractTypeKey - The contract type key (e.g., 'business_address_check')
+   * @param isNegative - Whether to fetch negative case template (default: false for positive)
+   *                     When true, fetches the template named "Negative-Case-Template" regardless of contract type
    */
-  async getFormTemplate(contractTypeKey: string): Promise<{ success: boolean; template?: FormTemplate; error?: string }> {
+  async getFormTemplate(contractTypeKey: string, isNegative: boolean = false): Promise<{ success: boolean; template?: FormTemplate; error?: string }> {
     try {
-      // First, get the contract type ID from contract_type_config
-      const { data: contractType, error: contractTypeError } = await supabase
-        .from('contract_type_config')
-        .select('id')
-        .eq('type_key', contractTypeKey)
-        .single();
+      let template;
 
-      if (contractTypeError) throw contractTypeError;
+      if (isNegative) {
+        // For negative cases, find the template by name "Negative-Case-Template"
+        // First try by exact template name
+        let { data: negativeTemplate, error: negativeTemplateError } = await supabase
+          .from('form_templates')
+          .select(`
+            *,
+            form_fields (
+              id,
+              field_key,
+              field_title,
+              field_type,
+              validation_type,
+              field_order,
+              field_config,
+              depends_on_field_id,
+              depends_on_value,
+              max_files,
+              allowed_file_types,
+              max_file_size_mb
+            )
+          `)
+          .eq('template_name', 'Negative-Case-Template')
+          .eq('is_active', true)
+          .eq('is_negative', true)
+          .order('template_version', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      // Then get the form template using the contract type ID
-      const { data: template, error } = await supabase
-        .from('form_templates')
-        .select(`
-          *,
-          form_fields (
-            id,
-            field_key,
-            field_title,
-            field_type,
-            validation_type,
-            field_order,
-            field_config,
-            depends_on_field_id,
-            depends_on_value,
-            max_files,
-            allowed_file_types,
-            max_file_size_mb
-          )
-        `)
-        .eq('contract_type_id', contractType.id)
-        .eq('is_active', true)
-        .order('template_version', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        if (negativeTemplateError) throw negativeTemplateError;
 
-      if (error) throw error;
+        // If not found by name, try to find by contract type "Negative Case Contract"
+        if (!negativeTemplate) {
+          const { data: negativeContractType, error: contractTypeError } = await supabase
+            .from('contract_type_config')
+            .select('id')
+            .or('display_name.ilike.%Negative Case Contract%,display_name.ilike.%negative case%')
+            .limit(1)
+            .maybeSingle();
+
+          if (!contractTypeError && negativeContractType) {
+            const { data: templateByContract, error: templateError } = await supabase
+              .from('form_templates')
+              .select(`
+                *,
+                form_fields (
+                  id,
+                  field_key,
+                  field_title,
+                  field_type,
+                  validation_type,
+                  field_order,
+                  field_config,
+                  depends_on_field_id,
+                  depends_on_value,
+                  max_files,
+                  allowed_file_types,
+                  max_file_size_mb
+                )
+              `)
+              .eq('contract_type_id', negativeContractType.id)
+              .eq('is_active', true)
+              .eq('is_negative', true)
+              .order('template_version', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (!templateError && templateByContract) {
+              negativeTemplate = templateByContract;
+            }
+          }
+        }
+
+        if (!negativeTemplate) {
+          return {
+            success: false,
+            error: 'No negative form template found. Please ensure you have a template named "Negative-Case-Template" with is_negative = true, or a template linked to "Negative Case Contract" contract type.'
+          };
+        }
+
+        template = negativeTemplate;
+      } else {
+        // For positive cases, use the actual contract type
+        const { data: contractType, error: contractTypeError } = await supabase
+          .from('contract_type_config')
+          .select('id')
+          .eq('type_key', contractTypeKey)
+          .single();
+
+        if (contractTypeError) throw contractTypeError;
+
+        // Get the form template
+        const { data: positiveTemplate, error: templateError } = await supabase
+          .from('form_templates')
+          .select(`
+            *,
+            form_fields (
+              id,
+              field_key,
+              field_title,
+              field_type,
+              validation_type,
+              field_order,
+              field_config,
+              depends_on_field_id,
+              depends_on_value,
+              max_files,
+              allowed_file_types,
+              max_file_size_mb
+            )
+          `)
+          .eq('contract_type_id', contractType.id)
+          .eq('is_active', true)
+          .eq('is_negative', false)
+          .order('template_version', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (templateError) throw templateError;
+
+        if (!positiveTemplate) {
+          return {
+            success: false,
+            error: `No form template found for contract type: ${contractTypeKey}`
+          };
+        }
+
+        template = positiveTemplate;
+      }
       
       console.log('Template query result:', template);
       console.log('Template fields:', template?.form_fields);
+      console.log('Is negative template:', isNegative);
       
-      // If no template found, return a helpful error
-      if (!template) {
-        return {
-          success: false,
-          error: `No form template found for contract type: ${contractTypeKey}`
-        };
-      }
-
       return { success: true, template };
     } catch (error) {
       console.error('Error getting form template:', error);
@@ -412,6 +503,11 @@ export class FormService {
         .from('form_submissions')
         .select(`
           *,
+          form_template:form_templates(
+            id,
+            template_name,
+            is_negative
+          ),
           form_submission_files(
             id,
             field_id,

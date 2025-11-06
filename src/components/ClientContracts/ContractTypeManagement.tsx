@@ -302,8 +302,7 @@ function ContractTypeForm({
 
     try {
       const contractTypeData = {
-        ...formData,
-        created_by: (await supabase.auth.getUser()).data.user?.id
+        ...formData
       };
 
       if (editingType) {

@@ -422,45 +422,98 @@ export class GigWorkerService {
 
   /**
    * Save case as draft
+   * @param request - Draft request with caseId, gigWorkerId, formData, and optional isNegative flag
    */
-  async saveDraft(request: CaseDraftRequest): Promise<{ success: boolean; error?: string; submissionId?: string }> {
+  async saveDraft(request: CaseDraftRequest & { isNegative?: boolean }): Promise<{ success: boolean; error?: string; submissionId?: string }> {
     try {
-      // Get case details to determine contract type
-      const { data: caseData, error: caseError } = await supabase
-        .from('cases')
-        .select(`
-          id,
-          client_id,
-          contract_type
-        `)
-        .eq('id', request.caseId)
-        .single();
+      let formTemplate;
 
-      if (caseError) throw caseError;
+      if (request.isNegative) {
+        // For negative cases, find the "Negative-Case-Template"
+        const { data: negativeTemplate, error: negativeTemplateError } = await supabase
+          .from('form_templates')
+          .select('id')
+          .eq('template_name', 'Negative-Case-Template')
+          .eq('is_active', true)
+          .eq('is_negative', true)
+          .order('template_version', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      // Get contract type ID
-      const { data: contractType, error: contractTypeError } = await supabase
-        .from('contract_type_config')
-        .select('id')
-        .eq('type_key', caseData.contract_type)
-        .single();
+        if (negativeTemplateError) throw negativeTemplateError;
 
-      if (contractTypeError) throw contractTypeError;
+        if (!negativeTemplate) {
+          // Fallback: try to find by contract type "Negative Case Contract"
+          const { data: negativeContractType, error: contractTypeError } = await supabase
+            .from('contract_type_config')
+            .select('id')
+            .or('display_name.ilike.%Negative Case Contract%,display_name.ilike.%negative case%')
+            .limit(1)
+            .maybeSingle();
 
-      // Check if there's a form template for this contract type
-      const { data: formTemplate, error: templateError } = await supabase
-        .from('form_templates')
-        .select('id')
-        .eq('contract_type_id', contractType.id)
-        .eq('is_active', true)
-        .order('template_version', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+          if (!contractTypeError && negativeContractType) {
+            const { data: templateByContract, error: templateError } = await supabase
+              .from('form_templates')
+              .select('id')
+              .eq('contract_type_id', negativeContractType.id)
+              .eq('is_active', true)
+              .eq('is_negative', true)
+              .order('template_version', { ascending: false })
+              .limit(1)
+              .maybeSingle();
 
-      if (templateError) throw templateError;
+            if (!templateError && templateByContract) {
+              formTemplate = templateByContract;
+            }
+          }
 
-      if (!formTemplate) {
-        return { success: false, error: 'No form template found for this contract type' };
+          if (!formTemplate) {
+            return { success: false, error: 'No negative form template found' };
+          }
+        } else {
+          formTemplate = negativeTemplate;
+        }
+      } else {
+        // For positive cases, use the case's contract type
+        const { data: caseData, error: caseError } = await supabase
+          .from('cases')
+          .select(`
+            id,
+            client_id,
+            contract_type
+          `)
+          .eq('id', request.caseId)
+          .single();
+
+        if (caseError) throw caseError;
+
+        // Get contract type ID
+        const { data: contractType, error: contractTypeError } = await supabase
+          .from('contract_type_config')
+          .select('id')
+          .eq('type_key', caseData.contract_type)
+          .single();
+
+        if (contractTypeError) throw contractTypeError;
+
+        // Check if there's a form template for this contract type
+        const { data: positiveTemplate, error: templateError } = await supabase
+          .from('form_templates')
+          .select('id')
+          .eq('contract_type_id', contractType.id)
+          .eq('is_active', true)
+          .eq('is_negative', false)
+          .order('template_version', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (templateError) throw templateError;
+
+        if (!positiveTemplate) {
+          return { success: false, error: 'No form template found for this contract type' };
+        }
+
+        formTemplate = positiveTemplate;
       }
 
       // Use formService to save draft
@@ -514,6 +567,7 @@ export class GigWorkerService {
           total_payout_inr,
           current_vendor_id,
           "QC_Response",
+          is_positive,
           clients (id, name),
           locations (address_line, city, state, pincode, location_url),
           form_submissions (id, updated_at, created_at),

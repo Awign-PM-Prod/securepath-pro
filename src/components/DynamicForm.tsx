@@ -29,6 +29,7 @@ interface DynamicFormProps {
   draftData?: any;
   isAutoSaving?: boolean;
   lastAutoSaveTime?: Date | null;
+  isNegative?: boolean; // Whether this is a negative case form
   caseData?: {
     id: string;
     case_number: string;
@@ -59,6 +60,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   draftData,
   isAutoSaving = false,
   lastAutoSaveTime,
+  isNegative = false,
   caseData
 }) => {
   const [template, setTemplate] = useState<FormTemplate | null>(null);
@@ -520,8 +522,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   const loadFormTemplate = async () => {
     setLoadingTemplate(true);
     setDraftLoaded(false);
-    console.log('Loading form template for contract type:', contractTypeId);
-    const result = await formService.getFormTemplate(contractTypeId);
+    console.log('Loading form template for contract type:', contractTypeId, 'isNegative:', isNegative);
+    const result = await formService.getFormTemplate(contractTypeId, isNegative);
     console.log('Form template result:', result);
     
     if (result.success && result.template) {
@@ -1580,8 +1582,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       }
     });
 
-    // Validate signature (always mandatory)
-    if (!signatureFile && !signatureUrl) {
+    // Validate signature (only mandatory for positive cases, not for negative cases)
+    if (!isNegative && !signatureFile && !signatureUrl) {
       newErrors['signature_of_person_met'] = 'Signature of the Person Met is required';
     }
 
@@ -1608,8 +1610,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       return true;
     });
     
-    // Signature is always mandatory
-    const signatureComplete = signatureFile !== null || signatureUrl !== null;
+    // Signature is only mandatory for positive cases, not for negative cases
+    const signatureComplete = isNegative || (signatureFile !== null || signatureUrl !== null);
     
     return allFieldsComplete && signatureComplete;
   };
@@ -2147,35 +2149,37 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
           {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
           
-          {/* Signature Canvas - Always at the end */}
-          <div className="border-t pt-6 mt-6">
-            <SignatureCanvas
-              onSignatureChange={(file) => {
-                setSignatureFile(file);
-                // Update formData with signature
-                setFormData(prev => ({
-                  ...prev,
-                  signature_of_person_met: file ? { value: '', files: [file] } : { value: '', files: [] }
-                }));
-              }}
-              onSignatureUploaded={(url) => {
-                // Update signature URL when auto-saved
-                setSignatureUrl(url);
-                setFormData(prev => ({
-                  ...prev,
-                  signature_of_person_met: { value: url, files: [] }
-                }));
-              }}
-              initialSignature={signatureUrl || undefined}
-              disabled={loading}
-              caseId={caseId}
-              templateId={template?.id}
-              submissionId={draftData?.id}
-            />
-            {errors['signature_of_person_met'] && (
-              <p className="text-sm text-red-500 mt-1">{errors['signature_of_person_met']}</p>
-            )}
-          </div>
+          {/* Signature Canvas - Only show for positive cases, not for negative cases */}
+          {!isNegative && (
+            <div className="border-t pt-6 mt-6">
+              <SignatureCanvas
+                onSignatureChange={(file) => {
+                  setSignatureFile(file);
+                  // Update formData with signature
+                  setFormData(prev => ({
+                    ...prev,
+                    signature_of_person_met: file ? { value: '', files: [file] } : { value: '', files: [] }
+                  }));
+                }}
+                onSignatureUploaded={(url) => {
+                  // Update signature URL when auto-saved
+                  setSignatureUrl(url);
+                  setFormData(prev => ({
+                    ...prev,
+                    signature_of_person_met: { value: url, files: [] }
+                  }));
+                }}
+                initialSignature={signatureUrl || undefined}
+                disabled={loading}
+                caseId={caseId}
+                templateId={template?.id}
+                submissionId={draftData?.id}
+              />
+              {errors['signature_of_person_met'] && (
+                <p className="text-sm text-red-500 mt-1">{errors['signature_of_person_met']}</p>
+              )}
+            </div>
+          )}
         </div>
         
         {/* Sticky Footer */}
