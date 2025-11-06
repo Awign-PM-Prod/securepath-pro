@@ -10,6 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/contexts/AuthContext';
 import { UserRole } from '@/types/auth';
+import { supabase } from '@/integrations/supabase/client';
+import { OTPVerification } from '@/components/auth/OTPVerification';
+import { otpService } from '@/services/otpService';
+import { useToast } from '@/hooks/use-toast';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email'),
@@ -21,8 +25,12 @@ type LoginForm = z.infer<typeof loginSchema>;
 export default function Login() {
   const { signIn, user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showOTP, setShowOTP] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [userEmail, setUserEmail] = useState('');
 
   const {
     register,
@@ -65,14 +73,93 @@ export default function Login() {
     setIsLoading(true);
     setError('');
 
-    const { error } = await signIn(data.email, data.password);
+    // First, try to sign in with email and password
+    const { error: signInError } = await signIn(data.email, data.password);
 
-    if (error) {
+    if (signInError) {
       const { getErrorAlertMessage } = await import('@/utils/errorMessages');
-      setError(getErrorAlertMessage(error));
+      setError(getErrorAlertMessage(signInError));
+      setIsLoading(false);
+      return;
     }
 
-    setIsLoading(false);
+    // Get user profile to check role
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    
+    if (!authUser) {
+      setError('Failed to get user information');
+      setIsLoading(false);
+      return;
+    }
+
+    // Get profile to check role
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('user_id', authUser.id)
+      .single();
+
+    if (profileError || !profile) {
+      setError('Failed to get user profile');
+      setIsLoading(false);
+      return;
+    }
+
+    // If user is gig_worker, require OTP verification
+    if (profile.role === 'gig_worker') {
+      // Get phone number from gig_partners table
+      const { data: gigWorker, error: gigError } = await supabase
+        .from('gig_partners')
+        .select('phone')
+        .eq('user_id', authUser.id)
+        .single();
+
+      if (gigError || !gigWorker || !gigWorker.phone) {
+        setError('Phone number not found. Please contact administrator.');
+        await supabase.auth.signOut(); // Sign out since OTP verification is required
+        setIsLoading(false);
+        return;
+      }
+
+      // Send OTP
+      const otpResult = await otpService.sendOTP(gigWorker.phone, 'login', data.email);
+      
+      if (!otpResult.success) {
+        setError(otpResult.error || 'Failed to send OTP');
+        await supabase.auth.signOut(); // Sign out since OTP verification is required
+        setIsLoading(false);
+        return;
+      }
+
+      // Show OTP verification screen
+      setPhoneNumber(gigWorker.phone);
+      setUserEmail(data.email);
+      setShowOTP(true);
+      setIsLoading(false);
+      
+      toast({
+        title: 'OTP Sent',
+        description: 'Please check your phone for the verification code.',
+      });
+    } else {
+      // For non-gig workers, login is complete
+      setIsLoading(false);
+    }
+  };
+
+  const handleOTPVerified = () => {
+    toast({
+      title: 'Success',
+      description: 'Login successful!',
+    });
+    // The auth context will handle the redirect
+  };
+
+  const handleCancelOTP = async () => {
+    await supabase.auth.signOut();
+    setShowOTP(false);
+    setPhoneNumber('');
+    setUserEmail('');
   };
 
   return (
@@ -81,58 +168,68 @@ export default function Login() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Background Verification System</CardTitle>
           <CardDescription>
-            Sign in to access your dashboard
+            {showOTP ? 'Verify your identity' : 'Sign in to access your dashboard'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="Enter your email"
-                {...register('email')}
-                className={errors.email ? 'border-destructive' : ''}
-              />
-              {errors.email && (
-                <p className="text-sm text-destructive">{errors.email.message}</p>
+          {!showOTP ? (
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                {...register('password')}
-                className={errors.password ? 'border-destructive' : ''}
-              />
-              {errors.password && (
-                <p className="text-sm text-destructive">{errors.password.message}</p>
-              )}
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  {...register('email')}
+                  className={errors.email ? 'border-destructive' : ''}
+                />
+                {errors.email && (
+                  <p className="text-sm text-destructive">{errors.email.message}</p>
+                )}
+              </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign In'}
-            </Button>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter your password"
+                  {...register('password')}
+                  className={errors.password ? 'border-destructive' : ''}
+                />
+                {errors.password && (
+                  <p className="text-sm text-destructive">{errors.password.message}</p>
+                )}
+              </div>
 
-            <div className="text-center">
-              <Link
-                to="/forgot-password"
-                className="text-sm text-blue-600 hover:text-blue-500 hover:underline"
-              >
-                Forgot your password?
-              </Link>
-            </div>
-          </form>
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? 'Signing in...' : 'Sign In'}
+              </Button>
+
+              <div className="text-center">
+                <Link
+                  to="/forgot-password"
+                  className="text-sm text-blue-600 hover:text-blue-500 hover:underline"
+                >
+                  Forgot your password?
+                </Link>
+              </div>
+            </form>
+          ) : (
+            <OTPVerification
+              phoneNumber={phoneNumber}
+              purpose="login"
+              email={userEmail}
+              onVerified={handleOTPVerified}
+              onCancel={handleCancelOTP}
+            />
+          )}
         </CardContent>
       </Card>
     </div>

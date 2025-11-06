@@ -1561,6 +1561,48 @@ export type Database = {
           },
         ]
       }
+      otp_tokens: {
+        Row: {
+          attempts: number | null
+          created_at: string | null
+          expires_at: string
+          id: string
+          is_verified: boolean | null
+          max_attempts: number | null
+          otp_code: string
+          phone_number: string
+          purpose: string
+          user_id: string | null
+          verified_at: string | null
+        }
+        Insert: {
+          attempts?: number | null
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          is_verified?: boolean | null
+          max_attempts?: number | null
+          otp_code: string
+          phone_number: string
+          purpose: string
+          user_id?: string | null
+          verified_at?: string | null
+        }
+        Update: {
+          attempts?: number | null
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          is_verified?: boolean | null
+          max_attempts?: number | null
+          otp_code?: string
+          phone_number?: string
+          purpose?: string
+          user_id?: string | null
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       password_setup_tokens: {
         Row: {
           created_at: string
@@ -2758,6 +2800,7 @@ export type Database = {
         Returns: boolean
       }
       can_modify_case: { Args: { p_case_id: string }; Returns: boolean }
+      cleanup_expired_otp_tokens: { Args: never; Returns: undefined }
       cleanup_expired_setup_tokens: { Args: never; Returns: undefined }
       consume_capacity: {
         Args: { p_case_id: string; p_gig_partner_id: string }

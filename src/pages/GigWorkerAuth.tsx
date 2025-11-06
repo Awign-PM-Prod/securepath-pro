@@ -5,11 +5,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Eye, EyeOff, Mail, Lock, User, CheckCircle, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, Phone, CheckCircle, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 import { emailService } from '@/services/emailService';
+import { otpService } from '@/services/otpService';
+import { OTPVerification } from '@/components/auth/OTPVerification';
 
 export default function GigWorkerAuth() {
   const [activeTab, setActiveTab] = useState('setup');
@@ -18,13 +20,15 @@ export default function GigWorkerAuth() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showOTP, setShowOTP] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Setup password form
+  // Setup password form - now uses phone and OTP instead of token
   const [setupForm, setSetupForm] = useState({
     email: '',
-    token: '',
+    phone: '',
     password: '',
     confirmPassword: ''
   });
@@ -34,10 +38,62 @@ export default function GigWorkerAuth() {
     email: ''
   });
 
+  const handleSendOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!setupForm.email || !setupForm.phone) {
+      setError('Email and phone number are required');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Send OTP
+      const result = await otpService.sendOTP(setupForm.phone, 'account_setup', setupForm.email);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to send OTP');
+      }
+
+      setShowOTP(true);
+      setSuccess('OTP sent to your phone!');
+      
+      toast({
+        title: 'OTP Sent',
+        description: 'Please check your phone for the verification code.',
+      });
+
+    } catch (error) {
+      console.error('Error sending OTP:', error);
+      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
+      setError(getErrorAlertMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOTPVerified = () => {
+    setOtpVerified(true);
+    setShowOTP(false);
+    setSuccess('Phone verified! Now set your password.');
+    toast({
+      title: 'Verified',
+      description: 'Phone number verified successfully!',
+    });
+  };
+
   const handleSetupPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+
+    if (!otpVerified) {
+      setError('Please verify your phone number first');
+      return;
+    }
 
     if (setupForm.password !== setupForm.confirmPassword) {
       setError('Passwords do not match');
@@ -52,38 +108,24 @@ export default function GigWorkerAuth() {
     setIsLoading(true);
 
     try {
-      // First, verify the token and get user info
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('password_setup_tokens')
-        .select('*')
-        .eq('email', setupForm.email)
-        .eq('token', setupForm.token)
-        .eq('is_used', false)
-        .single();
+      // Find user by email and phone
+      const { data: { users }, error: usersError } = await supabase.auth.admin.listUsers();
+      
+      if (usersError) throw usersError;
 
-      if (tokenError || !tokenData) {
-        throw new Error('Invalid or expired setup token');
+      const user = users?.find(u => u.email === setupForm.email);
+      
+      if (!user) {
+        throw new Error('User not found. Please contact your administrator.');
       }
 
-      // Check if token is expired (24 hours)
-      const tokenExpiry = new Date(tokenData.expires_at);
-      if (tokenExpiry < new Date()) {
-        throw new Error('Setup token has expired. Please request a new one.');
-      }
-
-      // Update the user's password
+      // Update user's password
       const { error: updateError } = await supabase.auth.admin.updateUserById(
-        tokenData.user_id,
+        user.id,
         { password: setupForm.password }
       );
 
       if (updateError) throw updateError;
-
-      // Mark token as used
-      await supabase
-        .from('password_setup_tokens')
-        .update({ is_used: true, used_at: new Date().toISOString() })
-        .eq('id', tokenData.id);
 
       setSuccess('Password set successfully! You can now login with your credentials.');
       
@@ -162,118 +204,136 @@ export default function GigWorkerAuth() {
             </TabsList>
 
             <TabsContent value="setup" className="space-y-4">
-              <form onSubmit={handleSetupPassword} className="space-y-4">
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
+              {!showOTP ? (
+                <>
+                  <form onSubmit={otpVerified ? handleSetupPassword : handleSendOTP} className="space-y-4">
+                    {error && (
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>{error}</AlertDescription>
+                      </Alert>
+                    )}
 
-                {success && (
-                  <Alert className="border-green-200 bg-green-50">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <AlertDescription className="text-green-800">{success}</AlertDescription>
-                  </Alert>
-                )}
+                    {success && (
+                      <Alert className="border-green-200 bg-green-50">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <AlertDescription className="text-green-800">{success}</AlertDescription>
+                      </Alert>
+                    )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="setup-email">Email Address</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="setup-email"
-                      type="email"
-                      placeholder="Enter your email"
-                      value={setupForm.email}
-                      onChange={(e) => setSetupForm(prev => ({ ...prev, email: e.target.value }))}
-                      className="pl-10"
-                      required
-                    />
-                  </div>
-                </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="setup-email">Email Address</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                        <Input
+                          id="setup-email"
+                          type="email"
+                          placeholder="Enter your email"
+                          value={setupForm.email}
+                          onChange={(e) => setSetupForm(prev => ({ ...prev, email: e.target.value }))}
+                          className="pl-10"
+                          required
+                          disabled={otpVerified}
+                        />
+                      </div>
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="setup-token">Setup Token</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="setup-token"
-                      type="text"
-                      placeholder="Enter setup token from email"
-                      value={setupForm.token}
-                      onChange={(e) => setSetupForm(prev => ({ ...prev, token: e.target.value }))}
-                      className="pl-10"
-                      required
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Check your email for the setup token sent by your team.
-                  </p>
-                </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="setup-phone">Phone Number</Label>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                        <Input
+                          id="setup-phone"
+                          type="tel"
+                          placeholder="Enter your phone number"
+                          value={setupForm.phone}
+                          onChange={(e) => setSetupForm(prev => ({ ...prev, phone: e.target.value }))}
+                          className="pl-10"
+                          required
+                          disabled={otpVerified}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        We'll send you a verification code.
+                      </p>
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="setup-password">New Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="setup-password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Enter new password"
-                      value={setupForm.password}
-                      onChange={(e) => setSetupForm(prev => ({ ...prev, password: e.target.value }))}
-                      className="pl-10 pr-10"
-                      required
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
+                    {otpVerified && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="setup-password">New Password</Label>
+                          <div className="relative">
+                            <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                            <Input
+                              id="setup-password"
+                              type={showPassword ? 'text' : 'password'}
+                              placeholder="Enter new password"
+                              value={setupForm.password}
+                              onChange={(e) => setSetupForm(prev => ({ ...prev, password: e.target.value }))}
+                              className="pl-10 pr-10"
+                              required
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowPassword(!showPassword)}
+                            >
+                              {showPassword ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="setup-confirm-password">Confirm Password</Label>
+                          <div className="relative">
+                            <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                            <Input
+                              id="setup-confirm-password"
+                              type={showConfirmPassword ? 'text' : 'password'}
+                              placeholder="Confirm new password"
+                              value={setupForm.confirmPassword}
+                              onChange={(e) => setSetupForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                              className="pl-10 pr-10"
+                              required
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            >
+                              {showConfirmPassword ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <Button type="submit" className="w-full" disabled={isLoading}>
+                      {isLoading ? 'Processing...' : otpVerified ? 'Setup Password' : 'Send Verification Code'}
                     </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="setup-confirm-password">Confirm Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="setup-confirm-password"
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      placeholder="Confirm new password"
-                      value={setupForm.confirmPassword}
-                      onChange={(e) => setSetupForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                      className="pl-10 pr-10"
-                      required
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    >
-                      {showConfirmPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? 'Setting up...' : 'Setup Password'}
-                </Button>
-              </form>
+                  </form>
+                </>
+              ) : (
+                <OTPVerification
+                  phoneNumber={setupForm.phone}
+                  purpose="account_setup"
+                  email={setupForm.email}
+                  onVerified={handleOTPVerified}
+                  onCancel={() => setShowOTP(false)}
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="reset" className="space-y-4">
