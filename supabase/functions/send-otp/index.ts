@@ -35,12 +35,21 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Check rate limiting - max 3 OTPs per phone number per 5 minutes
+    // Invalidate previous unverified OTPs for this phone number and purpose
+    await supabase
+      .from('otp_tokens')
+      .update({ is_verified: true })
+      .eq('phone_number', phone_number)
+      .eq('purpose', purpose)
+      .eq('is_verified', false);
+
+    // Check rate limiting - max 3 OTPs per phone number per 5 minutes (only unverified ones)
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const { data: recentOTPs, error: rateLimitError } = await supabase
       .from('otp_tokens')
       .select('id')
       .eq('phone_number', phone_number)
+      .eq('is_verified', false)
       .gte('created_at', fiveMinutesAgo);
 
     if (rateLimitError) {
