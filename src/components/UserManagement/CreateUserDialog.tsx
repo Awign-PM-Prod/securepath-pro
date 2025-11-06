@@ -34,6 +34,14 @@ const createUserSchema = z.object({
   last_name: z.string().min(1, 'Last name is required'),
   phone: z.string().optional(),
   role: z.enum(['super_admin', 'ops_team', 'vendor_team', 'qc_team', 'vendor', 'gig_worker', 'client'] as const),
+}).refine((data) => {
+  if (data.role === 'gig_worker' && !data.phone) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Phone number is required for gig workers',
+  path: ['phone'],
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
@@ -133,51 +141,51 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
         throw new Error(result.error || 'Failed to create user');
       }
 
-      // If this is a gig worker, generate a setup token and send email
-      if (data.role === 'gig_worker' && result.user?.id) {
+      // If this is a gig worker, send SMS OTP for account setup
+      if (data.role === 'gig_worker' && result.user?.id && data.phone) {
         try {
-          // Generate setup token
-          const { data: tokenData, error: tokenError } = await supabase
-            .rpc('generate_password_setup_token', {
-              p_user_id: result.user.id,
-              p_email: data.email,
-              p_created_by: user?.id
-            });
-
-          if (tokenError) {
-            console.warn('Could not generate setup token:', tokenError);
-          } else {
-            console.log('Setup token generated for gig worker:', tokenData);
-            
-            // Send setup email using Supabase Auth
-            const emailResult = await emailService.sendPasswordSetupEmail(
-              data.email,
-              data.first_name,
-              tokenData
-            );
-
-            if (emailResult.success) {
-              console.log('✅ Setup email sent successfully to:', data.email);
-              toast({
-                title: 'Email Sent',
-                description: `Setup email sent to ${data.email}`,
-              });
-            } else {
-              console.warn('❌ Failed to send setup email:', emailResult.error);
-              toast({
-                title: 'Email Warning',
-                description: `User created but email failed: ${emailResult.error}`,
-                variant: 'destructive',
-              });
+          const { data: otpResult, error: otpError } = await supabase.functions.invoke('send-otp', {
+            body: {
+              user_id: result.user.id,
+              phone_number: data.phone,
+              purpose: 'account_setup',
+              email: data.email
             }
+          });
+
+          if (otpError) {
+            console.warn('❌ Failed to send OTP:', otpError);
+            toast({
+              title: 'SMS Warning',
+              description: 'User created but SMS failed to send.',
+              variant: 'destructive',
+            });
+          } else if (otpResult?.success) {
+            console.log('✅ OTP sent successfully to:', data.phone);
+            toast({
+              title: 'SMS Sent',
+              description: `OTP sent to ${data.phone}. Gig worker can now set up their account.`,
+            });
+          } else {
+            console.warn('❌ OTP send failed:', otpResult?.error);
+            toast({
+              title: 'SMS Warning',
+              description: `User created but SMS failed: ${otpResult?.error}`,
+              variant: 'destructive',
+            });
           }
         } catch (error) {
-          console.warn('Could not generate setup token or send email:', error);
+          console.warn('Could not send OTP:', error);
+          toast({
+            title: 'SMS Warning',
+            description: 'User created but SMS failed to send.',
+            variant: 'destructive',
+          });
         }
       }
 
       const successMessage = data.role === 'gig_worker' 
-        ? `${data.first_name} ${data.last_name} has been added. They will receive an email with setup instructions.`
+        ? `${data.first_name} ${data.last_name} has been added. They will receive an SMS OTP to set up their account.`
         : `${data.first_name} ${data.last_name} has been added to the system.`;
 
       toast({
@@ -268,9 +276,13 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="phone">Phone (Optional)</Label>
+            <Label htmlFor="phone">
+              Phone {selectedRole === 'gig_worker' && <span className="text-destructive">*</span>}
+              {selectedRole !== 'gig_worker' && <span className="text-muted-foreground">(Optional)</span>}
+            </Label>
             <Input
               id="phone"
+              placeholder={selectedRole === 'gig_worker' ? 'Required for SMS OTP' : 'Optional'}
               {...register('phone')}
               className={errors.phone ? 'border-destructive' : ''}
             />
