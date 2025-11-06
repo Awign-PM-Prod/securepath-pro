@@ -101,88 +101,46 @@ serve(async (req) => {
     const smsClientId = Deno.env.get('SMS_CLIENT_ID');
     const smsUid = Deno.env.get('SMS_UID');
 
-    console.log('SMS Credentials check:', {
-      hasAccessToken: !!smsAccessToken,
-      hasClientId: !!smsClientId,
-      hasUid: !!smsUid,
-    });
-
     if (!smsAccessToken || !smsClientId || !smsUid) {
       console.error('SMS credentials not configured');
       return new Response(
-        JSON.stringify({ success: false, error: 'SMS service not configured. Please contact administrator.' }),
+        JSON.stringify({ success: false, error: 'SMS service not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Create verification link
-    const verificationUrl = `https://preview--securepath-pro.lovable.app/verify-phone/${phone_number}?purpose=${purpose}`;
-    const message = `${otpCode} is the OTP for your verification.\n\nVerify here: ${verificationUrl}\n\nCheers!\nTeam AWIGN`;
+    const message = `${otpCode} is the OTP for your verification.\n\nCheers!\nTeam AWIGN`;
 
-    // Format phone number with country code if not present
-    const formattedPhone = phone_number.startsWith('+') ? phone_number : `+91${phone_number}`;
-    
-    console.log('Attempting to resend SMS to:', phone_number);
-    console.log('Formatted phone number:', formattedPhone);
-    console.log('Verification URL:', verificationUrl);
-
-    try {
-      const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'access-token': smsAccessToken,
-          'client': smsClientId,
-          'uid': smsUid,
-          'X-CLIENT_ID': 'core',
+    const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'access-token': smsAccessToken,
+        'client': smsClientId,
+        'uid': smsUid,
+        'X-CLIENT_ID': 'core',
+      },
+      body: JSON.stringify({
+        sms: {
+          mobile_number: phone_number,
+          template_id: '1107160412653314461',
+          message: message,
+          sender_id: 'IAWIGN',
+          channel: 'telspiel',
         },
-        body: JSON.stringify({
-          sms: {
-            mobile_number: formattedPhone,
-            template_id: '1107160412653314461',
-            message: message,
-            sender_id: 'IAWIGN',
-            channel: 'telspiel',
-          },
-        }),
-      });
+      }),
+    });
 
-      const responseText = await smsResponse.text();
-      console.log('SMS API Response Status:', smsResponse.status);
-      console.log('SMS API Response Body:', responseText);
-
-      if (!smsResponse.ok) {
-        console.error('SMS API error - Status:', smsResponse.status);
-        console.error('SMS API error - Body:', responseText);
-        return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: `Failed to resend OTP SMS. API returned status ${smsResponse.status}. Please contact administrator.` 
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Parse response to check for errors in the body
-      let smsResponseData;
-      try {
-        smsResponseData = JSON.parse(responseText);
-        console.log('SMS API Parsed Response:', smsResponseData);
-      } catch (e) {
-        console.log('Could not parse SMS response as JSON');
-      }
-
-      console.log(`✅ OTP resent successfully to ${phone_number}`);
-    } catch (fetchError) {
-      console.error('Error calling SMS API:', fetchError);
+    if (!smsResponse.ok) {
+      const errorText = await smsResponse.text();
+      console.error('SMS API error:', errorText);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Failed to connect to SMS service. Please contact administrator.' 
-        }),
+        JSON.stringify({ success: false, error: 'Failed to send OTP SMS' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log(`OTP resent successfully to ${phone_number}`);
 
     return new Response(
       JSON.stringify({ 
