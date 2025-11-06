@@ -141,8 +141,11 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
         throw new Error(result.error || 'Failed to create user');
       }
 
+      console.log('✅ User created:', { role: data.role, userId: result.user?.id, phone: data.phone });
+
       // If this is a gig worker, send SMS OTP for account setup
       if (data.role === 'gig_worker' && result.user?.id && data.phone) {
+        console.log('📱 Attempting to send OTP to:', data.phone);
         try {
           const { data: otpResult, error: otpError } = await supabase.functions.invoke('send-otp', {
             body: {
