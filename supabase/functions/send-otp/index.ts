@@ -132,29 +132,32 @@ serve(async (req) => {
       }),
     });
 
-    console.log('SMS API status:', smsResponse.status);
     const smsResponseBody = await smsResponse.text();
+    console.log('SMS API status:', smsResponse.status);
     console.log('SMS API response body:', smsResponseBody);
 
-    if (!smsResponse.ok) {
-      console.error('SMS API error - Status:', smsResponse.status, 'Body:', smsResponseBody);
-      return new Response(
-        JSON.stringify({ success: false, error: 'Failed to send OTP SMS', details: smsResponseBody }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     // Parse response to check actual delivery status
+    let smsResult: any = null;
     try {
-      const smsResult = JSON.parse(smsResponseBody);
+      smsResult = JSON.parse(smsResponseBody);
       console.log('SMS API parsed result:', JSON.stringify(smsResult));
-      
-      // Log any errors or warnings in the response
-      if (smsResult.error || smsResult.errors) {
-        console.error('SMS API returned errors:', smsResult.error || smsResult.errors);
-      }
     } catch (e) {
       console.error('Failed to parse SMS response:', e);
+    }
+
+    // Check if SMS API returned an error even with 200 status
+    if (!smsResponse.ok || (smsResult && (smsResult.error || smsResult.errors))) {
+      const errorDetails = smsResult?.error || smsResult?.errors || smsResponseBody;
+      console.error('SMS API error - Status:', smsResponse.status, 'Error:', errorDetails);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Failed to send OTP SMS', 
+          sms_api_status: smsResponse.status,
+          sms_api_response: smsResult || smsResponseBody 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     console.log(`OTP sent successfully to ${phone_number} for ${purpose}`);
@@ -163,7 +166,12 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: 'OTP sent successfully',
-        expires_in_seconds: 300 
+        expires_in_seconds: 300,
+        debug: {
+          otp_stored: true,
+          sms_api_status: smsResponse.status,
+          sms_api_response: smsResult
+        }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
