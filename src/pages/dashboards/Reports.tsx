@@ -14,7 +14,7 @@ import { Search, Download, FileSpreadsheet, FileText, User, Phone, MapPin, Clock
 import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { CSVService, FormSubmissionData } from '@/services/csvService';
-import { PDFService } from '@/services/pdfService';
+import { PDFService, type CaseDataForPDF } from '@/services/pdfService';
 import JSZip from 'jszip';
 
 interface Case {
@@ -440,12 +440,29 @@ export default function Reports() {
           
           if (submissions.length > 0) {
             try {
+              // Prepare case data for auto-fill in negative case PDFs
+              const caseDataForPDF: CaseDataForPDF = {
+                case_number: caseItem.case_number,
+                candidate_name: caseItem.candidate_name,
+                phone_primary: caseItem.phone_primary,
+                location: {
+                  city: caseItem.location?.city,
+                  address_line: caseItem.location?.address_line,
+                  pincode: caseItem.location?.pincode,
+                  lat: caseItem.location?.lat,
+                  lng: caseItem.location?.lng
+                },
+                contract_type: caseItem.contract_type,
+                company_name: (caseItem as any).company_name
+              };
+              
               // Generate PDF as blob (same as single PDF, but returns blob instead of downloading)
               const pdfBlob = await PDFService.convertFormSubmissionsToPDFBlob(
                 submissions, 
                 caseItem.case_number, 
                 caseItem.contract_type,
-                caseItem.is_positive
+                caseItem.is_positive,
+                caseDataForPDF
               );
               pdfBlobs.push({ blob: pdfBlob, caseNumber: caseItem.case_number });
             } catch (error) {
@@ -940,12 +957,29 @@ export default function Reports() {
       setDownloadProgress(10);
 
       setDownloadProgress(40);
-      // Generate normal PDF without negative case merging (like before)
+      
+      // Prepare case data for auto-fill in negative case PDFs
+      const caseDataForPDF: CaseDataForPDF = {
+        case_number: caseItem.case_number,
+        candidate_name: caseItem.candidate_name,
+        phone_primary: caseItem.phone_primary,
+        location: {
+          city: caseItem.location?.city,
+          address_line: caseItem.location?.address_line,
+          pincode: caseItem.location?.pincode,
+          lat: caseItem.location?.lat,
+          lng: caseItem.location?.lng
+        },
+        contract_type: caseItem.contract_type,
+        company_name: (caseItem as any).company_name
+      };
+      
       await PDFService.convertFormSubmissionsToPDF(
         submissions, 
         caseItem.case_number, 
-        caseItem.contract_type
-        // Not passing is_positive to skip negative case merging logic
+        caseItem.contract_type,
+        caseItem.is_positive,
+        caseDataForPDF
       );
       
       setDownloadProgress(100);

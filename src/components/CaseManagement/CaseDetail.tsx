@@ -11,7 +11,7 @@ import { BonusService } from '@/services/bonusService';
 import { toast } from 'sonner';
 import DynamicFormSubmission from './DynamicFormSubmission';
 import { CSVService, FormSubmissionData } from '@/services/csvService';
-import { PDFService } from '@/services/pdfService';
+import { PDFService, type CaseDataForPDF } from '@/services/pdfService';
 import { 
   MapPin, 
   Clock, 
@@ -258,11 +258,29 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       setDownloadProgress(10);
 
       setDownloadProgress(40);
+      
+      // Prepare case data for auto-fill in negative case PDFs
+      const caseDataForPDF: CaseDataForPDF = {
+        case_number: caseData.case_number,
+        candidate_name: caseData.candidate_name,
+        phone_primary: caseData.phone_primary,
+        location: {
+          city: caseData.location?.city,
+          address_line: caseData.location?.address_line,
+          pincode: caseData.location?.pincode,
+          lat: caseData.location?.lat,
+          lng: caseData.location?.lng
+        },
+        contract_type: caseData.contract_type,
+        company_name: (caseData as any).company_name
+      };
+      
       await PDFService.convertFormSubmissionsToPDF(
         formSubmissions, 
         caseData.case_number, 
         caseData.contract_type,
-        caseData.is_positive
+        caseData.is_positive,
+        caseDataForPDF
       );
       
       setDownloadProgress(100);

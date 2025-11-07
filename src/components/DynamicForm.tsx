@@ -92,6 +92,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
 
   const [hasFormData, setHasFormData] = useState(false);
   
+  // Track which fields were auto-filled (for read-only functionality)
+  const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
+  
   // Track uploaded files to prevent duplicates in auto-save
   const [uploadedFileHashes, setUploadedFileHashes] = useState<Set<string>>(new Set());
   
@@ -542,15 +545,27 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         };
       });
 
-      // Auto-fill case data for specific fields (skip for negative cases)
-      if (caseData && !isNegative) {
-        console.log('DynamicForm: Auto-filling case data:', caseData);
+      // Auto-fill case data for specific fields
+      // For negative cases, only auto-fill: Applicant name, Company name (business only), Contact Number, City, Pincode, Case ID
+      // For positive cases, auto-fill all fields
+      if (caseData) {
+        console.log('DynamicForm: Auto-filling case data:', caseData, 'isNegative:', isNegative);
+        
+        // Check if it's a business contract for company name auto-fill
+        const contractTypeIdLower = contractTypeId?.toLowerCase() || '';
+        const isBusinessContract = contractTypeIdLower.includes('business');
         
         // Define the mapping of case data to form fields
-        const autoFillMappings = {
+        // For negative cases, use restricted list; for positive cases, use full list
+        const autoFillMappings: Record<string, string | undefined> = {
+          // Case ID (always)
           'case_id': caseData.case_number,
           'lead_id': caseData.case_number,
+          
+          // Applicant name (always)
           'applicant_name': caseData.candidate_name,
+          
+          // Contact Number (always - various field name variations)
           'contact_number': caseData.phone_primary,
           'contact_no': caseData.phone_primary,
           'phone': caseData.phone_primary,
@@ -559,20 +574,36 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           'mobile': caseData.phone_primary,
           'mobile_number': caseData.phone_primary,
           'contact_phone': caseData.phone_primary,
+          
+          // City (always)
           'city': caseData.location?.city,
+          
+          // Address (always - for both positive and negative cases)
           'address': caseData.location?.address_line,
           'address_line': caseData.location?.address_line,
-          'current_office_address': caseData.location?.address_line,
-          'current_residential_address': caseData.location?.address_line,
+          
+          // Pincode (always)
           'pincode': caseData.location?.pincode,
           'pin_code': caseData.location?.pincode,
-          'fi_type': caseData.fi_type,
-          // Company name variants
-          'company_name': caseData.company_name,
-          'business_name': caseData.company_name,
-          'company': caseData.company_name
         };
 
+        // For positive cases, add additional address variations and fi_type
+        if (!isNegative) {
+          autoFillMappings['current_office_address'] = caseData.location?.address_line;
+          autoFillMappings['current_residential_address'] = caseData.location?.address_line;
+          autoFillMappings['fi_type'] = caseData.fi_type;
+        }
+
+        // Company name - only for business contracts (both positive and negative)
+        if (isBusinessContract) {
+          autoFillMappings['company_name'] = caseData.company_name;
+          autoFillMappings['business_name'] = caseData.company_name;
+          autoFillMappings['company'] = caseData.company_name;
+        }
+
+        // Track which fields are being auto-filled
+        const filledFields = new Set<string>();
+        
         // Apply auto-fill mappings
         Object.entries(autoFillMappings).forEach(([fieldKey, value]) => {
           if (initialData[fieldKey] && value) {
@@ -581,6 +612,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               ...initialData[fieldKey],
               value: value
             };
+            filledFields.add(fieldKey);
           } else if (initialData[fieldKey]) {
             console.log(`Field ${fieldKey} exists but no value to fill:`, value);
           } else {
@@ -588,17 +620,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         });
         
+        // Store auto-filled fields for read-only functionality
+        setAutoFilledFields(filledFields);
+        
         console.log('Final initial data after auto-fill:', initialData);
-      } else if (isNegative) {
-        console.log('DynamicForm: Skipping auto-fill for negative case template');
       }
 
-      // Auto-fill latitude/longitude coordinates (skip for negative cases)
-      if (!isNegative) {
-        try {
-          const location = await getCurrentLocation();
-          console.log('DynamicForm: Auto-filling coordinates:', location);
-        
+      // Auto-fill latitude/longitude coordinates (for both positive and negative cases)
+      try {
+        const location = await getCurrentLocation();
+        console.log('DynamicForm: Auto-filling coordinates:', location);
+      
         // Define coordinate field mappings
         const coordinateFields = [
           'latitude_and_longitude',
@@ -609,6 +641,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         // Format coordinates as "lat, lng"
         const coordinatesValue = `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`;
+        
+        // Track coordinate fields that are auto-filled
+        setAutoFilledFields(prev => {
+          const updated = new Set(prev);
+          coordinateFields.forEach(fieldKey => {
+            if (initialData[fieldKey]) {
+              updated.add(fieldKey);
+            }
+          });
+          return updated;
+        });
         
         // Apply coordinate auto-fill to matching fields
         coordinateFields.forEach(fieldKey => {
@@ -622,13 +665,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         });
         
         console.log('Coordinates auto-filled successfully');
-          } catch (error) {
-            console.warn('Could not auto-fill coordinates:', error);
-            // Don't show error to user as this is optional functionality
-          }
-        } else {
-          console.log('DynamicForm: Skipping coordinate auto-fill for negative case template');
-        }
+      } catch (error) {
+        console.warn('Could not auto-fill coordinates:', error);
+        // Don't show error to user as this is optional functionality
+      }
 
       // Helper function to format date-time in local timezone for datetime-local input
       const formatLocalDateTime = (date: Date): string => {
@@ -1701,13 +1741,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       const fieldError = errors[field.field_key];
       
       // Determine if field should be read-only (auto-filled from case data)
-      const autoFillFields = ['case_id', 'lead_id', 'applicant_name', 'contact_number', 'contact_no', 'phone', 'phone_number', 'phone_primary', 'mobile', 'mobile_number', 'contact_phone', 'city', 'address', 'address_line', 'current_office_address', 'current_residential_address', 'pincode', 'pin_code', 'fi_type', 'company_name', 'business_name', 'company'];
-      const coordinateFields = ['latitude_and_longitude', 'lat_lng', 'coordinates', 'location_coordinates'];
+      // Check if this field was auto-filled (from our tracking set)
+      const isAutoFilled = autoFilledFields.has(field.field_key);
+      // Also check if it's a phone-like field that has been auto-filled
       const isPhoneLike = /contact\s*number|phone|mobile/i.test(field.field_key || '') || /contact\s*number|phone|mobile/i.test(field.field_title || '');
-      const isContactNumberField = /contact\s*number/i.test(field.field_key || '') || /contact\s*number/i.test(field.field_title || '');
       const isAutoFilledPhone = isPhoneLike && !!caseData?.phone_primary && !!fieldData?.value;
-      const isReadOnly = (caseData && autoFillFields.includes(field.field_key) && fieldData.value) || isAutoFilledPhone || isContactNumberField;
-      const isCoordinateAutoFilled = coordinateFields.includes(field.field_key) && fieldData.value;
+      // Field is read-only if it was auto-filled OR if it's a phone field with auto-filled value
+      const isReadOnly = isAutoFilled || isAutoFilledPhone;
+      const isCoordinateAutoFilled = isAutoFilled && ['latitude_and_longitude', 'lat_lng', 'coordinates', 'location_coordinates'].includes(field.field_key);
       
       // Debug: Log field data for each field
       if (textFields.includes(field.field_key)) {

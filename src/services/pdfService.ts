@@ -1,6 +1,24 @@
 import jsPDF from 'jspdf';
 import type { FormSubmissionData } from './csvService';
 
+/**
+ * Case data interface for auto-filling fields in negative case PDFs
+ */
+export interface CaseDataForPDF {
+  case_number?: string;
+  candidate_name?: string;
+  phone_primary?: string;
+  location?: {
+    city?: string;
+    address_line?: string;
+    pincode?: string;
+    lat?: number;
+    lng?: number;
+  };
+  contract_type?: string;
+  company_name?: string;
+}
+
 export class PDFService {
   /**
    * Fetch image from URL and convert to base64 with dimensions (optimized for 1-5MB range)
@@ -184,9 +202,10 @@ export class PDFService {
     submissions: FormSubmissionData[],
     caseNumber: string,
     contractType?: string,
-    isPositive?: boolean
+    isPositive?: boolean,
+    caseData?: CaseDataForPDF
   ): Promise<Blob> {
-    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive);
+    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive, caseData);
     return doc.output('blob');
   }
 
@@ -209,13 +228,80 @@ export class PDFService {
   }
 
   /**
+   * Get auto-fill value for a field based on case data
+   * Only auto-fills specific fields: Applicant name, Company name (business only), Contact Number, City, Pincode, Latitude/Longitude, Case ID
+   */
+  private static getAutoFillValue(fieldKey: string, caseData?: CaseDataForPDF): string | undefined {
+    if (!caseData) {
+      return undefined;
+    }
+
+    // Check if it's a business contract for company name auto-fill
+    const isBusinessContract = caseData.contract_type?.toLowerCase().includes('business');
+
+    // Format latitude/longitude if available
+    const getLatLng = (): string | undefined => {
+      const lat = caseData.location?.lat;
+      const lng = caseData.location?.lng;
+      // Check for both null and undefined, and ensure they are valid numbers
+      if (lat != null && lng != null && typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng)) {
+        return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      }
+      return undefined;
+    };
+
+    // Only map the specific fields requested
+    const autoFillMappings: Record<string, string | undefined> = {
+      // Case ID
+      'case_id': caseData.case_number,
+      'lead_id': caseData.case_number,
+      
+      // Applicant name
+      'applicant_name': caseData.candidate_name,
+      
+      // Contact Number (various field name variations)
+      'contact_number': caseData.phone_primary,
+      'contact_no': caseData.phone_primary,
+      'phone': caseData.phone_primary,
+      'phone_number': caseData.phone_primary,
+      'phone_primary': caseData.phone_primary,
+      'mobile': caseData.phone_primary,
+      'mobile_number': caseData.phone_primary,
+      'contact_phone': caseData.phone_primary,
+      
+      // City
+      'city': caseData.location?.city,
+      
+      // Pincode
+      'pincode': caseData.location?.pincode,
+      'pin_code': caseData.location?.pincode,
+      
+      // Latitude/Longitude
+      'latitude_and_longitude': getLatLng(),
+      'lat_lng': getLatLng(),
+      'coordinates': getLatLng(),
+      'location_coordinates': getLatLng(),
+    };
+
+    // Company name - only for business contracts
+    if (isBusinessContract) {
+      autoFillMappings['company_name'] = caseData.company_name;
+      autoFillMappings['business_name'] = caseData.company_name;
+      autoFillMappings['company'] = caseData.company_name;
+    }
+
+    return autoFillMappings[fieldKey];
+  }
+
+  /**
    * Generate PDF document (internal helper method)
    */
   private static async generatePDFDocument(
     submissions: FormSubmissionData[],
     caseNumber: string,
     contractType?: string,
-    isPositive?: boolean
+    isPositive?: boolean,
+    caseData?: CaseDataForPDF
   ): Promise<jsPDF> {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -267,44 +353,8 @@ export class PDFService {
     for (let index = 0; index < submissions.length; index++) {
       let submission = submissions[index];
       
-      // For negative cases, merge original contract template with negative template
-      // Show original contract fields first (with "Not provided"), then negative template fields (with actual responses)
-      if (isPositive === false && contractType && submission.form_fields) {
-        const { formService } = await import('./formService');
-        const mergeResult = await formService.mergeTemplatesForNegativeCase(contractType, submission);
-        
-        if (mergeResult.success && mergeResult.mergedFields) {
-          // Create merged submission data
-          const mergedSubmissionData: Record<string, any> = {};
-          
-          // Process fields: original fields get "Not provided", negative fields get actual responses
-          mergeResult.mergedFields.forEach(field => {
-            if (field._isOriginalField) {
-              // Original contract fields - show "Not provided"
-              mergedSubmissionData[field._uniqueKey] = 'Not provided';
-            } else if (field._isNegativeField && field._isNegativeOnly) {
-              // Negative-only fields - use actual response
-              mergedSubmissionData[field._uniqueKey] = submission.submission_data[field._negativeFieldKey || field.field_key];
-            }
-          });
-          
-          // Create modified submission with merged fields
-          submission = {
-            ...submission,
-            form_fields: mergeResult.mergedFields.map(field => ({
-              field_key: field._uniqueKey,
-              field_title: field.field_title,
-              field_type: field.field_type,
-              field_order: field.field_order,
-              // Keep original field_key for reference
-              _originalFieldKey: field._originalFieldKey || field.field_key,
-              _negativeFieldKey: field._negativeFieldKey || field.field_key,
-              _isNegativeOnly: field._isNegativeOnly || false
-            })),
-            submission_data: mergedSubmissionData
-          };
-        }
-      }
+      // Note: For negative cases, the form template now includes the auto-fill fields,
+      // so we process them directly from the submission (like positive cases) without merging templates
       
       // For subsequent submissions, just add spacing (no title/logo on new pages)
       if (index > 0) {
@@ -314,18 +364,10 @@ export class PDFService {
 
       // Process form fields and answers in table format
       if (submission.form_fields && submission.form_fields.length > 0) {
-        // For negative cases, preserve the merged order (original fields first, then negative fields)
-        // For positive cases, sort by field_order
-        let sortedFields: any[];
-        if (isPositive === false) {
-          // Negative case: preserve the order from merge (original fields first, then negative fields)
-          sortedFields = [...submission.form_fields];
-        } else {
-          // Positive case: sort by field_order
-          sortedFields = [...submission.form_fields].sort((a, b) => 
-            (a.field_order || 0) - (b.field_order || 0)
-          );
-        }
+        // Sort fields by field_order for both positive and negative cases
+        const sortedFields = [...submission.form_fields].sort((a, b) => 
+          (a.field_order || 0) - (b.field_order || 0)
+        );
         
         // Separate non-file-upload fields and file-upload fields
         // Exclude signature field from regular file uploads (will be added at the end)
@@ -759,9 +801,10 @@ export class PDFService {
     submissions: FormSubmissionData[],
     caseNumber: string,
     contractType?: string,
-    isPositive?: boolean
+    isPositive?: boolean,
+    caseData?: CaseDataForPDF
   ): Promise<void> {
-    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive);
+    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive, caseData);
     // Download the PDF
     const filename = `case-${caseNumber}-responses-${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(filename);
