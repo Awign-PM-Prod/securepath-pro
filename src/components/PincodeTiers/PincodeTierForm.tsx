@@ -25,7 +25,7 @@ export default function PincodeTierForm({
 }: PincodeTierFormProps) {
   const [formData, setFormData] = useState<CreatePincodeTierData>({
     pincode: '',
-    tier: 'tier_3',
+    tier: 'tier3',
     city: '',
     state: '',
     region: '',
@@ -37,7 +37,7 @@ export default function PincodeTierForm({
     if (editingTier) {
       setFormData({
         pincode: editingTier.pincode || '',
-        tier: editingTier.tier || 'tier_3',
+        tier: editingTier.tier || 'tier3',
         city: editingTier.city || '',
         state: editingTier.state || '',
         region: editingTier.region || '',
@@ -45,7 +45,7 @@ export default function PincodeTierForm({
     } else {
       setFormData({
         pincode: '',
-        tier: 'tier_3',
+        tier: 'tier3',
         city: '',
         state: '',
         region: '',

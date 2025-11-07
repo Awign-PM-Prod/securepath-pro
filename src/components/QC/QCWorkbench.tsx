@@ -19,7 +19,8 @@ import {
   Navigation,
   AlertTriangle,
   ThumbsUp,
-  ThumbsDown
+  ThumbsDown,
+  RefreshCw
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -205,10 +206,10 @@ export default function QCWorkbench() {
         ],
       };
 
-      setSubmissions(prev => 
-        prev.map(sub => sub.id === selectedSubmission.id ? updatedSubmission : sub)
+      setSubmissions((prev: QCSubmission[]) => 
+        prev.map((sub: QCSubmission) => sub.id === selectedSubmission.id ? updatedSubmission as QCSubmission : sub)
       );
-      setSelectedSubmission(updatedSubmission);
+      setSelectedSubmission(updatedSubmission as QCSubmission);
 
       toast({
         title: 'Review Submitted',
@@ -309,7 +310,7 @@ export default function QCWorkbench() {
                     </div>
                     <div className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      <span>TAT: {submission.tat_hours || 'N/A'}h</span>
+                      <span>TAT: {'tat_hours' in submission ? (submission as any).tat_hours : 'N/A'}h</span>
                     </div>
                   </div>
                 </div>

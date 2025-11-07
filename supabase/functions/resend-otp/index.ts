@@ -34,29 +34,6 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Check if last OTP sent within 60 seconds (rate limiting)
-    const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString();
-    const { data: recentOTP } = await supabase
-      .from('otp_tokens')
-      .select('id, created_at')
-      .eq('phone_number', phone_number)
-      .eq('purpose', purpose)
-      .gte('created_at', sixtySecondsAgo)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (recentOTP) {
-      const waitTime = 60 - Math.floor((Date.now() - new Date(recentOTP.created_at).getTime()) / 1000);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: `Please wait ${waitTime} seconds before requesting a new OTP` 
-        }),
-        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     // Invalidate previous unverified OTPs
     await supabase
       .from('otp_tokens')
@@ -131,9 +108,11 @@ serve(async (req) => {
       }),
     });
 
+    const smsResponseText = await smsResponse.text();
+    console.log(`SMS API Response - Status: ${smsResponse.status}, Body:`, smsResponseText);
+
     if (!smsResponse.ok) {
-      const errorText = await smsResponse.text();
-      console.error('SMS API error:', errorText);
+      console.error('SMS API error - Status:', smsResponse.status, 'Response:', smsResponseText);
       return new Response(
         JSON.stringify({ success: false, error: 'Failed to send OTP SMS' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

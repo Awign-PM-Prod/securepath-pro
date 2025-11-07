@@ -244,8 +244,6 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
         formFieldsCount: formSubmissions[0].form_fields?.length || 0,
         hasSubmissionData: !!formSubmissions[0].submission_data,
         submissionDataKeys: Object.keys(formSubmissions[0].submission_data || {}),
-        hasFormTemplate: !!formSubmissions[0].form_template,
-        formTemplate: formSubmissions[0].form_template,
         hasFormSubmissionFiles: !!formSubmissions[0].form_submission_files,
         formSubmissionFilesCount: formSubmissions[0].form_submission_files?.length || 0,
         fullStructure: formSubmissions[0]
@@ -320,13 +318,14 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       const API_URL = 'https://stipkqfnfogxuegxgdba.supabase.co/functions/v1/generate-pdf';
       const API_KEY = 'qcpk_a1dcaccc6ac0433bb353528b1f25f828';
 
+      const csvBlob = await csvContent;
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/csv',
           'x-api-key': API_KEY
         },
-        body: csvContent
+        body: csvBlob
       });
 
       // Check if response is ok

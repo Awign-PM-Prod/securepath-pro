@@ -78,15 +78,15 @@ export default function RateCardForm({ onSuccess, onCancel, isOpen, onOpenChange
       newErrors.completion_slab = 'Completion slab is required';
     }
 
-    if (formData.base_rate_inr <= 0) {
+    if (Number(formData.base_rate_inr) <= 0) {
       newErrors.base_rate_inr = 'Base rate must be greater than 0';
     }
 
-    if (formData.default_travel_inr < 0) {
+    if (Number(formData.default_travel_inr) < 0) {
       newErrors.default_travel_inr = 'Travel allowance cannot be negative';
     }
 
-    if (formData.default_bonus_inr < 0) {
+    if (Number(formData.default_bonus_inr) < 0) {
       newErrors.default_bonus_inr = 'Bonus amount cannot be negative';
     }
 

@@ -71,9 +71,12 @@ export default function BulkPincodeTierForm({
         return;
       }
 
+      // Convert tier_1, tier_2, tier_3 to tier1, tier2, tier3
+      const normalizedTier = tier.replace('_', '') as 'tier1' | 'tier2' | 'tier3';
+      
       data.push({
         pincode,
-        tier: tier as 'tier_1' | 'tier_2' | 'tier_3',
+        tier: normalizedTier,
         city: city || undefined,
         state: state || undefined,
         region: region || undefined,

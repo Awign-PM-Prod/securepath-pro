@@ -711,7 +711,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
 
           // Only auto-fill if field is empty (not already filled)
           const currentValue = formData[field.field_key]?.value;
-          if (currentValue && currentValue !== '' && currentValue !== false) {
+          if (currentValue && currentValue !== '') {
             return; // Skip if already has value
           }
 
@@ -1359,14 +1359,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         // Trigger Save Draft flow so files are persisted just like manual draft save
         if (onSaveDraft) {
-          const formDataWithLocation: any = {
+          const formDataWithLocation = {
             ...updatedFormData,
             _metadata: {
               file_locations: fileLocations,
               individual_file_locations: individualFileLocations,
               submission_timestamp: new Date().toISOString(),
             }
-          } as FormData;
+          };
           setTimeout(() => onSaveDraft(formDataWithLocation), 0);
         } else {
           // Fallback to auto-save if save draft callback is unavailable
@@ -1430,14 +1430,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         
         // Trigger Save Draft flow so files are persisted just like manual draft save
         if (onSaveDraft) {
-          const formDataWithLocation: any = {
+          const formDataWithLocation = {
             ...updatedFormData,
             _metadata: {
               file_locations: fileLocations,
               individual_file_locations: individualFileLocations,
               submission_timestamp: new Date().toISOString(),
             }
-          } as FormData;
+          };
           setTimeout(() => onSaveDraft(formDataWithLocation), 0);
         } else {
           // Fallback to auto-save if save draft callback is unavailable
@@ -1575,14 +1575,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         updatedIndividualFileLocations[fieldKey] = reindexedLocations;
         
         // Add location metadata for save
-        const formDataWithLocation: any = {
+        const formDataWithLocation = {
           ...updatedFormData,
           _metadata: {
             file_locations: currentFileLocations,
             individual_file_locations: updatedIndividualFileLocations,
             submission_timestamp: new Date().toISOString(),
           }
-        } as FormData;
+        };
         
         // Trigger save draft if available
         if (onSaveDraft) {
@@ -2033,7 +2033,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 onChange={(e) => handleFieldChange(field.field_key, e.target.value)}
                 placeholder={field.field_config.placeholder}
                 maxLength={field.field_config.maxLength}
-                disabled={isReadOnly || isCoordinateAutoFilled}
+                disabled={Boolean(isReadOnly || isCoordinateAutoFilled)}
                 className={isReadOnly || isCoordinateAutoFilled ? 'bg-gray-100 cursor-not-allowed' : ''}
               />
               {field.field_config.description && (
@@ -2060,7 +2060,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 placeholder={field.field_config.placeholder}
                 maxLength={field.field_config.maxLength}
                 rows={4}
-                disabled={isReadOnly || isCoordinateAutoFilled}
+                disabled={Boolean(isReadOnly || isCoordinateAutoFilled)}
                 className={isReadOnly || isCoordinateAutoFilled ? 'bg-gray-100 cursor-not-allowed' : ''}
               />
               {field.field_config.description && (
@@ -2092,7 +2092,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                     handleFieldChange(field.field_key, value);
                   }
                 }}
-                disabled={isReadOnly}
+                disabled={Boolean(isReadOnly)}
                 className={isReadOnly ? 'opacity-60' : ''}
               >
                 {field.field_config.options?.map((option: any, index: number) => {

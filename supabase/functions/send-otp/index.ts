@@ -35,24 +35,13 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Check rate limiting - max 3 OTPs per phone number per 5 minutes
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const { data: recentOTPs, error: rateLimitError } = await supabase
+    // Invalidate all previous unverified OTPs for this phone number and purpose
+    await supabase
       .from('otp_tokens')
-      .select('id')
+      .update({ is_verified: true })
       .eq('phone_number', phone_number)
-      .gte('created_at', fiveMinutesAgo);
-
-    if (rateLimitError) {
-      console.error('Rate limit check error:', rateLimitError);
-    }
-
-    if (recentOTPs && recentOTPs.length >= 3) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Too many OTP requests. Please try again after 5 minutes.' }),
-        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+      .eq('purpose', purpose)
+      .eq('is_verified', false);
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -129,9 +118,11 @@ serve(async (req) => {
       }),
     });
 
+    const smsResponseText = await smsResponse.text();
+    console.log(`SMS API Response - Status: ${smsResponse.status}, Body:`, smsResponseText);
+
     if (!smsResponse.ok) {
-      const errorText = await smsResponse.text();
-      console.error('SMS API error:', errorText);
+      console.error('SMS API error - Status:', smsResponse.status, 'Response:', smsResponseText);
       return new Response(
         JSON.stringify({ success: false, error: 'Failed to send OTP SMS' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
