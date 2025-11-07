@@ -333,12 +333,28 @@ export default function GigWorkerManagement() {
       }
 
       // Send SMS OTP for account setup
-      console.log('📱 Sending OTP to phone:', formData.phone, 'for user:', data.user?.id);
+      const userId = data.user?.id;
+      console.log('📱 Sending OTP to phone:', formData.phone, 'for user:', userId);
+      
+      if (!userId) {
+        console.error('❌ No user_id returned from create-user function');
+        toast({
+          title: 'User Created',
+          description: 'Gig worker created but no user ID returned. Please contact support.',
+          variant: 'destructive',
+        });
+        setIsCreateDialogOpen(false);
+        resetForm();
+        loadData();
+        return;
+      }
+      
       try {
         const otpResult = await otpService.sendOTP(
           formData.phone,
           'account_setup',
-          formData.email
+          formData.email,
+          userId
         );
 
         if (otpResult.success) {

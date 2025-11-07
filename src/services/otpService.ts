@@ -15,7 +15,8 @@ export class OTPService {
   async sendOTP(
     phoneNumber: string,
     purpose: 'login' | 'account_setup',
-    email?: string
+    email?: string,
+    userId?: string
   ): Promise<OTPResponse> {
     try {
       const { data, error } = await supabase.functions.invoke('send-otp', {
@@ -23,6 +24,7 @@ export class OTPService {
           phone_number: phoneNumber,
           purpose,
           email,
+          user_id: userId,
         },
       });
 

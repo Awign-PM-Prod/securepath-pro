@@ -48,7 +48,15 @@ serve(async (req) => {
       const { data: userData } = await supabase.auth.admin.listUsers();
       const user = userData?.users?.find(u => u.email === email);
       userId = user?.id;
+      
+      if (userId) {
+        console.log(`✅ Found user_id ${userId} for email ${email}`);
+      } else {
+        console.warn(`❌ No user found for email ${email}`);
+      }
     }
+    
+    console.log(`Resend OTP request - user_id: ${userId}, phone: ${phone_number}, purpose: ${purpose}`);
 
     // Generate new OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();

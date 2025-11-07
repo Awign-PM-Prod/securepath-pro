@@ -49,20 +49,30 @@ serve(async (req) => {
     // Set expiry to 5 minutes from now
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-    // Get user_id if not provided (for login purpose)
+    // Get user_id if not provided
     let userId = user_id;
-    if (!userId && purpose === 'login' && email) {
+    if (!userId && email) {
+      // Try to find user by email
       const { data: userData } = await supabase.auth.admin.listUsers();
       const user = userData?.users?.find(u => u.email === email);
       userId = user?.id;
+      
+      if (userId) {
+        console.log(`✅ Found user_id ${userId} for email ${email}`);
+      } else {
+        console.warn(`❌ No user found for email ${email}`);
+      }
     }
 
+    // For login purpose, user must exist
     if (!userId && purpose === 'login') {
       return new Response(
         JSON.stringify({ success: false, error: 'User not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    
+    console.log(`OTP request - user_id: ${userId}, phone: ${phone_number}, purpose: ${purpose}`);
 
     // Store OTP in database
     const { error: insertError } = await supabase
