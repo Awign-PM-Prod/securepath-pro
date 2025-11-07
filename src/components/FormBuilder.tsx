@@ -168,10 +168,21 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
 
     // Use local state for the field being edited to prevent re-renders
     const [localField, setLocalField] = useState<FormBuilderField>(editingField);
+    // Store raw input value for multiple choice options (to allow free typing)
+    const [multipleChoiceInput, setMultipleChoiceInput] = useState<string>(
+      editingField.field_type === 'multiple_choice' 
+        ? (editingField.field_config.options?.join(', ') || '')
+        : ''
+    );
 
     // Only update local field when editingField changes (when opening editor for different field)
     useEffect(() => {
       setLocalField(editingField);
+      if (editingField.field_type === 'multiple_choice') {
+        setMultipleChoiceInput(editingField.field_config.options?.join(', ') || '');
+      } else {
+        setMultipleChoiceInput('');
+      }
     }, [editingField?.field_order]); // Only reset when field_order changes (different field)
 
     const updateField = (updates: Partial<FormBuilderField>) => {
@@ -261,16 +272,50 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
 
             {/* Field-specific configuration */}
             {localField.field_type === 'multiple_choice' && (
-              <div>
-                <Label>Options (one per line)</Label>
-                <Textarea
-                  value={localField.field_config.options?.join('\n') || ''}
-                  onChange={(e) => updateFieldConfig({
-                    options: e.target.value.split('\n').filter(opt => opt.trim())
-                  })}
-                  placeholder="Option 1&#10;Option 2&#10;Option 3"
-                  rows={4}
+              <div className="space-y-2">
+                <Label>Options (comma-separated)</Label>
+                <Input
+                  value={multipleChoiceInput}
+                  onChange={(e) => {
+                    const rawValue = e.target.value;
+                    // Update the raw input value immediately (allows free typing)
+                    setMultipleChoiceInput(rawValue);
+                    // Parse and update options in the background
+                    const options = rawValue
+                      .split(',')
+                      .map(opt => opt.trim())
+                      .filter(opt => opt.length > 0);
+                    updateFieldConfig({ options });
+                  }}
+                  onBlur={() => {
+                    // On blur, clean up and format the input
+                    const options = multipleChoiceInput
+                      .split(',')
+                      .map(opt => opt.trim())
+                      .filter(opt => opt.length > 0);
+                    const formatted = options.join(', ');
+                    setMultipleChoiceInput(formatted);
+                    updateFieldConfig({ options });
+                  }}
+                  placeholder="Option 1, Option 2, Option 3"
+                  className="w-full"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Enter options separated by commas (e.g., "Yes, No, Maybe")
+                </p>
+                {localField.field_config.options && localField.field_config.options.length > 0 && (
+                  <div className="mt-2 p-2 bg-gray-50 rounded-md">
+                    <p className="text-xs font-medium text-gray-700 mb-1">Preview ({localField.field_config.options.length} options):</p>
+                    <ul className="text-xs text-gray-600 space-y-1">
+                      {localField.field_config.options.map((option, idx) => (
+                        <li key={idx} className="flex items-center gap-2">
+                          <span className="w-4 h-4 rounded-full border border-gray-300 flex items-center justify-center text-[10px]">{idx + 1}</span>
+                          <span>{option}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
 
