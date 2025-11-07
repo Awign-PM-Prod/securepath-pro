@@ -63,40 +63,56 @@ export async function addImageOverlay(
         addressString = location.address || coordsString;
       }
 
-      // Calculate overlay dimensions and position
-      const padding = 16; // Increased from 10
-      const lineHeight = 28; // Increased from 20
-      const fontSize = Math.max(16, Math.min(24, img.width / 20)); // Increased font size range
+      // Calculate overlay dimensions and position - Full width at bottom
+      const padding = 20;
+      const lineHeight = 32;
+      const fontSize = Math.max(18, Math.min(28, img.width / 25));
+      const maxOverlayWidth = img.width - (padding * 2); // Full width minus padding
       
       // Set font properties
       ctx.font = `bold ${fontSize}px Arial, sans-serif`;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.lineWidth = 3; // Increased from 2
+      ctx.lineWidth = 3;
 
-      // Calculate text dimensions for all lines
-      const timeMetrics = ctx.measureText(timeString);
-      const addressMetrics = ctx.measureText(addressString);
-      const coordsMetrics = ctx.measureText(coordsString);
-      const pincodeMetrics = ctx.measureText(pincodeString);
+      // Function to wrap text to fit within max width
+      const wrapText = (text: string, maxWidth: number): string[] => {
+        const words = text.split(' ');
+        const lines: string[] = [];
+        let currentLine = '';
+
+        for (const word of words) {
+          const testLine = currentLine ? `${currentLine} ${word}` : word;
+          const metrics = ctx.measureText(testLine);
+          
+          if (metrics.width > maxWidth && currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = testLine;
+          }
+        }
+        
+        if (currentLine) {
+          lines.push(currentLine);
+        }
+        
+        return lines.length > 0 ? lines : [text];
+      };
+
+      // Wrap address text if it's too long
+      const addressLines = wrapText(addressString, maxOverlayWidth);
       
-      // Determine number of lines and max width
-      const lines = [timeString, addressString];
-      if (coordsString && location) lines.push(coordsString);
-      if (pincodeString) lines.push(pincodeString);
+      // Build all lines to display
+      const allLines: string[] = [timeString, ...addressLines];
+      if (coordsString && location) allLines.push(coordsString);
+      if (pincodeString) allLines.push(pincodeString);
       
-      const maxWidth = Math.max(
-        timeMetrics.width, 
-        addressMetrics.width, 
-        coordsMetrics.width, 
-        pincodeMetrics.width
-      );
-      
-      // Position overlay in bottom-right corner
-      const overlayX = img.width - maxWidth - (padding * 2);
-      const overlayY = img.height - (lineHeight * lines.length) - (padding * 2);
-      const overlayWidth = maxWidth + (padding * 2);
-      const overlayHeight = (lineHeight * lines.length) + (padding * 2);
+      // Calculate overlay dimensions - full width at bottom
+      const overlayX = padding;
+      const overlayY = img.height - (lineHeight * allLines.length) - (padding * 2);
+      const overlayWidth = maxOverlayWidth;
+      const overlayHeight = (lineHeight * allLines.length) + (padding * 2);
 
       // Draw background rectangle
       ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; // Increased opacity from 0.7
@@ -113,9 +129,11 @@ export async function addImageOverlay(
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
 
-      // Draw all lines
-      lines.forEach((line, index) => {
-        ctx.fillText(line, overlayX + padding, overlayY + padding + (lineHeight * index));
+      // Draw all lines with proper spacing
+      let currentY = overlayY + padding;
+      allLines.forEach((line) => {
+        ctx.fillText(line, overlayX + padding, currentY);
+        currentY += lineHeight;
       });
 
       // Convert canvas to blob and create new file

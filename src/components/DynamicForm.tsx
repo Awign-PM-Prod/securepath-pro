@@ -962,15 +962,259 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           // Try to get address and pincode from coordinates
           let address = '';
           let pincode = '';
+          
+          // First try OpenStreetMap Nominatim for detailed addresses
           try {
-            const response = await fetch(
-              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+            console.log('Fetching detailed address from OpenStreetMap Nominatim...');
+            const nominatimResponse = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1&zoom=18&extratags=1&namedetails=1`,
+              {
+                headers: {
+                  'User-Agent': 'SecurePath-Pro/1.0 (Background Verification Platform)'
+                }
+              }
             );
-            const data = await response.json();
-            address = `${data.locality || ''} ${data.city || ''} ${data.principalSubdivision || ''}`.trim();
-            pincode = data.postcode || '';
-          } catch (e) {
-            console.warn('Could not get address and pincode from coordinates:', e);
+            const nominatimData = await nominatimResponse.json();
+            console.log('Nominatim API response:', JSON.stringify(nominatimData, null, 2));
+            
+            if (nominatimData && nominatimData.address) {
+              const addr = nominatimData.address;
+              const addressParts = [];
+              
+              // Build complete detailed address from Nominatim response
+              // Include all available address components in order of specificity (most specific first)
+              
+              // Floor/Level
+              if (addr.level) {
+                addressParts.push(`Level ${addr.level}`);
+              }
+              if (addr.floor) {
+                addressParts.push(`Floor ${addr.floor}`);
+              }
+              
+              // Shop/Unit/House number (most specific)
+              if (addr.shop) {
+                addressParts.push(`Shop ${addr.shop}`);
+              }
+              if (addr.unit) {
+                addressParts.push(`Unit ${addr.unit}`);
+              }
+              if (addr.house_number) {
+                addressParts.push(addr.house_number);
+              }
+              
+              // Block/Block Number
+              if (addr.block) {
+                addressParts.push(`Block ${addr.block}`);
+              }
+              if (addr.block_number) {
+                addressParts.push(`Block ${addr.block_number}`);
+              }
+              
+              // Building/Society/Complex
+              if (addr.building) {
+                addressParts.push(addr.building);
+              }
+              if (addr.house) {
+                addressParts.push(addr.house);
+              }
+              
+              // Wing/Section
+              if (addr.wing) {
+                addressParts.push(`Wing ${addr.wing}`);
+              }
+              
+              // Road/Street
+              if (addr.road || addr.street || addr.pedestrian) {
+                addressParts.push(addr.road || addr.street || addr.pedestrian);
+              }
+              
+              // Society/Colony/Residential area
+              if (addr.residential) {
+                addressParts.push(addr.residential);
+              }
+              if (addr.neighbourhood) {
+                addressParts.push(addr.neighbourhood);
+              }
+              if (addr.suburb) {
+                addressParts.push(addr.suburb);
+              }
+              if (addr.village) {
+                addressParts.push(addr.village);
+              }
+              
+              // Locality/Area
+              if (addr.locality) {
+                addressParts.push(addr.locality);
+              }
+              if (addr.city_district) {
+                addressParts.push(addr.city_district);
+              }
+              
+              // Nagar/Ward/Zone
+              if (addr.quarter) {
+                addressParts.push(addr.quarter);
+              }
+              if (addr.district) {
+                addressParts.push(addr.district);
+              }
+              
+              // City/Town
+              if (addr.city) {
+                addressParts.push(addr.city);
+              } else if (addr.town) {
+                addressParts.push(addr.town);
+              } else if (addr.municipality) {
+                addressParts.push(addr.municipality);
+              }
+              
+              // Additional city/district info
+              if (addr.county) {
+                addressParts.push(addr.county);
+              }
+              
+              // State
+              if (addr.state) {
+                addressParts.push(addr.state);
+              } else if (addr.region) {
+                addressParts.push(addr.region);
+              }
+              
+              // Country
+              if (addr.country) {
+                addressParts.push(addr.country);
+              }
+              
+              // Also check extratags for additional details
+              if (nominatimData.extratags) {
+                const extra = nominatimData.extratags;
+                // Add any building-specific details from extratags at appropriate positions
+                if (extra['addr:floor'] && !addr.floor && !addr.level) {
+                  addressParts.unshift(`Floor ${extra['addr:floor']}`);
+                }
+                if (extra['addr:unit'] && !addr.unit && !addr.shop) {
+                  // Insert after floor/level but before shop/unit
+                  const insertIndex = addressParts.findIndex(p => p.startsWith('Shop') || p.startsWith('Unit') || p.match(/^\d+$/)) || 0;
+                  addressParts.splice(insertIndex, 0, `Unit ${extra['addr:unit']}`);
+                }
+                if (extra['addr:block'] && !addr.block && !addr.block_number) {
+                  // Insert after shop/unit/house_number but before building
+                  const insertIndex = addressParts.findIndex(p => p.includes('Block') || p === addr.building || p === addr.house) || addressParts.length;
+                  addressParts.splice(insertIndex, 0, `Block ${extra['addr:block']}`);
+                }
+              }
+              
+              address = addressParts.join(', ').trim();
+              pincode = addr.postcode || '';
+              
+              // Prefer display_name if it's available and more detailed
+              // display_name often contains the complete formatted address with all details
+              if (nominatimData.display_name) {
+                let displayName = nominatimData.display_name.trim();
+                
+                // Remove country from end if present (we'll add it separately if needed)
+                if (addr.country && displayName.endsWith(`, ${addr.country}`)) {
+                  displayName = displayName.replace(`, ${addr.country}`, '');
+                }
+                
+                // Use display_name if it's more detailed than our constructed address
+                // display_name typically has better formatting and includes all available details
+                const displayNameParts = displayName.split(',').map(p => p.trim()).filter(p => p);
+                const constructedParts = addressParts.filter(p => p);
+                
+                // Use display_name if it has more parts or is longer
+                if (displayNameParts.length >= constructedParts.length || displayName.length > address.length) {
+                  address = displayName;
+                  console.log('Using display_name as it contains more details');
+                }
+              }
+              
+              if (address) {
+                console.log('Got detailed address from Nominatim:', address);
+                console.log('Pincode:', pincode);
+                console.log('All address fields:', JSON.stringify(addr, null, 2));
+              }
+            }
+          } catch (nominatimError) {
+            console.warn('Nominatim API failed, trying BigDataCloud:', nominatimError);
+          }
+          
+          // Fallback to BigDataCloud if Nominatim didn't provide good results
+          if (!address || address.split(',').length < 3) {
+            try {
+              console.log('Fetching address from BigDataCloud as fallback...');
+              const response = await fetch(
+                `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+              );
+              const data = await response.json();
+              console.log('BigDataCloud API response:', JSON.stringify(data, null, 2));
+              
+              // Construct address from BigDataCloud
+              const addressParts = [];
+              
+              // Try different possible field names for street/house number
+              const streetNumber = data.streetNumber || data.street_number || data.houseNumber || data.house_number || 
+                                   (data.localityInfo && data.localityInfo.addressComponents && 
+                                    data.localityInfo.addressComponents.find((c: any) => c.kind === 'street_number')?.name);
+              
+              // Try different possible field names for street name
+              const street = data.street || data.streetName || data.route || 
+                            (data.localityInfo && data.localityInfo.addressComponents && 
+                             data.localityInfo.addressComponents.find((c: any) => c.kind === 'route')?.name);
+              
+              // Get locality info
+              const locality = data.locality || 
+                             (data.localityInfo && data.localityInfo.addressComponents && 
+                              data.localityInfo.addressComponents.find((c: any) => c.kind === 'locality')?.name);
+              
+              // Get city
+              const city = data.city || 
+                          (data.localityInfo && data.localityInfo.addressComponents && 
+                           data.localityInfo.addressComponents.find((c: any) => c.kind === 'city')?.name);
+              
+              // Get state
+              const state = data.principalSubdivision || 
+                           (data.localityInfo && data.localityInfo.addressComponents && 
+                            data.localityInfo.addressComponents.find((c: any) => c.kind === 'administrative_area_level_1')?.name);
+              
+              // Build address in order: street number, street, locality, city, state
+              if (streetNumber) {
+                addressParts.push(streetNumber);
+              }
+              if (street) {
+                addressParts.push(street);
+              }
+              if (locality) {
+                addressParts.push(locality);
+              }
+              if (city) {
+                addressParts.push(city);
+              }
+              if (state) {
+                addressParts.push(state);
+              }
+              
+              const bigDataCloudAddress = addressParts.join(', ').trim();
+              
+              // Use BigDataCloud address if it's more detailed than what we got from Nominatim
+              if (bigDataCloudAddress && (!address || bigDataCloudAddress.split(',').length > address.split(',').length)) {
+                address = bigDataCloudAddress;
+              }
+              
+              if (!pincode) {
+                pincode = data.postcode || data.postCode || '';
+              }
+              
+              console.log('Final address:', address);
+              console.log('Final pincode:', pincode);
+            } catch (e) {
+              console.warn('Could not get address from BigDataCloud:', e);
+            }
+          }
+          
+          // Final fallback if no address found
+          if (!address) {
+            address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
           }
 
           resolve({

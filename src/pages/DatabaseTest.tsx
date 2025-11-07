@@ -206,8 +206,70 @@ Test Client,employment,John Doe,9876543210,123 Test Street,Test City,Test State,
                     `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
                   );
                   const data = await response.json();
-                  address = `${data.locality || ''} ${data.city || ''} ${data.principalSubdivision || ''}`.trim();
-                  pincode = data.postcode || '';
+                  
+                  // Construct detailed address - BigDataCloud API structure
+                  const addressParts = [];
+                  
+                  // Try different possible field names for street/house number
+                  const streetNumber = data.streetNumber || data.street_number || data.houseNumber || data.house_number || 
+                                       (data.localityInfo && data.localityInfo.addressComponents && 
+                                        data.localityInfo.addressComponents.find((c: any) => c.kind === 'street_number')?.name);
+                  
+                  // Try different possible field names for street name
+                  const street = data.street || data.streetName || data.route || 
+                                (data.localityInfo && data.localityInfo.addressComponents && 
+                                 data.localityInfo.addressComponents.find((c: any) => c.kind === 'route')?.name);
+                  
+                  // Get locality info
+                  const locality = data.locality || 
+                                 (data.localityInfo && data.localityInfo.addressComponents && 
+                                  data.localityInfo.addressComponents.find((c: any) => c.kind === 'locality')?.name);
+                  
+                  // Get city
+                  const city = data.city || 
+                              (data.localityInfo && data.localityInfo.addressComponents && 
+                               data.localityInfo.addressComponents.find((c: any) => c.kind === 'city')?.name);
+                  
+                  // Get state
+                  const state = data.principalSubdivision || 
+                               (data.localityInfo && data.localityInfo.addressComponents && 
+                                data.localityInfo.addressComponents.find((c: any) => c.kind === 'administrative_area_level_1')?.name);
+                  
+                  // Build address in order: street number, street, locality, city, state
+                  if (streetNumber) {
+                    addressParts.push(streetNumber);
+                  }
+                  if (street) {
+                    addressParts.push(street);
+                  }
+                  if (locality) {
+                    addressParts.push(locality);
+                  }
+                  if (city) {
+                    addressParts.push(city);
+                  }
+                  if (state) {
+                    addressParts.push(state);
+                  }
+                  
+                  address = addressParts.join(', ').trim();
+                  
+                  // Fallback: try using localityInfo.administrative array
+                  if (!address && data.localityInfo && data.localityInfo.administrative) {
+                    const adminParts = data.localityInfo.administrative
+                      .map((admin: any) => admin.name)
+                      .filter(Boolean);
+                    if (adminParts.length > 0) {
+                      address = adminParts.join(', ').trim();
+                    }
+                  }
+                  
+                  // Final fallback to basic format
+                  if (!address) {
+                    address = `${data.locality || ''} ${data.city || ''} ${data.principalSubdivision || ''}`.trim();
+                  }
+                  
+                  pincode = data.postcode || data.postCode || '';
                 } catch (e) {
                   console.warn('Could not get address and pincode from coordinates:', e);
                 }
