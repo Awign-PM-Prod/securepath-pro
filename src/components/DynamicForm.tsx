@@ -1746,8 +1746,15 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       // Also check if it's a phone-like field that has been auto-filled
       const isPhoneLike = /contact\s*number|phone|mobile/i.test(field.field_key || '') || /contact\s*number|phone|mobile/i.test(field.field_title || '');
       const isAutoFilledPhone = isPhoneLike && !!caseData?.phone_primary && !!fieldData?.value;
-      // Field is read-only if it was auto-filled OR if it's a phone field with auto-filled value
-      const isReadOnly = isAutoFilled || isAutoFilledPhone;
+      
+      // Check if it's a company name field in a non-business contract (residence verification)
+      const contractTypeIdLower = contractTypeId?.toLowerCase() || '';
+      const isBusinessContract = contractTypeIdLower.includes('business');
+      const isCompanyNameField = /company_name|business_name|company/.test(field.field_key || '');
+      const isCompanyNameReadOnly = isCompanyNameField && !isBusinessContract && caseData; // Read-only if company field exists but not a business contract
+      
+      // Field is read-only if it was auto-filled OR if it's a phone field with auto-filled value OR if it's company name in non-business contract
+      const isReadOnly = isAutoFilled || isAutoFilledPhone || isCompanyNameReadOnly;
       const isCoordinateAutoFilled = isAutoFilled && ['latitude_and_longitude', 'lat_lng', 'coordinates', 'location_coordinates'].includes(field.field_key);
       
       // Debug: Log field data for each field
@@ -1771,7 +1778,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label htmlFor={field.field_key}>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
-                {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReadOnly && !isCompanyNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isCompanyNameReadOnly && <span className="text-gray-600 ml-2 text-sm">(Not applicable)</span>}
                 {isCoordinateAutoFilled && <span className="text-green-600 ml-2 text-sm">(Auto-filled from GPS)</span>}
               </Label>
               <Input
@@ -1796,7 +1804,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label htmlFor={field.field_key}>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
-                {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReadOnly && !isCompanyNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isCompanyNameReadOnly && <span className="text-gray-600 ml-2 text-sm">(Not applicable)</span>}
                 {isCoordinateAutoFilled && <span className="text-green-600 ml-2 text-sm">(Auto-filled from GPS)</span>}
               </Label>
               <Textarea
@@ -1822,7 +1831,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
-                {isReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReadOnly && !isCompanyNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isCompanyNameReadOnly && <span className="text-gray-600 ml-2 text-sm">(Not applicable)</span>}
               </Label>
               <div className={`space-y-2 ${isReadOnly ? 'opacity-60' : ''}`}>
                 {field.field_config.options?.map((option: any, index: number) => {

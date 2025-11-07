@@ -353,8 +353,61 @@ export class PDFService {
     for (let index = 0; index < submissions.length; index++) {
       let submission = submissions[index];
       
-      // Note: For negative cases, the form template now includes the auto-fill fields,
-      // so we process them directly from the submission (like positive cases) without merging templates
+      // For negative cases, use original contract template fields instead of negative template fields
+      if (isPositive === false && contractType && submission.form_fields) {
+        const { formService } = await import('./formService');
+        // Get the original contract template (positive template)
+        const originalTemplateResult = await formService.getFormTemplate(contractType, false);
+        
+        if (originalTemplateResult.success && originalTemplateResult.template) {
+          const originalFields = originalTemplateResult.template.form_fields || [];
+          
+          // Create submission data with original template fields
+          // Use values from submission if they exist (for auto-filled fields), otherwise "Not verified"
+          const originalSubmissionData: Record<string, any> = {};
+          
+          originalFields.forEach(field => {
+            // Check if this field has a value in the negative submission
+            // Map common field keys that might be in the negative submission
+            const fieldKey = field.field_key;
+            const valueFromSubmission = submission.submission_data[fieldKey];
+            
+            // Check if field is boolean/radio type
+            const isBooleanField = field.field_type === 'boolean' || field.field_type === 'radio';
+            
+            // For boolean/radio fields in negative cases, always show "Not verified" unless explicitly set
+            if (isBooleanField) {
+              // Check for auto-fill value (unlikely for boolean fields, but check anyway)
+              const autoFillValue = this.getAutoFillValue(fieldKey, caseData);
+              if (autoFillValue) {
+                originalSubmissionData[fieldKey] = autoFillValue;
+              } else {
+                // For negative cases, boolean/radio fields should show "Not verified"
+                originalSubmissionData[fieldKey] = 'Not verified';
+              }
+            } else if (valueFromSubmission !== undefined && valueFromSubmission !== null && valueFromSubmission !== '') {
+              // Use the value from submission (for auto-filled fields)
+              originalSubmissionData[fieldKey] = valueFromSubmission;
+            } else {
+              // Check for auto-fill value from case data
+              const autoFillValue = this.getAutoFillValue(fieldKey, caseData);
+              if (autoFillValue) {
+                originalSubmissionData[fieldKey] = autoFillValue;
+              } else {
+                // No value available - show "Not verified"
+                originalSubmissionData[fieldKey] = 'Not verified';
+              }
+            }
+          });
+          
+          // Replace submission with original template fields
+          submission = {
+            ...submission,
+            form_fields: originalFields,
+            submission_data: originalSubmissionData
+          };
+        }
+      }
       
       // For subsequent submissions, just add spacing (no title/logo on new pages)
       if (index > 0) {
@@ -820,8 +873,13 @@ export class PDFService {
     fieldKey?: string,
     fieldTitle?: string
   ): string {
+    // Check if value is "Not verified" or "Not provided" and return as-is
+    if (value === 'Not verified' || value === 'Not provided') {
+      return 'Not verified';
+    }
+    
     if (value === null || value === undefined || value === '') {
-      return 'Not provided';
+      return 'Not verified';
     }
 
     switch (fieldType) {
@@ -853,6 +911,11 @@ export class PDFService {
       }
 
       case 'date': {
+        // If value is "Not verified" or empty, return it as-is
+        if (value === 'Not verified' || value === 'Not provided' || !value) {
+          return 'Not verified';
+        }
+        
         try {
           // Check if this is a datetime field based on field title or key
           const fieldKeyLower = (fieldKey || '').toLowerCase();
@@ -873,6 +936,12 @@ export class PDFService {
           
           // Check if value contains time information
           const dateValue = typeof value === 'string' ? value : String(value);
+          
+          // Check if it's a valid date string before parsing
+          if (!dateValue || dateValue.trim() === '' || dateValue === 'Invalid date') {
+            return 'Not verified';
+          }
+          
           const hasTimeInValue = dateValue.includes('T') || /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(dateValue);
           
           if (isDateTimeField && hasTimeInValue) {
@@ -915,18 +984,52 @@ export class PDFService {
             }
             
             // Format with date and time using local timezone
+            // Check if date is valid
+            if (isNaN(date.getTime())) {
+              return 'Not verified';
+            }
             return date.toLocaleString(); // e.g., "1/15/2024, 2:30:00 PM"
           } else {
             // Regular date field or datetime field without time - show date only
-            return new Date(value).toLocaleDateString();
+            const date = new Date(value);
+            if (isNaN(date.getTime())) {
+              return 'Not verified';
+            }
+            return date.toLocaleDateString();
           }
         } catch (e) {
-          return 'Invalid date';
+          return 'Not verified';
         }
       }
 
       case 'boolean':
-        return value ? 'Yes' : 'No';
+      case 'radio':
+        // For negative cases, if value is empty/null/undefined or "Not verified", return "Not verified"
+        if (value === null || value === undefined || value === '' || value === 'Not verified' || value === 'Not provided') {
+          return 'Not verified';
+        }
+        // If value is explicitly false or "no", return "No"
+        if (value === false || value === 'no' || value === 'No' || value === 'false') {
+          return 'No';
+        }
+        // For radio fields, check if it's an object with label/value
+        if (typeof value === 'object' && value !== null) {
+          if ('label' in value) {
+            return value.label;
+          }
+          if ('value' in value) {
+            const val = value.value;
+            if (val === false || val === 'no' || val === 'No' || val === 'false') {
+              return 'No';
+            }
+            if (val === true || val === 'yes' || val === 'Yes' || val === 'true') {
+              return 'Yes';
+            }
+            return String(val);
+          }
+        }
+        // Otherwise return "Yes" only if value is explicitly true/yes
+        return (value === true || value === 'yes' || value === 'Yes' || value === 'true') ? 'Yes' : 'Not verified';
 
       case 'number':
         return String(value);
