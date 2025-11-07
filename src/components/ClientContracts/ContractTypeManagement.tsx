@@ -170,9 +170,8 @@ export default function ContractTypeManagement() {
                   <TableHead>Display Name</TableHead>
                   <TableHead>Type Key</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Sort Order</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -187,8 +186,7 @@ export default function ContractTypeManagement() {
                     <TableCell className="text-sm text-muted-foreground">
                       {contractType.description || 'No description'}
                     </TableCell>
-                    <TableCell>{contractType.sort_order}</TableCell>
-                    <TableCell>
+                    <TableCell className="text-center">
                       <Badge 
                         variant={contractType.is_active ? "default" : "secondary"}
                         className={contractType.is_active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}
@@ -206,8 +204,8 @@ export default function ContractTypeManagement() {
                         )}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                    <TableCell className="text-center">
+                      <div className="flex justify-center gap-2">
                         <Button
                           variant="ghost"
                           size="sm"

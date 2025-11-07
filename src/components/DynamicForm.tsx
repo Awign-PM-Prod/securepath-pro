@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -540,7 +541,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       result.template.form_fields?.forEach(field => {
         initialData[field.field_key] = {
           value: field.field_type === 'boolean' ? false : 
-                 field.field_type === 'multiple_choice' ? [] : '',
+                 field.field_type === 'multiple_choice' ? '' : '',
           files: []
         };
       });
@@ -1826,6 +1827,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           );
 
         case 'multiple_choice':
+          // Get the selected value (handle both array and single value)
+          const currentValue = Array.isArray(fieldData.value) 
+            ? (fieldData.value.length > 0 ? fieldData.value[0] : '') 
+            : (fieldData.value || '');
+          
           return (
             <div key={field.id} className="space-y-2">
               <Label>
@@ -1834,7 +1840,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 {isReadOnly && !isCompanyNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
                 {isCompanyNameReadOnly && <span className="text-gray-600 ml-2 text-sm">(Not applicable)</span>}
               </Label>
-              <div className={`space-y-2 ${isReadOnly ? 'opacity-60' : ''}`}>
+              <RadioGroup
+                value={currentValue}
+                onValueChange={(value) => {
+                  if (!isReadOnly) {
+                    // Store as single value instead of array
+                    handleFieldChange(field.field_key, value);
+                  }
+                }}
+                disabled={isReadOnly}
+                className={isReadOnly ? 'opacity-60' : ''}
+              >
                 {field.field_config.options?.map((option: any, index: number) => {
                   // Handle both string and object options
                   const optionValue = typeof option === 'string' ? option : option.value || option.label || String(option);
@@ -1843,28 +1859,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                   
                   return (
                     <div key={optionKey} className="flex items-center space-x-2">
-                      <Checkbox
+                      <RadioGroupItem
+                        value={optionValue}
                         id={`${field.field_key}-${optionKey}`}
-                        checked={(fieldData.value as string[])?.includes(optionValue) || false}
-                        onCheckedChange={(checked) => {
-                          if (!isReadOnly) {
-                            const currentValues = (fieldData.value as string[]) || [];
-                            if (checked) {
-                              handleFieldChange(field.field_key, [...currentValues, optionValue]);
-                            } else {
-                              handleFieldChange(field.field_key, currentValues.filter(v => v !== optionValue));
-                            }
-                          }
-                        }}
-                        disabled={isReadOnly}
                       />
-                      <Label htmlFor={`${field.field_key}-${optionKey}`} className="text-sm">
+                      <Label htmlFor={`${field.field_key}-${optionKey}`} className="text-sm font-normal cursor-pointer">
                         {optionLabel}
                       </Label>
                     </div>
                   );
                 })}
-              </div>
+              </RadioGroup>
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>
               )}
