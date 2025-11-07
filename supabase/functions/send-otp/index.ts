@@ -106,7 +106,15 @@ serve(async (req) => {
       );
     }
 
-    const message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
+    // Construct the setup URL
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    // Extract project ref from Supabase URL (e.g., ycbftnwzoxktoroqpslo)
+    const projectRef = supabaseUrl.replace('https://', '').split('.')[0];
+    const setupUrl = `https://${projectRef}.lovableproject.com/gig/auth`;
+    
+    const message = purpose === 'account_setup' 
+      ? `Your AWIGN OTP: ${otpCode}\n\nSet up your password here:\n${setupUrl}\n\nEnter your email, phone & OTP.\n\nExpires in 5 min.\n\nTeam AWIGN`
+      : `${otpCode} is the OTP for your verification.\n\nExpires in 5 minutes.\n\nTeam AWIGN`;
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',

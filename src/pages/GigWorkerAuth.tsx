@@ -75,7 +75,7 @@ export default function GigWorkerAuth() {
     }
   };
 
-  const handleOTPVerified = () => {
+  const handleOTPVerified = (phoneNumber?: string, userData?: any) => {
     setOtpVerified(true);
     setShowOTP(false);
     setSuccess('Phone verified! Now set your password.');
