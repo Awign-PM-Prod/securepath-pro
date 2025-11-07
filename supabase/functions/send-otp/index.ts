@@ -106,9 +106,7 @@ serve(async (req) => {
       );
     }
 
-    // Construct the setup URL
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    // Extract project ref from Supabase URL (e.g., ycbftnwzoxktoroqpslo)
+    // Construct the setup URL using the existing supabaseUrl variable
     const projectRef = supabaseUrl.replace('https://', '').split('.')[0];
     const setupUrl = `https://${projectRef}.lovableproject.com/gig/auth`;
     
