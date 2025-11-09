@@ -94,13 +94,8 @@ serve(async (req) => {
       );
     }
 
-    // Construct the setup URL using the existing supabaseUrl variable
-    const projectRef = supabaseUrl.replace('https://', '').split('.')[0];
-    const setupUrl = `https://${projectRef}.lovableproject.com/gig/auth`;
-    
-    const message = purpose === 'account_setup' 
-      ? `Your AWIGN OTP: ${otpCode}\n\nSet up your password here:\n${setupUrl}\n\nEnter your email, phone & OTP.\n\nExpires in 5 min.\n\nTeam AWIGN`
-      : `${otpCode} is the OTP for your verification.\n\nExpires in 5 minutes.\n\nTeam AWIGN`;
+    // Use approved SMS template
+    const message = `Hi User\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
@@ -114,7 +109,7 @@ serve(async (req) => {
       body: JSON.stringify({
         sms: {
           mobile_number: phone_number,
-          template_id: '1107160412653314461',
+          template_id: '1107176258859911807',
           message: message,
           sender_id: 'IAWIGN',
           channel: 'telspiel',
