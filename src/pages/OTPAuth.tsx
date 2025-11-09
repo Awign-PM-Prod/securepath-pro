@@ -140,45 +140,35 @@ export default function OTPAuth() {
     setError('');
 
     try {
-      // Verify OTP
-      const verifyResult = await otpService.verifyOTP(phoneNumber, otpCode, 'login');
-
-      if (!verifyResult.success) {
-        setError(verifyResult.error || 'Invalid or expired OTP');
-        setIsLoading(false);
-        return;
-      }
-
-      // Get user profile to authenticate
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('user_id, role')
-        .eq('phone', phoneNumber)
-        .eq('is_active', true)
-        .single();
-
-      if (profileError || !profile || !profile.user_id) {
-        setError('Failed to authenticate user');
-        setIsLoading(false);
-        return;
-      }
-
-      // Sign in with Supabase using email and a temporary session
-      // Note: This requires the user to have a password set in Supabase Auth
-      // For now, we'll use the admin API to create a session
-      
-      // Create a session by signing in with the user's email and a temporary password
-      // Note: This uses the password from Supabase Auth (auto-generated during user creation)
-      // For production, you would implement custom JWT token generation
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: userEmail,
-        password: `temp_${otpCode}_${Date.now()}`, // Temporary - will need proper implementation
+      // Verify OTP and create session
+      const { data, error: verifyError } = await supabase.functions.invoke('verify-otp-and-login', {
+        body: {
+          phone_number: phoneNumber,
+          otp_code: otpCode,
+          purpose: 'login'
+        }
       });
 
-      if (signInError) {
-        // For now, just set the user manually in the auth context
-        // In production, implement proper session token generation
-        console.log('Note: Automatic sign-in not yet fully implemented');
+      if (verifyError || !data?.success) {
+        setError(data?.error || 'Invalid or expired OTP');
+        setIsLoading(false);
+        return;
+      }
+
+      // Use the magic link to authenticate
+      const magicLink = data.access_token;
+      
+      // Extract token from magic link and verify it
+      const { data: verifyData, error: verifyLinkError } = await supabase.auth.verifyOtp({
+        token_hash: magicLink.split('token_hash=')[1]?.split('&')[0] || '',
+        type: 'magiclink'
+      });
+
+      if (verifyLinkError) {
+        console.error('Session creation error:', verifyLinkError);
+        setError('Failed to create session');
+        setIsLoading(false);
+        return;
       }
 
       toast({
@@ -187,7 +177,7 @@ export default function OTPAuth() {
       });
 
       // Redirect based on role
-      const redirectPath = getRoleRedirectPath(profile.role as UserRole);
+      const redirectPath = getRoleRedirectPath(data.role as UserRole);
       navigate(redirectPath, { replace: true });
 
     } catch (err: any) {
