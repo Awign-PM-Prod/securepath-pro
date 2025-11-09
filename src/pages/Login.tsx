@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,36 +12,32 @@ import { useAuth } from '@/contexts/AuthContext';
 import { UserRole } from '@/types/auth';
 import { supabase } from '@/integrations/supabase/client';
 import { OTPVerification } from '@/components/auth/OTPVerification';
-import { otpService } from '@/services/otpService';
 import { useToast } from '@/hooks/use-toast';
 
-const loginSchema = z.object({
-  email: z.string().email('Please enter a valid email'),
-  password: z.string().min(1, 'Password is required'),
+const phoneSchema = z.object({
+  phone: z.string().regex(/^[0-9]{10}$/, 'Please enter a valid 10-digit phone number'),
 });
 
-type LoginForm = z.infer<typeof loginSchema>;
+type PhoneForm = z.infer<typeof phoneSchema>;
 
 export default function Login() {
-  const { signIn, user } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showOTP, setShowOTP] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [userEmail, setUserEmail] = useState('');
-  const [userId, setUserId] = useState('');
 
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<LoginForm>({
-    resolver: zodResolver(loginSchema),
+  } = useForm<PhoneForm>({
+    resolver: zodResolver(phoneSchema),
   });
 
-  // Redirect if already logged in (but not if OTP verification is pending)
+  // Redirect if already logged in
   useEffect(() => {
     if (user && !showOTP) {
       const redirectPath = getRoleRedirectPath(user.profile.role);
@@ -70,72 +66,44 @@ export default function Login() {
     }
   };
 
-  const onSubmit = async (data: LoginForm) => {
+  const onSubmit = async (data: PhoneForm) => {
     setIsLoading(true);
     setError('');
 
-    // First, try to sign in with email and password
-    const { error: signInError } = await signIn(data.email, data.password);
-
-    if (signInError) {
-      const { getErrorAlertMessage } = await import('@/utils/errorMessages');
-      setError(getErrorAlertMessage(signInError));
-      setIsLoading(false);
-      return;
-    }
-
-    // Get user profile to check role
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    
-    if (!authUser) {
-      setError('Failed to get user information');
-      setIsLoading(false);
-      return;
-    }
-
-    // Get profile to check role
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('user_id', authUser.id)
-      .single();
-
-    if (profileError || !profile) {
-      setError('Failed to get user profile');
-      setIsLoading(false);
-      return;
-    }
-
-    // If user is gig_worker, require OTP verification
-    if (profile.role === 'gig_worker') {
-      // Get phone number from gig_partners table
-      const { data: gigWorker, error: gigError } = await supabase
-        .from('gig_partners')
-        .select('phone')
-        .eq('user_id', authUser.id)
+    try {
+      // Verify the phone number exists in the system
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('email, first_name, user_id')
+        .eq('phone', data.phone)
+        .eq('is_active', true)
         .single();
 
-      if (gigError || !gigWorker || !gigWorker.phone) {
-        setError('Phone number not found. Please contact administrator.');
-        await supabase.auth.signOut(); // Sign out since OTP verification is required
+      if (profileError || !profileData) {
+        setError('Phone number not registered in the system');
         setIsLoading(false);
         return;
       }
 
-      // Send OTP
-      const otpResult = await otpService.sendOTP(gigWorker.phone, 'login', data.email);
-      
-      if (!otpResult.success) {
-        setError(otpResult.error || 'Failed to send OTP');
-        await supabase.auth.signOut(); // Sign out since OTP verification is required
+      // Send OTP to the phone number
+      const { data: otpData, error: otpError } = await supabase.functions.invoke('send-otp', {
+        body: {
+          phone_number: data.phone,
+          purpose: 'login',
+          email: profileData.email,
+          user_id: profileData.user_id,
+          first_name: profileData.first_name,
+        },
+      });
+
+      if (otpError || !otpData?.success) {
+        setError(otpData?.error || 'Failed to send OTP');
         setIsLoading(false);
         return;
       }
 
       // Show OTP verification screen
-      setPhoneNumber(gigWorker.phone);
-      setUserEmail(data.email);
-      setUserId(authUser.id); // Store user ID for later
+      setPhoneNumber(data.phone);
       setShowOTP(true);
       setIsLoading(false);
       
@@ -143,8 +111,9 @@ export default function Login() {
         title: 'OTP Sent',
         description: 'Please check your phone for the verification code.',
       });
-    } else {
-      // For non-gig workers, login is complete
+    } catch (err) {
+      console.error('Error sending OTP:', err);
+      setError('An unexpected error occurred');
       setIsLoading(false);
     }
   };
@@ -153,15 +122,13 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      console.log('Creating auth session with OTP for:', phoneNumber, userEmail, userId);
+      console.log('Creating auth session with OTP for phone:', phoneNumber);
       
-      // Call create-auth-session with the OTP to get proper tokens
+      // Call create-auth-session which verifies OTP and creates session
       const { data, error } = await supabase.functions.invoke('create-auth-session', {
         body: {
-          email: userEmail,
-          phone: phoneNumber,
-          user_id: userId,
-          otp: otp
+          phone_number: phoneNumber,
+          otp_code: otp
         }
       });
       
@@ -193,7 +160,7 @@ export default function Login() {
         title: 'Success',
         description: 'Login successful!',
       });
-      // The useEffect will handle the redirect now that showOTP is false
+      // The useEffect will handle the redirect
     } catch (err) {
       console.error('Unexpected error during session creation:', err);
       setError('An unexpected error occurred');
@@ -201,12 +168,9 @@ export default function Login() {
     }
   };
 
-  const handleCancelOTP = async () => {
-    await supabase.auth.signOut();
+  const handleCancelOTP = () => {
     setShowOTP(false);
     setPhoneNumber('');
-    setUserEmail('');
-    setUserId('');
   };
 
   return (
@@ -215,7 +179,7 @@ export default function Login() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Background Verification System</CardTitle>
           <CardDescription>
-            {showOTP ? 'Verify your identity' : 'Sign in to access your dashboard'}
+            {showOTP ? 'Verify your identity' : 'Enter your phone number to sign in'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -228,51 +192,36 @@ export default function Login() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  {...register('email')}
-                  className={errors.email ? 'border-destructive' : ''}
-                />
-                {errors.email && (
-                  <p className="text-sm text-destructive">{errors.email.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  {...register('password')}
-                  className={errors.password ? 'border-destructive' : ''}
-                />
-                {errors.password && (
-                  <p className="text-sm text-destructive">{errors.password.message}</p>
+                <Label htmlFor="phone">Phone Number</Label>
+                <div className="flex">
+                  <div className="flex items-center px-3 border border-r-0 rounded-l-md border-input bg-muted">
+                    <span className="text-sm text-muted-foreground">+91</span>
+                  </div>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="Enter 10-digit phone number"
+                    {...register('phone')}
+                    className={`rounded-l-none ${errors.phone ? 'border-destructive' : ''}`}
+                  />
+                </div>
+                {errors.phone && (
+                  <p className="text-sm text-destructive">{errors.phone.message}</p>
                 )}
               </div>
 
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? 'Signing in...' : 'Sign In'}
+                {isLoading ? 'Sending OTP...' : 'Send OTP'}
               </Button>
 
-              <div className="text-center">
-                <Link
-                  to="/forgot-password"
-                  className="text-sm text-blue-600 hover:text-blue-500 hover:underline"
-                >
-                  Forgot your password?
-                </Link>
+              <div className="text-center text-sm text-muted-foreground">
+                <p>You will receive an OTP on your registered mobile number</p>
               </div>
             </form>
           ) : (
             <OTPVerification
               phoneNumber={phoneNumber}
               purpose="login"
-              email={userEmail}
               onVerified={handleOTPVerified}
               onCancel={handleCancelOTP}
             />

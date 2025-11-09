@@ -7,10 +7,8 @@ const corsHeaders = {
 };
 
 interface CreateSessionRequest {
-  email?: string;
-  phone?: string;
-  user_id: string;
-  otp: string; // We need the OTP code to verify and create session
+  phone_number: string;
+  otp_code: string;
 }
 
 serve(async (req) => {
@@ -19,78 +17,108 @@ serve(async (req) => {
   }
 
   try {
-    const { email, phone, user_id, otp }: CreateSessionRequest = await req.json();
+    const { phone_number, otp_code }: CreateSessionRequest = await req.json();
 
-    if (!user_id || !otp) {
+    if (!phone_number || !otp_code) {
       return new Response(
-        JSON.stringify({ success: false, error: 'user_id and otp are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (!email && !phone) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Either email or phone is required' }),
+        JSON.stringify({ success: false, error: 'phone_number and otp_code are required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    // Use anon client to verify OTP (like a normal user would)
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    // Use service role client for admin operations
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log('Verifying OTP and creating session for user:', user_id);
+    console.log('Verifying OTP for phone:', phone_number);
 
-    // Verify OTP and get session tokens directly
-    let verifyResult;
-    
-    if (phone) {
-      console.log('Verifying phone OTP:', phone);
-      verifyResult = await supabase.auth.verifyOtp({
-        phone: phone,
-        token: otp,
-        type: 'sms'
-      });
-    } else if (email) {
-      console.log('Verifying email OTP:', email);
-      verifyResult = await supabase.auth.verifyOtp({
-        email: email,
-        token: otp,
-        type: 'email'
-      });
-    }
+    // Step 1: Verify the OTP from our custom otp_tokens table
+    const { data: otpToken, error: otpError } = await supabase
+      .from('otp_tokens')
+      .select('*')
+      .eq('phone_number', phone_number)
+      .eq('otp_code', otp_code)
+      .eq('purpose', 'login')
+      .eq('is_verified', false)
+      .single();
 
-    const { data, error } = verifyResult!;
-
-    if (error) {
-      console.error('OTP verification error:', error);
+    if (otpError || !otpToken) {
+      console.error('OTP verification error:', otpError);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to verify OTP: ' + error.message }),
+        JSON.stringify({ success: false, error: 'Invalid or expired OTP' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (!data.session) {
-      console.error('No session returned from OTP verification');
+    // Check if OTP expired
+    if (new Date(otpToken.expires_at) < new Date()) {
       return new Response(
-        JSON.stringify({ success: false, error: 'No session created' }),
+        JSON.stringify({ success: false, error: 'OTP has expired' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Check attempts
+    if (otpToken.attempts >= otpToken.max_attempts) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Maximum attempts exceeded' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Mark OTP as verified
+    await supabase
+      .from('otp_tokens')
+      .update({ 
+        is_verified: true,
+        verified_at: new Date().toISOString()
+      })
+      .eq('id', otpToken.id);
+
+    // Step 2: Get user profile with this phone number
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('user_id, email, role, first_name')
+      .eq('phone', phone_number)
+      .eq('is_active', true)
+      .single();
+
+    if (profileError || !profile || !profile.user_id) {
+      console.error('Profile lookup error:', profileError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'User not found or inactive' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Creating session for user:', profile.user_id);
+
+    // Step 3: Create auth session using admin API
+    const { data: sessionData, error: sessionError } = await supabase.auth.admin.createSession({
+      user_id: profile.user_id
+    });
+
+    if (sessionError || !sessionData.session) {
+      console.error('Session creation error:', sessionError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to create session: ' + sessionError?.message }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Session created successfully:', data.session.user.id);
+    console.log('Session created successfully for user:', profile.user_id);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Session created successfully',
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-        expires_at: data.session.expires_at,
-        expires_in: data.session.expires_in,
-        user: data.user,
+        access_token: sessionData.session.access_token,
+        refresh_token: sessionData.session.refresh_token,
+        expires_at: sessionData.session.expires_at,
+        expires_in: sessionData.session.expires_in,
+        user: sessionData.user,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
