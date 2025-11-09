@@ -56,28 +56,32 @@ serve(async (req) => {
       }
     }
 
-    // Create a session token for the user
-    const { data: sessionData, error: sessionError } = await supabase.auth.admin.createSession({
-      user_id: user_id
+    // Generate magic link to get session tokens
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: email,
+      options: {
+        redirectTo: `${Deno.env.get('SUPABASE_URL')}/auth/v1/verify`
+      }
     });
 
-    if (sessionError || !sessionData) {
-      console.error('Session creation error:', sessionError);
+    if (linkError || !linkData) {
+      console.error('Link generation error:', linkError);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to create session' }),
+        JSON.stringify({ success: false, error: 'Failed to generate auth tokens' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Session created successfully');
+    console.log('Auth tokens generated successfully');
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Session created successfully',
-        access_token: sessionData.session.access_token,
-        refresh_token: sessionData.session.refresh_token,
-        expires_at: sessionData.session.expires_at,
+        message: 'Session tokens created successfully',
+        access_token: linkData.properties.access_token,
+        refresh_token: linkData.properties.refresh_token,
+        expires_at: linkData.properties.expires_at,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
