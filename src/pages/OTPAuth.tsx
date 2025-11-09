@@ -169,12 +169,11 @@ export default function OTPAuth() {
         return;
       }
 
-      // Step 3: Create Supabase session
+      // Step 3: Create Supabase session with verified OTP
       const { data: sessionData, error: sessionError } = await supabase.functions.invoke('create-auth-session', {
         body: {
-          email: profile.email,
-          user_id: profile.user_id,
-          phone: phoneNumber
+          phone_number: phoneNumber,
+          otp_code: otpCode
         }
       });
 
