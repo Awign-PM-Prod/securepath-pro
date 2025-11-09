@@ -11,6 +11,7 @@ interface SendOTPRequest {
   phone_number: string;
   purpose: 'login' | 'account_setup';
   email?: string;
+  first_name?: string;
 }
 
 serve(async (req) => {
@@ -20,7 +21,7 @@ serve(async (req) => {
   }
 
   try {
-    const { user_id, phone_number, purpose, email }: SendOTPRequest = await req.json();
+    const { user_id, phone_number, purpose, email, first_name }: SendOTPRequest = await req.json();
 
     // Validation
     if (!phone_number || !purpose) {
@@ -106,8 +107,9 @@ serve(async (req) => {
       );
     }
 
-    // Use approved SMS template
-    const message = `Hi User\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
+    // Use approved SMS template with first name
+    const userName = first_name || 'User';
+    const message = `Hi ${userName}\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',

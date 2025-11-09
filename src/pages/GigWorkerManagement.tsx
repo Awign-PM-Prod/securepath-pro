@@ -354,7 +354,8 @@ export default function GigWorkerManagement() {
           formData.phone,
           'account_setup',
           formData.email,
-          userId
+          userId,
+          formData.first_name
         );
 
         if (otpResult.success) {
