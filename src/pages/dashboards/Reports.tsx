@@ -248,7 +248,7 @@ export default function Reports() {
         penalty_inr: caseItem.penalty_inr,
         total_payout_inr: caseItem.total_payout_inr,
         QC_Response: caseItem.QC_Response as any,
-        assigned_at: caseItem.assigned_at,
+        assigned_at: null, // This will be populated from allocation logs in production
         is_positive: caseItem.is_positive,
         // Use updated_at from form_submissions instead of submitted_at
         submitted_at: formSubmissionsMap.get(caseItem.id) || null

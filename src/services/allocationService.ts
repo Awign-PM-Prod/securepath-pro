@@ -493,18 +493,18 @@ export class AllocationService {
       };
 
       // If this is a gig worker allocation, get their vendor_id
-      if (allocationData.gig_partner_id) {
+      if (allocationData.candidate_id) {
         const { data: gigWorkerData, error: gigWorkerError } = await supabase
           .from('gig_partners')
           .select('vendor_id')
-          .eq('id', allocationData.gig_partner_id)
+          .eq('id', allocationData.candidate_id)
           .single();
 
         if (!gigWorkerError && gigWorkerData && (gigWorkerData as any).vendor_id) {
           caseUpdateData.current_vendor_id = (gigWorkerData as any).vendor_id;
-          console.log(`Setting current_vendor_id to ${(gigWorkerData as any).vendor_id} for gig worker ${allocationData.gig_partner_id}`);
+          console.log(`Setting current_vendor_id to ${(gigWorkerData as any).vendor_id} for gig worker ${allocationData.candidate_id}`);
         } else {
-          console.log(`Gig worker ${allocationData.gig_partner_id} has no vendor association`);
+          console.log(`Gig worker ${allocationData.candidate_id} has no vendor association`);
         }
       }
 

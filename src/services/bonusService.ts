@@ -111,8 +111,8 @@ export class BonusService {
     return data.map(record => ({
       id: record.id,
       case_id: record.case_id,
-      amount: record.metadata?.bonus_amount || 0,
-      reason: record.metadata?.reason,
+      amount: (record.metadata as any)?.bonus_amount || 0,
+      reason: (record.metadata as any)?.reason,
       added_by: record.user_id,
       added_at: record.created_at
     }));

@@ -167,9 +167,9 @@ export default function PincodeTierManagement() {
 
   const stats = {
     total: pincodeTiers.length,
-    tier1: pincodeTiers.filter(t => t.tier === 'tier1' || t.tier === 'tier_1').length,
-    tier2: pincodeTiers.filter(t => t.tier === 'tier2' || t.tier === 'tier_2').length,
-    tier3: pincodeTiers.filter(t => t.tier === 'tier3' || t.tier === 'tier_3').length,
+    tier1: pincodeTiers.filter(t => t.tier === 'tier1').length,
+    tier2: pincodeTiers.filter(t => t.tier === 'tier2').length,
+    tier3: pincodeTiers.filter(t => t.tier === 'tier3').length,
     active: pincodeTiers.filter(t => t.is_active).length,
   };
 

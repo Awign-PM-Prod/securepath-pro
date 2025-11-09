@@ -91,7 +91,7 @@ export class AllocationEngine {
 
       const config: Partial<AllocationConfig> = {};
       data?.forEach(item => {
-        config[item.config_key as keyof AllocationConfig] = item.config_value;
+        config[item.config_key as keyof AllocationConfig] = item.config_value as any;
       });
 
       this.config = config as AllocationConfig;
@@ -138,7 +138,10 @@ export class AllocationEngine {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []).map(candidate => ({
+        ...candidate,
+        candidate_type: candidate.candidate_type as 'gig' | 'vendor'
+      }));
     } catch (error) {
       console.error('Failed to get allocation candidates:', error);
       return [];

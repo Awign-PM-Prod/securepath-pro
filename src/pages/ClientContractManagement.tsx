@@ -88,7 +88,13 @@ export default function ClientContractManagement() {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    
+    // Cast bonuses and penalties from Json to proper types
+    return (data || []).map(contract => ({
+      ...contract,
+      bonuses: (contract.bonuses as any) || [],
+      penalties: (contract.penalties as any) || [],
+    })) as ClientContract[];
   };
 
   const loadData = async () => {

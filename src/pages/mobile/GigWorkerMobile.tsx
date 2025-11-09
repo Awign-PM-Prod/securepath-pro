@@ -26,6 +26,7 @@ interface MobileCase {
   description: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'allocated' | 'accepted' | 'in_progress' | 'submitted';
+  is_direct_gig?: boolean;
   client: {
     name: string;
     contact_person?: string;

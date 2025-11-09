@@ -474,7 +474,12 @@ export default function CaseManagement() {
           onSubmit={viewMode === 'edit' ? handleUpdateCase : handleSubmitCase}
           onCancel={handleCancelForm}
           isLoading={isLoading}
-          clients={clients.map(c => ({ id: c.id, name: c.name, email: c.email }))}
+          clients={clients.map(c => ({ 
+            id: c.id, 
+            name: c.name, 
+            email: c.email,
+            contact_person: c.contact_person || '' 
+          }))}
           contractTypes={contractTypes}
           isEditing={viewMode === 'edit'}
           caseId={editingCase?.id}
@@ -489,14 +494,18 @@ export default function CaseManagement() {
             city: editingCase.location?.city || '',
             state: editingCase.location?.state || '',
             pincode: editingCase.location?.pincode || '',
-            country: editingCase.location?.country || 'India',
+            country: 'India',
             lat: editingCase.location?.lat,
             lng: editingCase.location?.lng,
-            client_id: editingCase.client_id,
+            client_id: editingCase.client.id,
             vendor_tat_start_date: new Date(editingCase.vendor_tat_start_date),
             tat_hours: editingCase.tat_hours,
             due_date: new Date(editingCase.due_at),
-            instructions: editingCase.metadata?.instructions || ''
+            base_rate_inr: editingCase.base_rate_inr || 0,
+            bonus_inr: editingCase.bonus_inr || 0,
+            penalty_inr: editingCase.penalty_inr || 0,
+            total_payout_inr: editingCase.total_payout_inr || 0,
+            instructions: (editingCase as any).instructions || ''
           } : undefined}
         />
       </div>
@@ -519,11 +528,6 @@ export default function CaseManagement() {
               country: 'India',
               lat: 19.0760,
               lng: 72.8777,
-            },
-            rate_adjustments: {
-              travel_inr: 50,
-              bonus_inr: 0,
-              override_reason: 'High priority case',
             },
             notes: 'Please ensure thorough verification of all documents.',
             attachments: [],

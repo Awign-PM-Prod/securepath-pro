@@ -37,6 +37,7 @@ interface GigWorker {
   user_id: string;
   profile_id: string;
   vendor_id?: string;
+  vendor_name?: string;  // Add vendor name for display
   alternate_phone?: string;  // Only alternate phone in gig_partners
   address: string;
   city: string;
