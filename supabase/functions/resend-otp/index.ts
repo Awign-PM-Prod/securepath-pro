@@ -10,6 +10,7 @@ interface ResendOTPRequest {
   phone_number: string;
   purpose: 'login' | 'account_setup';
   email?: string;
+  first_name?: string;
 }
 
 serve(async (req) => {
@@ -19,7 +20,7 @@ serve(async (req) => {
   }
 
   try {
-    const { phone_number, purpose, email }: ResendOTPRequest = await req.json();
+    const { phone_number, purpose, email, first_name }: ResendOTPRequest = await req.json();
 
     // Validation
     if (!phone_number || !purpose) {
@@ -46,10 +47,23 @@ serve(async (req) => {
 
     // Get user_id if not provided
     let userId: string | undefined;
+    let userName = first_name;
+    
     if (email) {
       const { data: userData } = await supabase.auth.admin.listUsers();
       const user = userData?.users?.find(u => u.email === email);
       userId = user?.id;
+    }
+
+    // Get first_name from profile if not provided
+    if (!userName && phone_number) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('first_name')
+        .eq('phone', phone_number)
+        .eq('is_active', true)
+        .single();
+      userName = profile?.first_name;
     }
 
     // Generate new OTP
@@ -88,20 +102,9 @@ serve(async (req) => {
       );
     }
 
-    // Build verification link for account_setup purpose
-    let verificationLink = '';
-    if (purpose === 'account_setup' && email) {
-      const baseUrl = Deno.env.get('APP_URL') || 'https://securepath.awign.com';
-      verificationLink = `${baseUrl}/gig/verify?phone=${encodeURIComponent(phone_number)}&email=${encodeURIComponent(email)}`;
-    }
-
-    // Build SMS message with link for account_setup, without link for login
-    let message = '';
-    if (purpose === 'account_setup' && verificationLink) {
-      message = `${otpCode} is your OTP for account verification.\n\nVerify here: ${verificationLink}\n\nTeam AWIGN`;
-    } else {
-      message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
-    }
+    // Build SMS message for login
+    const displayName = userName || 'User';
+    const message = `Hi ${displayName}\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
 
     // Normalize phone number - ensure it has +91 prefix if it's a 10-digit Indian number
     let normalizedPhone = phone_number.trim();
@@ -126,7 +129,7 @@ serve(async (req) => {
       body: JSON.stringify({
         sms: {
           mobile_number: normalizedPhone,
-          template_id: '1107160412653314461',
+          template_id: '1107176258859911807',
           message: message,
           sender_id: 'IAWIGN',
           channel: 'telspiel',

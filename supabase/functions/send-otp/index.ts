@@ -11,19 +11,38 @@ interface SendOTPRequest {
   phone_number: string;
   purpose: 'login' | 'account_setup';
   email?: string;
+  first_name?: string;
 }
 
 serve(async (req) => {
+  console.log('=== send-otp function called ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  
   // Handle CORS
   if (req.method === 'OPTIONS') {
+    console.log('Handling OPTIONS request');
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { user_id, phone_number, purpose, email }: SendOTPRequest = await req.json();
+    console.log('Parsing request body...');
+    const body = await req.json();
+    console.log('Received request body:', JSON.stringify(body));
+    
+    const { user_id, phone_number, purpose, email, first_name }: SendOTPRequest = body;
+
+    console.log('Extracted values:', {
+      phone_number,
+      purpose,
+      email,
+      user_id,
+      first_name
+    });
 
     // Validation
     if (!phone_number || !purpose) {
+      console.error('Validation failed: Missing required fields');
       return new Response(
         JSON.stringify({ success: false, error: 'Missing required fields' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -39,19 +58,47 @@ serve(async (req) => {
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log('Step 2: Generated OTP code:', otpCode);
     
     // Set expiry to 5 minutes from now
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    console.log('OTP expires at:', expiresAt);
 
-    // Get user_id if not provided (for login purpose)
+    // Get user_id if not provided
     let userId = user_id;
-    if (!userId && purpose === 'login' && email) {
+    let userName = first_name;
+    
+    console.log('Step 1: Getting user_id. Provided:', userId);
+    
+    if (!userId && email) {
+      console.log('User_id not provided, looking up by email:', email);
       const { data: userData } = await supabase.auth.admin.listUsers();
       const user = userData?.users?.find(u => u.email === email);
       userId = user?.id;
+      console.log('Found user_id from email lookup:', userId);
     }
 
-    if (!userId && purpose === 'login') {
+    // Get first_name from profile if not provided
+    if (!userName && phone_number) {
+      console.log('First name not provided, looking up from profile');
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('first_name')
+        .eq('phone', phone_number)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error('Error fetching profile for first_name:', profileError);
+      }
+      userName = profile?.first_name;
+      console.log('Found first_name from profile:', userName);
+    }
+
+    console.log('Final values - userId:', userId, 'userName:', userName);
+
+    if (!userId) {
+      console.error('User not found - userId is required');
       return new Response(
         JSON.stringify({ success: false, error: 'User not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -59,6 +106,7 @@ serve(async (req) => {
     }
 
     // Store OTP in database
+    console.log('Step 3: Storing OTP in database');
     const { error: insertError } = await supabase
       .from('otp_tokens')
       .insert({
@@ -76,6 +124,7 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    console.log('OTP stored successfully in database');
 
     // Send OTP via AWIGN SMS API
     const smsAccessToken = Deno.env.get('SMS_ACCESS_TOKEN');
@@ -90,20 +139,11 @@ serve(async (req) => {
       );
     }
 
-    // Build verification link for account_setup purpose
-    let verificationLink = '';
-    if (purpose === 'account_setup' && email) {
-      const baseUrl = Deno.env.get('APP_URL') || 'https://securepath.awign.com';
-      verificationLink = `${baseUrl}/gig/verify?phone=${encodeURIComponent(phone_number)}&email=${encodeURIComponent(email)}`;
-    }
-
-    // Build SMS message with link for account_setup, without link for login
-    let message = '';
-    if (purpose === 'account_setup' && verificationLink) {
-      message = `${otpCode} is your OTP for account verification.\n\nVerify here: ${verificationLink}\n\nTeam AWIGN`;
-    } else {
-      message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
-    }
+    // Build SMS message for login
+    console.log('Step 4: Building SMS message');
+    const displayName = userName || 'User';
+    const message = `Hi ${displayName}\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
+    console.log('SMS message:', message);
 
     // Normalize phone number - ensure it has +91 prefix if it's a 10-digit Indian number
     let normalizedPhone = phone_number.trim();
@@ -113,8 +153,11 @@ serve(async (req) => {
       normalizedPhone = `+91${normalizedPhone.replace(/^91/, '')}`;
     }
 
+    console.log('Step 5: Sending SMS');
     console.log(`Sending SMS to normalized phone: ${normalizedPhone} (original: ${phone_number})`);
     console.log(`SMS Message: ${message.substring(0, 100)}...`);
+    console.log('SMS API URL: https://core-api.awign.com/api/v1/sms/to_number');
+    console.log('Template ID: 1107176258859911807');
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
@@ -128,7 +171,7 @@ serve(async (req) => {
       body: JSON.stringify({
         sms: {
           mobile_number: normalizedPhone,
-          template_id: '1107160412653314461',
+          template_id: '1107176258859911807',
           message: message,
           sender_id: 'IAWIGN',
           channel: 'telspiel',
@@ -141,7 +184,7 @@ serve(async (req) => {
     console.log(`SMS API Response: ${responseText}`);
     console.log(`SMS Request Body: ${JSON.stringify({
       mobile_number: normalizedPhone,
-      template_id: '1107160412653314461',
+      template_id: '1107176258859911807',
       message_length: message.length,
       sender_id: 'IAWIGN',
       channel: 'telspiel',
@@ -189,7 +232,7 @@ serve(async (req) => {
       console.log('SMS API response is not JSON, assuming success. Response:', responseText);
     }
 
-    console.log(`OTP sent successfully to ${normalizedPhone} for ${purpose}`);
+    console.log(`OTP sent successfully to ${normalizedPhone} for login`);
 
     return new Response(
       JSON.stringify({ 

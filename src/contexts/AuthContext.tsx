@@ -20,18 +20,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  console.log('AuthProvider render - user:', user?.profile?.role, 'loading:', loading);
-
   const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle(); // Use maybeSingle() instead of single() to avoid 406 error when no profile exists
 
       if (error) {
-        console.error('Error fetching user profile:', error);
+        // Only log unexpected errors (not PGRST116 which means no rows found)
+        if (error.code !== 'PGRST116') {
+          console.error('Error fetching user profile:', error);
+        }
         return null;
       }
 
@@ -60,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   profile
                 });
               } else {
-                console.warn('No profile found for user:', session.user.id);
+                // Profile doesn't exist - silently set user to null
                 setUser(null);
               }
             } catch (error) {
@@ -86,9 +87,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email: session.user.email!,
               profile
             });
-          } else {
-            console.warn('No profile found for user:', session.user.id);
           }
+          // If no profile, user remains null (no need to log)
           setLoading(false);
         }).catch(error => {
           console.error('Error fetching initial profile:', error);

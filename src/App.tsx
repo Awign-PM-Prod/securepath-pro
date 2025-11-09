@@ -79,8 +79,6 @@ class AppErrorBoundary extends React.Component<
 }
 
 const App = () => {
-  console.log('App component rendering');
-  
   return (
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
@@ -88,7 +86,12 @@ const App = () => {
           <Toaster />
           <Sonner />
           <AuthProvider>
-            <BrowserRouter>
+            <BrowserRouter
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
               <Routes>
                 {/* Landing page - OTP Auth */}
                 <Route path="/" element={<OTPAuth />} />
