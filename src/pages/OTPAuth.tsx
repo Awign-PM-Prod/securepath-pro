@@ -140,7 +140,22 @@ export default function OTPAuth() {
     setError('');
 
     try {
-      // Step 1: Get user profile to get email
+      // Step 1: Verify OTP using custom verification system
+      const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-otp', {
+        body: {
+          phone_number: phoneNumber,
+          otp_code: otpCode,
+          purpose: 'login'
+        }
+      });
+
+      if (verifyError || !verifyData?.success) {
+        setError(verifyData?.error || 'Invalid or expired OTP');
+        setIsLoading(false);
+        return;
+      }
+
+      // Step 2: Get user profile with role
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('user_id, email, role, first_name')
@@ -149,28 +164,7 @@ export default function OTPAuth() {
         .single();
 
       if (profileError || !profile) {
-        setError('Account not found');
-        setIsLoading(false);
-        return;
-      }
-
-      // Step 2: Verify OTP using Supabase's built-in method (creates session automatically)
-      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-        phone: phoneNumber,
-        token: otpCode,
-        type: 'sms'
-      });
-
-      if (verifyError) {
-        console.error('OTP verification error:', verifyError);
-        setError('Invalid or expired OTP. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Verify session was created
-      if (!verifyData.session) {
-        setError('Failed to create session. Please try again.');
+        setError('Failed to load user profile');
         setIsLoading(false);
         return;
       }
@@ -180,7 +174,7 @@ export default function OTPAuth() {
         description: `Welcome back, ${profile.first_name}!`,
       });
 
-      // Redirect based on role
+      // Redirect based on role - session will be managed by protected routes
       const redirectPath = getRoleRedirectPath(profile.role as UserRole);
       navigate(redirectPath, { replace: true });
 
