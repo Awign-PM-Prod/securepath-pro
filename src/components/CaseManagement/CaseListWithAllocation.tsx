@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
+import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { useToast } from '@/hooks/use-toast';
@@ -175,6 +175,9 @@ export default function CaseListWithAllocation({
   const [qcResponseTab, setQcResponseTab] = useState('all');
   const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
+  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [isDownloading, setIsDownloading] = useState(false);
   const { toast } = useToast();
 
   // Calculate QC stats when cases change - memoized for performance
@@ -787,6 +790,192 @@ export default function CaseListWithAllocation({
     return selectableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
   }, [displayCases, selectedCases]);
 
+  // Download cases metadata by month/year
+  const handleDownloadCasesByMonth = async (month: number, year: number) => {
+    setIsDownloading(true);
+    try {
+      // Calculate start and end dates for the month
+      // month is 1-12, JavaScript months are 0-indexed
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59, 999); // Last day of the month
+      
+      // Fetch cases created in this month
+      const { data: casesData, error } = await supabase
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          client_case_id,
+          contract_type,
+          candidate_name,
+          phone_primary,
+          phone_secondary,
+          status,
+          vendor_tat_start_date,
+          due_at,
+          base_rate_inr,
+          bonus_inr,
+          penalty_inr,
+          total_payout_inr,
+          tat_hours,
+          created_at,
+          updated_at,
+          created_by,
+          last_updated_by,
+          status_updated_at,
+          metadata,
+          clients!inner (
+            id,
+            name,
+            contact_person,
+            phone,
+            email
+          ),
+          locations!inner (
+            id,
+            address_line,
+            city,
+            state,
+            pincode,
+            pincode_tier,
+            lat,
+            lng,
+            location_url
+          )
+        `)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (!casesData || casesData.length === 0) {
+        toast({
+          title: 'No Cases Found',
+          description: `No cases were created in ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Convert to CSV
+      const csvRows: string[] = [];
+      
+      // CSV Header
+      const headers = [
+        'Case Number',
+        'Client Case ID',
+        'Contract Type',
+        'Candidate Name',
+        'Phone Primary',
+        'Phone Secondary',
+        'Status',
+        'Client Name',
+        'Client Email',
+        'Client Contact Person',
+        'Client Phone',
+        'Address Line',
+        'City',
+        'State',
+        'Pincode',
+        'Pincode Tier',
+        'Latitude',
+        'Longitude',
+        'Location URL',
+        'Vendor TAT Start Date',
+        'Due Date',
+        'TAT Hours',
+        'Base Rate (INR)',
+        'Bonus (INR)',
+        'Penalty (INR)',
+        'Total Payout (INR)',
+        'Created At',
+        'Updated At',
+        'Created By',
+        'Last Updated By',
+        'Status Updated At',
+        'Metadata'
+      ];
+      csvRows.push(headers.join(','));
+
+      // CSV Rows
+      casesData.forEach((caseItem: any) => {
+        const metadataStr = caseItem.metadata ? JSON.stringify(caseItem.metadata).replace(/"/g, '""') : '';
+        const row = [
+          `"${caseItem.case_number || ''}"`,
+          `"${caseItem.client_case_id || ''}"`,
+          `"${caseItem.contract_type || ''}"`,
+          `"${caseItem.candidate_name || ''}"`,
+          `"${caseItem.phone_primary || ''}"`,
+          `"${caseItem.phone_secondary || ''}"`,
+          `"${caseItem.status || ''}"`,
+          `"${caseItem.clients?.name || ''}"`,
+          `"${caseItem.clients?.email || ''}"`,
+          `"${caseItem.clients?.contact_person || ''}"`,
+          `"${caseItem.clients?.phone || ''}"`,
+          `"${caseItem.locations?.address_line || ''}"`,
+          `"${caseItem.locations?.city || ''}"`,
+          `"${caseItem.locations?.state || ''}"`,
+          `"${caseItem.locations?.pincode || ''}"`,
+          `"${caseItem.locations?.pincode_tier || ''}"`,
+          caseItem.locations?.lat || '',
+          caseItem.locations?.lng || '',
+          `"${caseItem.locations?.location_url || ''}"`,
+          `"${caseItem.vendor_tat_start_date || ''}"`,
+          `"${caseItem.due_at || ''}"`,
+          caseItem.tat_hours || '',
+          caseItem.base_rate_inr || '',
+          caseItem.bonus_inr || '',
+          caseItem.penalty_inr || '',
+          caseItem.total_payout_inr || '',
+          `"${caseItem.created_at || ''}"`,
+          `"${caseItem.updated_at || ''}"`,
+          `"${caseItem.created_by || ''}"`,
+          `"${caseItem.last_updated_by || ''}"`,
+          `"${caseItem.status_updated_at || ''}"`,
+          `"${metadataStr}"`
+        ];
+        csvRows.push(row.join(','));
+      });
+
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+      link.download = `cases_metadata_${monthName}_${year}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Download Complete',
+        description: `Downloaded ${casesData.length} case(s) metadata for ${monthName} ${year}`,
+      });
+
+      setIsDownloadDialogOpen(false);
+    } catch (error) {
+      console.error('Failed to download cases:', error);
+      toast({
+        title: 'Download Failed',
+        description: 'Failed to download cases metadata',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
+
   
 
   if (isLoading) {
@@ -816,6 +1005,10 @@ export default function CaseListWithAllocation({
             </CardDescription>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setIsDownloadDialogOpen(true)}>
+              <Download className="h-4 w-4 mr-2" />
+              Download Metadata
+            </Button>
             <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Bulk Upload
@@ -1882,6 +2075,71 @@ export default function CaseListWithAllocation({
               }}
               onClose={() => setIsBulkUploadOpen(false)}
             />
+          </DialogContent>
+        </Dialog>
+
+        {/* Download Metadata Dialog */}
+        <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Download Cases Metadata</DialogTitle>
+              <DialogDescription>
+                Select a month and year to download the metadata of all cases created in that period.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+              {/* Year Selector - Top Right */}
+              <div className="flex justify-end">
+                <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {years.map((year) => (
+                      <SelectItem key={year} value={year.toString()}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Month Grid - 4x3 */}
+              <div className="grid grid-cols-4 gap-2">
+                {months.map((month, index) => {
+                  const monthNumber = index + 1;
+                  return (
+                    <Button
+                      key={monthNumber}
+                      variant="outline"
+                      className="h-16 flex flex-col items-center justify-center hover:bg-primary hover:text-primary-foreground"
+                      onClick={() => handleDownloadCasesByMonth(monthNumber, selectedYear)}
+                      disabled={isDownloading}
+                    >
+                      <span className="text-xs font-medium">{month.slice(0, 3)}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+
+              {isDownloading && (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span className="text-sm text-muted-foreground">Downloading...</span>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsDownloadDialogOpen(false)}
+                disabled={isDownloading}
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </CardContent>

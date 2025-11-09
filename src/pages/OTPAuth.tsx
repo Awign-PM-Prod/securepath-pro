@@ -140,22 +140,62 @@ export default function OTPAuth() {
     setError('');
 
     try {
-      // Step 1: Verify OTP using custom verification system
-      const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-otp', {
-        body: {
+      // Create Supabase session - this function handles OTP verification and session creation
+      console.log('Calling create-auth-session with:', { phone_number: phoneNumber, otp_code: otpCode });
+      
+      // Use fetch directly to get better error details
+      const supabaseUrl = 'https://ycbftnwzoxktoroqpslo.supabase.co';
+      const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljYmZ0bnd6b3hrdG9yb3Fwc2xvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxMDU1MjYsImV4cCI6MjA3MzY4MTUyNn0.5MaCwrEC3yizhu62Ks2jFlS516MVWiPctlbPrVax2Ng';
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const accessToken = currentSession?.access_token;
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/create-auth-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': accessToken ? `Bearer ${accessToken}` : `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({
           phone_number: phoneNumber,
-          otp_code: otpCode,
-          purpose: 'login'
-        }
+          otp_code: otpCode
+        })
       });
-
-      if (verifyError || !verifyData?.success) {
-        setError(verifyData?.error || 'Invalid or expired OTP');
+      
+      const responseText = await response.text();
+      console.log('Raw server response:', responseText);
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      let sessionData;
+      try {
+        sessionData = JSON.parse(responseText);
+        console.log('Parsed response data:', sessionData);
+      } catch (e) {
+        console.error('Failed to parse response as JSON:', e);
+        setError('Server returned invalid response. Please try again.');
         setIsLoading(false);
         return;
       }
 
-      // Step 2: Get user profile with role
+      if (!response.ok) {
+        const errorMessage = sessionData?.error || sessionData?.message || `Server error (${response.status})`;
+        console.error('Server error response:', sessionData);
+        setError(errorMessage);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!sessionData?.success || !sessionData?.access_token) {
+        console.error('Session creation failed:', sessionData);
+        console.error('Response data:', JSON.stringify(sessionData, null, 2));
+        const errorMessage = sessionData?.error || 'Invalid or expired OTP. Please try again.';
+        setError(errorMessage);
+        setIsLoading(false);
+        return;
+      }
+
+      // Get user profile with role for redirect
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('user_id, email, role, first_name')
@@ -165,21 +205,6 @@ export default function OTPAuth() {
 
       if (profileError || !profile) {
         setError('Failed to load user profile');
-        setIsLoading(false);
-        return;
-      }
-
-      // Step 3: Create Supabase session with verified OTP
-      const { data: sessionData, error: sessionError } = await supabase.functions.invoke('create-auth-session', {
-        body: {
-          phone_number: phoneNumber,
-          otp_code: otpCode
-        }
-      });
-
-      if (sessionError || !sessionData?.access_token) {
-        console.error('Session creation error:', sessionError);
-        setError('Failed to create session. Please try again.');
         setIsLoading(false);
         return;
       }

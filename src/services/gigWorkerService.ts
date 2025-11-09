@@ -616,11 +616,12 @@ export class GigWorkerService {
         .order('allocated_at', { ascending: false });
 
       // Get form submissions to find in_progress_at (first draft created_at)
+      // Note: form_submissions uses gig_partner_id, not gig_worker_id
       const { data: formSubmissions } = await supabase
         .from('form_submissions')
         .select('case_id, created_at')
         .in('case_id', caseIds)
-        .eq('gig_worker_id', gigWorkerId)
+        .eq('gig_partner_id', gigWorkerId)
         .order('created_at', { ascending: true });
 
       // Get QC reviews to find rework_at and qc_passed_at

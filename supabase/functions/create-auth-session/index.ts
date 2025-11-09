@@ -12,11 +12,17 @@ interface CreateSessionRequest {
 }
 
 serve(async (req) => {
+  console.log('=== create-auth-session function called ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  
   if (req.method === 'OPTIONS') {
+    console.log('Handling OPTIONS request');
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    console.log('Parsing request body...');
     const body = await req.json();
     console.log('Received request body:', JSON.stringify(body));
     
@@ -32,6 +38,14 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('Missing environment variables');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Server configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: {
@@ -98,53 +112,209 @@ serve(async (req) => {
       );
     }
 
-    console.log('Step 4: Creating session for user_id:', profile.user_id);
+    console.log('Step 4: Getting user from auth system:', profile.user_id);
 
-    // Create auth session using admin API
-    const { data: { session }, error: sessionError } = await supabase.auth.admin.createSession({
-      user_id: profile.user_id
-    });
+    // Get the user from auth.users to verify they exist
+    const { data: { user }, error: userError } = await supabase.auth.admin.getUserById(profile.user_id);
 
-    if (sessionError) {
-      console.error('Session creation error:', sessionError);
+    if (userError || !user) {
+      console.error('User lookup error:', userError);
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'Failed to create session: ' + sessionError.message 
+          error: 'User not found in auth system: ' + (userError?.message || 'Unknown error')
+        }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Step 5: Creating session using GoTrue Admin API for user:', user.id);
+
+    // Use GoTrue Admin API to create a session directly
+    // We'll use the admin API endpoint to generate a session token
+    const adminUsersUrl = `${supabaseUrl}/auth/v1/admin/users/${user.id}`;
+    
+    // First, let's try using the admin API to generate a recovery link and extract tokens from it
+    // Recovery links sometimes contain tokens directly in the URL
+    const { data: recoveryLinkData, error: recoveryError } = await supabase.auth.admin.generateLink({
+      type: 'recovery',
+      email: user.email || profile.email,
+    });
+
+    let accessToken: string | null = null;
+    let refreshToken: string | null = null;
+
+    if (!recoveryError && recoveryLinkData?.properties?.action_link) {
+      const recoveryLink = recoveryLinkData.properties.action_link;
+      console.log('Step 6: Processing recovery link');
+      console.log('Recovery link (first 200 chars):', recoveryLink.substring(0, 200));
+      
+      try {
+        const recoveryUrl = new URL(recoveryLink);
+        
+        // Try to extract tokens directly from the recovery link URL
+        accessToken = recoveryUrl.searchParams.get('access_token');
+        refreshToken = recoveryUrl.searchParams.get('refresh_token');
+        
+        // Check hash fragment
+        if ((!accessToken || !refreshToken) && recoveryUrl.hash) {
+          const hash = recoveryUrl.hash.substring(1);
+          const hashParams = new URLSearchParams(hash);
+          accessToken = hashParams.get('access_token') || accessToken;
+          refreshToken = hashParams.get('refresh_token') || refreshToken;
+        }
+        
+        if (accessToken && refreshToken) {
+          console.log('Step 7: Tokens found directly in recovery link URL');
+        } else {
+          console.log('Step 7: Tokens not in URL, trying to use recovery link programmatically');
+          
+          // If tokens aren't in the URL, we need to actually "click" the link
+          // We can do this by making a GET request to the recovery link
+          // The link will redirect and we can extract tokens from the redirect
+          const linkResponse = await fetch(recoveryLink, {
+            method: 'GET',
+            redirect: 'manual', // Don't follow redirects automatically
+          });
+          
+          console.log('Recovery link response status:', linkResponse.status);
+          console.log('Recovery link response headers:', Object.fromEntries(linkResponse.headers.entries()));
+          
+          // Check if there's a Location header with tokens
+          const location = linkResponse.headers.get('Location');
+          if (location) {
+            try {
+              const locationUrl = new URL(location, recoveryLink);
+              accessToken = locationUrl.searchParams.get('access_token');
+              refreshToken = locationUrl.searchParams.get('refresh_token');
+              
+              if ((!accessToken || !refreshToken) && locationUrl.hash) {
+                const hash = locationUrl.hash.substring(1);
+                const hashParams = new URLSearchParams(hash);
+                accessToken = hashParams.get('access_token') || accessToken;
+                refreshToken = hashParams.get('refresh_token') || refreshToken;
+              }
+              
+              if (accessToken && refreshToken) {
+                console.log('Step 8: Tokens extracted from redirect location');
+              }
+            } catch (e) {
+              console.error('Failed to parse redirect location:', e);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to process recovery link:', e);
+      }
+    }
+
+    // If we still don't have tokens, try using the GoTrue Admin API to create a session
+    if (!accessToken || !refreshToken) {
+      console.log('Step 8: Using GoTrue Admin API to create session directly');
+      
+      // Use the admin API to sign in the user by generating a password reset token
+      // and then using that to create a session
+      // Actually, the best approach is to use the admin API's ability to generate
+      // a session token directly via the GoTrue admin endpoints
+      
+      // Try using the admin API to create a custom session
+      // We'll use the GoTrue admin endpoint to generate a session
+      const adminTokenUrl = `${supabaseUrl}/auth/v1/admin/users/${user.id}/generate_link`;
+      
+      const adminLinkResponse = await fetch(adminTokenUrl, {
+        method: 'POST',
+        headers: {
+          'apikey': supabaseServiceKey,
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'recovery',
+          email: user.email || profile.email,
+        }),
+      });
+
+      if (adminLinkResponse.ok) {
+        const adminLinkData = await adminLinkResponse.json();
+        console.log('Admin link data received');
+        
+        if (adminLinkData?.properties?.action_link) {
+          const adminLink = adminLinkData.properties.action_link;
+          console.log('Admin recovery link generated');
+          
+          // Try to extract tokens from this link
+          try {
+            const adminUrl = new URL(adminLink);
+            accessToken = adminUrl.searchParams.get('access_token');
+            refreshToken = adminUrl.searchParams.get('refresh_token');
+            
+            if ((!accessToken || !refreshToken) && adminUrl.hash) {
+              const hash = adminUrl.hash.substring(1);
+              const hashParams = new URLSearchParams(hash);
+              accessToken = hashParams.get('access_token') || accessToken;
+              refreshToken = hashParams.get('refresh_token') || refreshToken;
+            }
+            
+            if (accessToken && refreshToken) {
+              console.log('Step 9: Tokens extracted from admin-generated link');
+            }
+          } catch (e) {
+            console.error('Failed to extract tokens from admin link:', e);
+          }
+        }
+      } else {
+        const adminErrorText = await adminLinkResponse.text();
+        console.error('Admin link generation failed:', adminLinkResponse.status, adminErrorText);
+      }
+    }
+
+    if (!accessToken || !refreshToken) {
+      console.error('Could not obtain session tokens from any method');
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Could not create session tokens. Please try logging in again or contact support.'
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (!session) {
-      console.error('No session returned from createSession');
-      return new Response(
-        JSON.stringify({ success: false, error: 'No session created' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    console.log('Step 9: Returning session tokens to client');
 
-    console.log('Step 5: Session created successfully for user:', profile.user_id);
-
+    // Return the tokens directly - the client will handle setting the session
+    // Calculate expiry (default to 1 hour from now)
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Login successful',
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        expires_at: session.expires_at,
-        expires_in: session.expires_in,
-        user: session.user,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
+        expires_in: 3600,
+        user: {
+          id: profile.user_id,
+          email: user.email || profile.email,
+          phone: phone_number,
+          role: profile.role,
+          first_name: profile.first_name,
+        },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('Unexpected error in create-auth-session:', error);
+    console.error('Error details:', {
+      message: (error as Error).message,
+      stack: (error as Error).stack,
+      name: (error as Error).name
+    });
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: 'Server error: ' + (error as Error).message 
+        error: 'Server error: ' + ((error as Error).message || 'Unknown error')
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

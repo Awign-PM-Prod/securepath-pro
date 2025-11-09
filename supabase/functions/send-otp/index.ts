@@ -11,7 +11,6 @@ interface SendOTPRequest {
   phone_number: string;
   purpose: 'login' | 'account_setup';
   email?: string;
-  first_name?: string;
 }
 
 serve(async (req) => {
@@ -21,7 +20,7 @@ serve(async (req) => {
   }
 
   try {
-    const { user_id, phone_number, purpose, email, first_name }: SendOTPRequest = await req.json();
+    const { user_id, phone_number, purpose, email }: SendOTPRequest = await req.json();
 
     // Validation
     if (!phone_number || !purpose) {
@@ -36,13 +35,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Invalidate all previous unverified OTPs for this phone number and purpose
-    await supabase
-      .from('otp_tokens')
-      .update({ is_verified: true })
-      .eq('phone_number', phone_number)
-      .eq('purpose', purpose)
-      .eq('is_verified', false);
+    // Rate limiting removed - no limit on OTP generation
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -50,30 +43,20 @@ serve(async (req) => {
     // Set expiry to 5 minutes from now
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-    // Get user_id if not provided
+    // Get user_id if not provided (for login purpose)
     let userId = user_id;
-    if (!userId && email) {
-      // Try to find user by email
+    if (!userId && purpose === 'login' && email) {
       const { data: userData } = await supabase.auth.admin.listUsers();
       const user = userData?.users?.find(u => u.email === email);
       userId = user?.id;
-      
-      if (userId) {
-        console.log(`✅ Found user_id ${userId} for email ${email}`);
-      } else {
-        console.warn(`❌ No user found for email ${email}`);
-      }
     }
 
-    // For login purpose, user must exist
     if (!userId && purpose === 'login') {
       return new Response(
         JSON.stringify({ success: false, error: 'User not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
-    console.log(`OTP request - user_id: ${userId}, phone: ${phone_number}, purpose: ${purpose}`);
 
     // Store OTP in database
     const { error: insertError } = await supabase
@@ -107,9 +90,31 @@ serve(async (req) => {
       );
     }
 
-    // Use approved SMS template with first name
-    const userName = first_name || 'User';
-    const message = `Hi ${userName}\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
+    // Build verification link for account_setup purpose
+    let verificationLink = '';
+    if (purpose === 'account_setup' && email) {
+      const baseUrl = Deno.env.get('APP_URL') || 'https://securepath.awign.com';
+      verificationLink = `${baseUrl}/gig/verify?phone=${encodeURIComponent(phone_number)}&email=${encodeURIComponent(email)}`;
+    }
+
+    // Build SMS message with link for account_setup, without link for login
+    let message = '';
+    if (purpose === 'account_setup' && verificationLink) {
+      message = `${otpCode} is your OTP for account verification.\n\nVerify here: ${verificationLink}\n\nTeam AWIGN`;
+    } else {
+      message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
+    }
+
+    // Normalize phone number - ensure it has +91 prefix if it's a 10-digit Indian number
+    let normalizedPhone = phone_number.trim();
+    if (normalizedPhone.length === 10 && /^[6-9]\d{9}$/.test(normalizedPhone)) {
+      normalizedPhone = `+91${normalizedPhone}`;
+    } else if (!normalizedPhone.startsWith('+')) {
+      normalizedPhone = `+91${normalizedPhone.replace(/^91/, '')}`;
+    }
+
+    console.log(`Sending SMS to normalized phone: ${normalizedPhone} (original: ${phone_number})`);
+    console.log(`SMS Message: ${message.substring(0, 100)}...`);
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
@@ -122,8 +127,8 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         sms: {
-          mobile_number: phone_number,
-          template_id: '1107176258859911807',
+          mobile_number: normalizedPhone,
+          template_id: '1107160412653314461',
           message: message,
           sender_id: 'IAWIGN',
           channel: 'telspiel',
@@ -131,24 +136,70 @@ serve(async (req) => {
       }),
     });
 
-    const smsResponseText = await smsResponse.text();
-    console.log(`SMS API Response - Status: ${smsResponse.status}, Body:`, smsResponseText);
+    const responseText = await smsResponse.text();
+    console.log(`SMS API Response Status: ${smsResponse.status}`);
+    console.log(`SMS API Response: ${responseText}`);
+    console.log(`SMS Request Body: ${JSON.stringify({
+      mobile_number: normalizedPhone,
+      template_id: '1107160412653314461',
+      message_length: message.length,
+      sender_id: 'IAWIGN',
+      channel: 'telspiel',
+    })}`);
 
     if (!smsResponse.ok) {
-      console.error('SMS API error - Status:', smsResponse.status, 'Response:', smsResponseText);
+      console.error('SMS API error:', responseText);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to send OTP SMS' }),
+        JSON.stringify({ 
+          success: false, 
+          error: `Failed to send OTP SMS: ${responseText}`,
+          debug: {
+            status: smsResponse.status,
+            response: responseText,
+            phone: normalizedPhone
+          }
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`OTP sent successfully to ${phone_number} for ${purpose}`);
+    // Try to parse response to check for errors in response body
+    let responseData: any = null;
+    try {
+      responseData = JSON.parse(responseText);
+      console.log('SMS API Response parsed:', JSON.stringify(responseData));
+      
+      if (responseData.error || responseData.status === 'error' || responseData.success === false) {
+        console.error('SMS API returned error in response:', responseData);
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: responseData.message || responseData.error || 'Failed to send OTP SMS',
+            debug: {
+              status: smsResponse.status,
+              response: responseData,
+              phone: normalizedPhone
+            }
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    } catch (e) {
+      // Response is not JSON, that's okay
+      console.log('SMS API response is not JSON, assuming success. Response:', responseText);
+    }
+
+    console.log(`OTP sent successfully to ${normalizedPhone} for ${purpose}`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'OTP sent successfully',
-        expires_in_seconds: 300 
+        expires_in_seconds: 300,
+        debug: {
+          phone: normalizedPhone,
+          sms_response: responseData || responseText
+        }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

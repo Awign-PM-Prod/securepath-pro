@@ -10,7 +10,6 @@ interface ResendOTPRequest {
   phone_number: string;
   purpose: 'login' | 'account_setup';
   email?: string;
-  first_name?: string;
 }
 
 serve(async (req) => {
@@ -20,7 +19,7 @@ serve(async (req) => {
   }
 
   try {
-    const { phone_number, purpose, email, first_name }: ResendOTPRequest = await req.json();
+    const { phone_number, purpose, email }: ResendOTPRequest = await req.json();
 
     // Validation
     if (!phone_number || !purpose) {
@@ -34,6 +33,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Rate limiting removed - no cooldown on resend
 
     // Invalidate previous unverified OTPs
     await supabase
@@ -49,15 +50,7 @@ serve(async (req) => {
       const { data: userData } = await supabase.auth.admin.listUsers();
       const user = userData?.users?.find(u => u.email === email);
       userId = user?.id;
-      
-      if (userId) {
-        console.log(`✅ Found user_id ${userId} for email ${email}`);
-      } else {
-        console.warn(`❌ No user found for email ${email}`);
-      }
     }
-    
-    console.log(`Resend OTP request - user_id: ${userId}, phone: ${phone_number}, purpose: ${purpose}`);
 
     // Generate new OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -95,9 +88,31 @@ serve(async (req) => {
       );
     }
 
-    // Use approved SMS template with first name
-    const userName = first_name || 'User';
-    const message = `Hi ${userName}\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
+    // Build verification link for account_setup purpose
+    let verificationLink = '';
+    if (purpose === 'account_setup' && email) {
+      const baseUrl = Deno.env.get('APP_URL') || 'https://securepath.awign.com';
+      verificationLink = `${baseUrl}/gig/verify?phone=${encodeURIComponent(phone_number)}&email=${encodeURIComponent(email)}`;
+    }
+
+    // Build SMS message with link for account_setup, without link for login
+    let message = '';
+    if (purpose === 'account_setup' && verificationLink) {
+      message = `${otpCode} is your OTP for account verification.\n\nVerify here: ${verificationLink}\n\nTeam AWIGN`;
+    } else {
+      message = `${otpCode} is the OTP for your verification.\n\nTeam AWIGN`;
+    }
+
+    // Normalize phone number - ensure it has +91 prefix if it's a 10-digit Indian number
+    let normalizedPhone = phone_number.trim();
+    if (normalizedPhone.length === 10 && /^[6-9]\d{9}$/.test(normalizedPhone)) {
+      normalizedPhone = `+91${normalizedPhone}`;
+    } else if (!normalizedPhone.startsWith('+')) {
+      normalizedPhone = `+91${normalizedPhone.replace(/^91/, '')}`;
+    }
+
+    console.log(`Resending SMS to normalized phone: ${normalizedPhone} (original: ${phone_number})`);
+    console.log(`SMS Message: ${message.substring(0, 100)}...`);
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
@@ -110,8 +125,8 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         sms: {
-          mobile_number: phone_number,
-          template_id: '1107176258859911807',
+          mobile_number: normalizedPhone,
+          template_id: '1107160412653314461',
           message: message,
           sender_id: 'IAWIGN',
           channel: 'telspiel',
@@ -119,18 +134,34 @@ serve(async (req) => {
       }),
     });
 
-    const smsResponseText = await smsResponse.text();
-    console.log(`SMS API Response - Status: ${smsResponse.status}, Body:`, smsResponseText);
+    const responseText = await smsResponse.text();
+    console.log(`SMS API Response Status: ${smsResponse.status}`);
+    console.log(`SMS API Response: ${responseText}`);
 
     if (!smsResponse.ok) {
-      console.error('SMS API error - Status:', smsResponse.status, 'Response:', smsResponseText);
+      console.error('SMS API error:', responseText);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to send OTP SMS' }),
+        JSON.stringify({ success: false, error: `Failed to send OTP SMS: ${responseText}` }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`OTP resent successfully to ${phone_number}`);
+    // Try to parse response to check for errors in response body
+    try {
+      const responseData = JSON.parse(responseText);
+      if (responseData.error || responseData.status === 'error') {
+        console.error('SMS API returned error in response:', responseData);
+        return new Response(
+          JSON.stringify({ success: false, error: responseData.message || 'Failed to send OTP SMS' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    } catch (e) {
+      // Response is not JSON, that's okay
+      console.log('SMS API response is not JSON, assuming success');
+    }
+
+    console.log(`OTP resent successfully to ${normalizedPhone}`);
 
     return new Response(
       JSON.stringify({ 

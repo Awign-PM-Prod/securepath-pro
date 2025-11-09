@@ -46,32 +46,46 @@ export async function getGigWorkerVendorInfo(
   gigWorkerId: string
 ): Promise<GigWorkerVendorInfo | null> {
   try {
-    const { data, error } = await supabase
+    // First, get the gig worker info without the inner join (to handle direct gigs)
+    const { data: gigWorker, error: gigWorkerError } = await supabase
       .from('gig_partners')
-      .select(`
-        id,
-        vendor_id,
-        is_direct_gig,
-        vendors!inner(
-          id,
-          name,
-          email
-        )
-      `)
+      .select('id, vendor_id, is_direct_gig')
       .eq('id', gigWorkerId)
-      .single();
+      .maybeSingle();
 
-    if (error || !data) {
-      console.error('Error fetching gig worker vendor info:', error);
+    if (gigWorkerError || !gigWorker) {
+      console.error('Error fetching gig worker info:', gigWorkerError);
       return null;
     }
 
+    // If it's a direct gig or no vendor, return early
+    if (gigWorker.is_direct_gig || !gigWorker.vendor_id) {
+      return {
+        gigWorkerId: gigWorker.id,
+        vendorId: null,
+        isDirectGig: gigWorker.is_direct_gig,
+        vendorName: null,
+        vendorEmail: null
+      };
+    }
+
+    // If there's a vendor_id, fetch vendor details
+    const { data: vendor, error: vendorError } = await supabase
+      .from('vendors')
+      .select('id, name, email')
+      .eq('id', gigWorker.vendor_id)
+      .maybeSingle();
+
+    if (vendorError) {
+      console.error('Error fetching vendor info:', vendorError);
+    }
+
     return {
-      gigWorkerId: data.id,
-      vendorId: data.vendor_id,
-      isDirectGig: data.is_direct_gig,
-      vendorName: data.vendors?.name,
-      vendorEmail: data.vendors?.email
+      gigWorkerId: gigWorker.id,
+      vendorId: gigWorker.vendor_id,
+      isDirectGig: gigWorker.is_direct_gig,
+      vendorName: vendor?.name || null,
+      vendorEmail: vendor?.email || null
     };
   } catch (error) {
     console.error('Error getting gig worker vendor info:', error);

@@ -25,6 +25,7 @@ import VendorDashboard from "./pages/VendorDashboard";
 import GigWorkerDashboard from "./pages/GigWorkerDashboard";
 import GigWorkerAuth from "./pages/GigWorkerAuth";
 import GigWorkerResetPassword from "./pages/GigWorkerResetPassword";
+import GigWorkerVerify from "./pages/GigWorkerVerify";
 import Notifications from "./pages/Notifications";
 import ClientDashboard from "./pages/dashboards/ClientDashboard";
 import Reports from "./pages/dashboards/Reports";
@@ -165,6 +166,7 @@ const App = () => {
 
                 {/* Public gig worker auth routes */}
                 <Route path="/gig/setup" element={<GigWorkerAuth />} />
+                <Route path="/gig/verify" element={<GigWorkerVerify />} />
                 <Route path="/gig/reset-password" element={<GigWorkerResetPassword />} />
 
                 <Route path="/client" element={
