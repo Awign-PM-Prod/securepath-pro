@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, MapPin, Clock, User, Building, Hash, Loader2 } from 'lucide-react';
+import { CalendarIcon, MapPin, Clock, User, Building, Hash, Loader2, AlertCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { caseFormService } from '@/services/caseFormService';
@@ -89,6 +90,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
   const [errors, setErrors] = useState<Partial<CaseFormData>>({});
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(false);
   const [autoFilled, setAutoFilled] = useState<Set<string>>(new Set());
+  const [pincodeNotFound, setPincodeNotFound] = useState(false);
   
   // State for dropdown selections to maintain them during editing
   const [selectedClient, setSelectedClient] = useState<string>(initialData?.client_id || '');
@@ -164,28 +166,24 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
       if (!formData.pincode || formData.pincode.length !== 6) {
         // If pincode is cleared, clear auto-filled city/state
         if (formData.pincode.length === 0) {
-          setFormData(prev => {
-            // Only clear if they were auto-filled (check by comparing with empty)
-            if (prev.city && prev.state) {
-              return { ...prev, city: '', state: '' };
-            }
-            return prev;
-          });
-          setAutoFilled(prev => {
-            const newSet = new Set(prev);
-            newSet.delete('city');
-            newSet.delete('state');
-            return newSet;
-          });
+          setFormData(prev => ({
+            ...prev,
+            city: '',
+            state: ''
+          }));
+          setAutoFilled(new Set());
+          setPincodeNotFound(false);
         }
         return;
       }
 
       setIsLoadingDefaults(true);
+      setPincodeNotFound(false);
       try {
         const location = await caseFormService.getLocationFromPincode(formData.pincode);
         
-        if (location) {
+        if (location && location.city && location.state) {
+          // Pincode found in database - auto-fill city and state
           setFormData(prev => ({
             ...prev,
             city: location.city,
@@ -197,9 +195,37 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
             newSet.add('state');
             return newSet;
           });
+          setPincodeNotFound(false);
+        } else {
+          // Pincode not found in database - show Unknown
+          setFormData(prev => ({
+            ...prev,
+            city: 'Unknown',
+            state: 'Unknown'
+          }));
+          setAutoFilled(prev => {
+            const newSet = new Set(prev);
+            newSet.add('city');
+            newSet.add('state');
+            return newSet;
+          });
+          setPincodeNotFound(true);
         }
       } catch (error) {
         console.error('Failed to load location from pincode:', error);
+        // On error, show Unknown
+        setFormData(prev => ({
+          ...prev,
+          city: 'Unknown',
+          state: 'Unknown'
+        }));
+        setAutoFilled(prev => {
+          const newSet = new Set(prev);
+          newSet.add('city');
+          newSet.add('state');
+          return newSet;
+        });
+        setPincodeNotFound(true);
       } finally {
         setIsLoadingDefaults(false);
       }
@@ -464,26 +490,58 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                 <Input
                   id="city"
                   value={formData.city}
-                  readOnly
-                  placeholder="Auto-filled from pincode"
-                  className={errors.city ? 'border-red-500 bg-muted' : 'bg-muted'}
+                  readOnly={autoFilled.has('city')}
+                  placeholder={autoFilled.has('city') ? 'Auto-filled from pincode' : 'Enter city'}
+                  onChange={(e) => {
+                    handleInputChange('city', e.target.value);
+                    setAutoFilled(prev => {
+                      const newSet = new Set(prev);
+                      newSet.delete('city');
+                      return newSet;
+                    });
+                    setPincodeNotFound(false);
+                  }}
+                  className={errors.city ? 'border-red-500' : autoFilled.has('city') ? 'bg-muted' : ''}
                 />
                 {errors.city && <p className="text-sm text-red-500">{errors.city}</p>}
-                {autoFilled.has('city') && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
+                {autoFilled.has('city') && !pincodeNotFound && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="state">State <span className="text-red-500">*</span></Label>
                 <Input
                   id="state"
                   value={formData.state}
-                  readOnly
-                  placeholder="Auto-filled from pincode"
-                  className={errors.state ? 'border-red-500 bg-muted' : 'bg-muted'}
+                  readOnly={autoFilled.has('state')}
+                  placeholder={autoFilled.has('state') ? 'Auto-filled from pincode' : 'Enter state'}
+                  onChange={(e) => {
+                    handleInputChange('state', e.target.value);
+                    setAutoFilled(prev => {
+                      const newSet = new Set(prev);
+                      newSet.delete('state');
+                      return newSet;
+                    });
+                    setPincodeNotFound(false);
+                  }}
+                  className={errors.state ? 'border-red-500' : autoFilled.has('state') ? 'bg-muted' : ''}
                 />
                 {errors.state && <p className="text-sm text-red-500">{errors.state}</p>}
-                {autoFilled.has('state') && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
+                {autoFilled.has('state') && !pincodeNotFound && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
               </div>
             </div>
+            {pincodeNotFound && (
+              <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5" />
+                <p className="text-sm text-yellow-800">
+                  This pincode is not registered.{' '}
+                  <Link 
+                    to="/ops/pincode-tiers" 
+                    className="text-yellow-900 font-medium underline hover:text-yellow-950"
+                  >
+                    Click here to register the Pincode
+                  </Link>
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="location_url">Location URL (Optional)</Label>
               <Input

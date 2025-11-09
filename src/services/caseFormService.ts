@@ -52,7 +52,8 @@ export class CaseFormService {
   }
 
   /**
-   * Get location data from pincode using the database function
+   * Get location data from pincode using only the database function
+   * Returns null if pincode is not found in database
    */
   async getLocationFromPincode(pincode: string): Promise<{ city: string; state: string; tier: string } | null> {
     try {
@@ -63,22 +64,30 @@ export class CaseFormService {
 
       if (error) {
         console.error('Database function error:', error);
-        return { city: 'Unknown', state: 'Unknown', tier: 'tier3' };
+        return null;
       }
 
       if (!data || data.length === 0) {
-        return { city: 'Unknown', state: 'Unknown', tier: 'tier3' };
+        // Pincode not found in database
+        return null;
       }
 
       const result = data[0];
+      
+      // Check if pincode exists but returns Unknown (means it's not properly registered)
+      if (result.city === 'Unknown' || result.state === 'Unknown') {
+        return null;
+      }
+
+      // Return valid data from database
       return {
-        city: result.city || 'Unknown',
-        state: result.state || 'Unknown',
+        city: result.city || '',
+        state: result.state || '',
         tier: result.tier || 'tier3'
       };
     } catch (error) {
       console.error('Failed to get location from pincode:', error);
-      return { city: 'Unknown', state: 'Unknown', tier: 'tier3' };
+      return null;
     }
   }
 
