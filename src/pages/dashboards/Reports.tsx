@@ -270,14 +270,107 @@ export default function Reports() {
     }
   };
 
+  // Helper function to highlight matching text (handles multiple matches)
+  const highlightText = (text: string, searchTerm: string): React.ReactNode => {
+    if (!searchTerm || !text) return text;
+    
+    const textStr = text.toString();
+    const lowerText = textStr.toLowerCase();
+    const lowerSearch = searchTerm.toLowerCase();
+    
+    if (!lowerText.includes(lowerSearch)) return text;
+    
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let index = lowerText.indexOf(lowerSearch, lastIndex);
+    
+    while (index !== -1) {
+      // Add text before match
+      if (index > lastIndex) {
+        parts.push(textStr.substring(lastIndex, index));
+      }
+      
+      // Add highlighted match
+      parts.push(
+        <mark key={index} className="bg-yellow-200 text-yellow-900 px-0.5 rounded">
+          {textStr.substring(index, index + searchTerm.length)}
+        </mark>
+      );
+      
+      lastIndex = index + searchTerm.length;
+      index = lowerText.indexOf(lowerSearch, lastIndex);
+    }
+    
+    // Add remaining text after last match
+    if (lastIndex < textStr.length) {
+      parts.push(textStr.substring(lastIndex));
+    }
+    
+    return <>{parts}</>;
+  };
+
+  // Helper function to get contract type badge with highlighting
+  const getContractTypeBadge = (contractType: string, searchTerm: string = '') => {
+    const typeLabels: Record<string, string> = {
+      'residential_address_check': 'Residential',
+      'business_address_check': 'Business',
+    };
+    
+    const displayText = typeLabels[contractType] || contractType;
+    
+    return (
+      <Badge variant="outline">
+        {highlightText(displayText, searchTerm)}
+      </Badge>
+    );
+  };
+
+  // Helper function to check if a case matches the search term across all metadata
+  const caseMatchesSearch = (caseItem: Case, term: string): boolean => {
+    if (!term) return true;
+    
+    const lowerTerm = term.toLowerCase();
+    
+    // Contract type labels for search
+    const contractTypeLabels: Record<string, string> = {
+      'residential_address_check': 'Residential',
+      'business_address_check': 'Business',
+    };
+    const contractTypeLabel = contractTypeLabels[caseItem.contract_type] || caseItem.contract_type;
+    
+    const searchableFields = [
+      caseItem.case_number,
+      caseItem.client_case_id,
+      caseItem.candidate_name,
+      caseItem.client.name,
+      caseItem.client.email,
+      caseItem.phone_primary,
+      caseItem.phone_secondary || '',
+      caseItem.location.city,
+      caseItem.location.state,
+      caseItem.location.pincode,
+      caseItem.location.address_line || '',
+      caseItem.tat_hours?.toString() || '',
+      caseItem.contract_type,
+      contractTypeLabel, // Also search by display label
+      STATUS_LABELS[caseItem.status] || caseItem.status,
+      caseItem.total_payout_inr?.toString() || '',
+      format(new Date(caseItem.created_at), 'MMM dd, yyyy'),
+      format(new Date(caseItem.created_at), 'HH:mm'),
+      format(new Date(caseItem.created_at), 'yyyy-MM-dd'),
+      caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm') : '',
+      caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'yyyy-MM-dd') : '',
+      `Tier ${getTierNumber(caseItem.location.pincode_tier)}`,
+    ];
+    
+    return searchableFields.some(field => 
+      field && field.toLowerCase().includes(lowerTerm)
+    );
+  };
+
   const filteredCases = cases.filter(caseItem => {
-    // Search filter
-    const matchesSearch = 
-      caseItem.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.client_case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.location.city.toLowerCase().includes(searchTerm.toLowerCase());
+    // Search filter - now searches all metadata
+    const matchesSearch = caseMatchesSearch(caseItem, searchTerm);
 
     // Date range filter
     let matchesDateRange = true;
@@ -559,13 +652,8 @@ export default function Reports() {
   // Filter cases for selection dialog
   const selectionFilteredCases = useMemo(() => {
     return cases.filter(caseItem => {
-      // Search filter
-      const matchesSearch = 
-        caseItem.case_number.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
-        caseItem.client_case_id.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
-        caseItem.candidate_name.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
-        caseItem.client.name.toLowerCase().includes(selectionSearchTerm.toLowerCase()) ||
-        caseItem.location.city.toLowerCase().includes(selectionSearchTerm.toLowerCase());
+      // Search filter - uses same expanded search as main filter
+      const matchesSearch = caseMatchesSearch(caseItem, selectionSearchTerm);
 
       // Date range filter
       let matchesDateRange = true;
@@ -1073,7 +1161,7 @@ export default function Reports() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
-                placeholder="Search cases..."
+                placeholder="Search all case metadata..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -1158,7 +1246,7 @@ export default function Reports() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="font-semibold text-lg flex items-center gap-2">
-                          {caseItem.case_number}
+                          {highlightText(caseItem.case_number, searchTerm)}
                           {isRecreatedCase(caseItem.case_number) && (
                             <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
                               Recreated
@@ -1166,13 +1254,13 @@ export default function Reports() {
                           )}
                         </h3>
                         <Badge className={STATUS_COLORS[caseItem.status] || 'bg-gray-100 text-gray-800'}>
-                          {STATUS_LABELS[caseItem.status] || caseItem.status}
+                          {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchTerm)}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">
-                        {caseItem.client_case_id}
+                        {highlightText(caseItem.client_case_id, searchTerm)} • {getContractTypeBadge(caseItem.contract_type, searchTerm)}
                       </p>
-                      <h4 className="font-medium text-base mb-1">{caseItem.candidate_name}</h4>
+                      <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchTerm)}</h4>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -1199,8 +1287,8 @@ export default function Reports() {
                       <Building className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Client</p>
-                        <p className="font-medium">{caseItem.client.name}</p>
-                        <p className="text-xs text-muted-foreground">{caseItem.client.email}</p>
+                        <p className="font-medium">{highlightText(caseItem.client.name, searchTerm)}</p>
+                        <p className="text-xs text-muted-foreground">{highlightText(caseItem.client.email, searchTerm)}</p>
                       </div>
                     </div>
 
@@ -1208,7 +1296,7 @@ export default function Reports() {
                       <Phone className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Phone</p>
-                        <p className="font-medium">{caseItem.phone_primary}</p>
+                        <p className="font-medium">{highlightText(caseItem.phone_primary, searchTerm)}</p>
                       </div>
                     </div>
 
@@ -1223,15 +1311,15 @@ export default function Reports() {
                             rel="noopener noreferrer"
                             className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                           >
-                            {caseItem.location.city}, {caseItem.location.state}
+                            {highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchTerm)}
                           </a>
                         ) : (
-                          <p className="font-medium">{caseItem.location.city}, {caseItem.location.state}</p>
+                          <p className="font-medium">{highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchTerm)}</p>
                         )}
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{caseItem.location.pincode}</span>
+                          <span className="text-xs text-muted-foreground">{highlightText(caseItem.location.pincode, searchTerm)}</span>
                           <Badge variant="outline" className="text-xs">
-                            Tier {getTierNumber(caseItem.location.pincode_tier)}
+                            {highlightText(`Tier ${getTierNumber(caseItem.location.pincode_tier)}`, searchTerm)}
                           </Badge>
                         </div>
                       </div>
@@ -1241,7 +1329,7 @@ export default function Reports() {
                       <Clock className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">TAT Hours</p>
-                        <p className="font-medium">{caseItem.tat_hours}h</p>
+                        <p className="font-medium">{highlightText(`${caseItem.tat_hours}h`, searchTerm)}</p>
                       </div>
                     </div>
                   </div>
@@ -1251,8 +1339,8 @@ export default function Reports() {
                       <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Created At</p>
-                        <p className="font-medium">{format(new Date(caseItem.created_at), 'MMM dd, yyyy')}</p>
-                        <p className="text-xs text-muted-foreground">{format(new Date(caseItem.created_at), 'HH:mm')}</p>
+                        <p className="font-medium">{highlightText(format(new Date(caseItem.created_at), 'MMM dd, yyyy'), searchTerm)}</p>
+                        <p className="text-xs text-muted-foreground">{highlightText(format(new Date(caseItem.created_at), 'HH:mm'), searchTerm)}</p>
                       </div>
                     </div>
 
@@ -1261,7 +1349,7 @@ export default function Reports() {
                       <div>
                         <p className="text-muted-foreground">Submitted At</p>
                         <p className="font-medium">
-                          {caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                          {caseItem.submitted_at ? highlightText(format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm'), searchTerm) : 'N/A'}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {caseItem.submitted_at ? 'Submission time' : 'Not submitted'}
@@ -1273,7 +1361,7 @@ export default function Reports() {
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Total Payout (INR)</p>
-                        <p className="font-medium">₹{caseItem.total_payout_inr || 0}</p>
+                        <p className="font-medium">{highlightText(`₹${caseItem.total_payout_inr || 0}`, searchTerm)}</p>
                       </div>
                     </div>
                   </div>
@@ -1337,7 +1425,7 @@ export default function Reports() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
-                  placeholder="Search cases..."
+                  placeholder="Search all case metadata..."
                   value={selectionSearchTerm}
                   onChange={(e) => setSelectionSearchTerm(e.target.value)}
                   className="pl-10"
