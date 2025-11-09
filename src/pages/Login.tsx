@@ -151,24 +151,22 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      // Get current user
+      // Get current user - but we'll create a new session with the OTP
       const { data: { user: authUser } } = await supabase.auth.getUser();
       
-      if (!authUser) {
-        setError('User session not found');
-        setIsLoading(false);
-        return;
-      }
-
+      console.log('Creating auth session with OTP for:', phoneNumber, userEmail);
+      
       // Call create-auth-session with the OTP to get proper tokens
       const { data, error } = await supabase.functions.invoke('create-auth-session', {
         body: {
           email: userEmail,
           phone: phoneNumber,
-          user_id: authUser.id,
+          user_id: authUser?.id,
           otp: otp
         }
       });
+      
+      console.log('Auth session response:', data, error);
 
       if (error || !data?.success) {
         console.error('Session creation error:', error || data);
