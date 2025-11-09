@@ -140,8 +140,8 @@ export default function OTPAuth() {
     setError('');
 
     try {
-      // Verify OTP and create session
-      const { data, error: verifyError } = await supabase.functions.invoke('verify-otp-and-login', {
+      // Step 1: Verify OTP using existing verify-otp function
+      const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-otp', {
         body: {
           phone_number: phoneNumber,
           otp_code: otpCode,
@@ -149,32 +149,39 @@ export default function OTPAuth() {
         }
       });
 
-      if (verifyError || !data?.success) {
-        setError(data?.error || 'Invalid or expired OTP');
+      if (verifyError || !verifyData?.success) {
+        setError(verifyData?.error || 'Invalid or expired OTP');
         setIsLoading(false);
         return;
       }
 
-      // Handle magic link authentication if provided
-      if (data.magic_link) {
-        // Open magic link in current window to authenticate
-        window.location.href = data.magic_link;
+      // Step 2: Get user profile for authentication
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_id, email, role')
+        .eq('phone', phoneNumber)
+        .eq('is_active', true)
+        .single();
+
+      if (profileError || !profile) {
+        setError('Failed to authenticate user');
+        setIsLoading(false);
         return;
       }
 
-      // If session data is provided, set it directly
-      if (data.session) {
-        const { error: setSessionError } = await supabase.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-        });
-
-        if (setSessionError) {
-          console.error('Session set error:', setSessionError);
-          setError('Failed to establish session');
-          setIsLoading(false);
-          return;
+      // Step 3: Generate magic link for authentication
+      const { data: linkData, error: linkError } = await supabase.functions.invoke('create-auth-session', {
+        body: {
+          email: profile.email,
+          user_id: profile.user_id
         }
+      });
+
+      if (linkError || !linkData?.success) {
+        console.error('Session creation error:', linkError);
+        setError('Failed to create session. Please try again.');
+        setIsLoading(false);
+        return;
       }
 
       toast({
@@ -182,9 +189,14 @@ export default function OTPAuth() {
         description: 'Login successful!',
       });
 
-      // Redirect based on role
-      const redirectPath = getRoleRedirectPath(data.role as UserRole);
-      navigate(redirectPath, { replace: true });
+      // Redirect to magic link for automatic authentication
+      if (linkData.magic_link) {
+        window.location.href = linkData.magic_link;
+      } else {
+        // Fallback: redirect based on role
+        const redirectPath = getRoleRedirectPath(profile.role as UserRole);
+        navigate(redirectPath, { replace: true });
+      }
 
     } catch (err: any) {
       setError('An unexpected error occurred. Please try again.');
