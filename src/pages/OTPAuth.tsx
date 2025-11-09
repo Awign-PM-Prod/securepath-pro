@@ -169,12 +169,39 @@ export default function OTPAuth() {
         return;
       }
 
+      // Step 3: Create Supabase session
+      const { data: sessionData, error: sessionError } = await supabase.functions.invoke('create-auth-session', {
+        body: {
+          email: profile.email,
+          user_id: profile.user_id,
+          phone: phoneNumber
+        }
+      });
+
+      if (sessionError || !sessionData?.access_token) {
+        setError('Failed to create session. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Set the session in Supabase client
+      const { error: setSessionError } = await supabase.auth.setSession({
+        access_token: sessionData.access_token,
+        refresh_token: sessionData.refresh_token
+      });
+
+      if (setSessionError) {
+        setError('Failed to establish session. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
       toast({
         title: 'Success',
         description: `Welcome back, ${profile.first_name}!`,
       });
 
-      // Redirect based on role - session will be managed by protected routes
+      // Redirect based on role
       const redirectPath = getRoleRedirectPath(profile.role as UserRole);
       navigate(redirectPath, { replace: true });
 
