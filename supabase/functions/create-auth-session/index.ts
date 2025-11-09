@@ -56,10 +56,10 @@ serve(async (req) => {
       }
     }
 
-    // Generate a recovery link which includes valid session tokens
+    // Generate a magic link which should include access tokens
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'recovery',
-      email: email
+      type: 'magiclink',
+      email: email,
     });
 
     if (linkError || !linkData) {
@@ -70,15 +70,40 @@ serve(async (req) => {
       );
     }
 
-    // Extract tokens from the properties
-    const accessToken = linkData.properties?.access_token;
-    const refreshToken = linkData.properties?.refresh_token;
-    const expiresAt = linkData.properties?.expires_at;
+    console.log('Link data structure:', JSON.stringify(linkData, null, 2));
 
+    // Try different property paths
+    const accessToken = linkData.properties?.access_token || 
+                       linkData.session?.access_token ||
+                       (linkData as any).access_token;
+    const refreshToken = linkData.properties?.refresh_token || 
+                        linkData.session?.refresh_token ||
+                        (linkData as any).refresh_token;
+    const expiresAt = linkData.properties?.expires_at || 
+                     linkData.session?.expires_at ||
+                     (linkData as any).expires_at;
+
+    // If tokens still not found, try to extract from hashed_token
     if (!accessToken || !refreshToken) {
-      console.error('Tokens not found in response');
+      const hashedToken = linkData.properties?.hashed_token;
+      if (hashedToken) {
+        console.log('Using hashed token approach');
+        // Return the hashed token for the client to verify
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            message: 'Token generated - needs client-side verification',
+            hashed_token: hashedToken,
+            email_otp: linkData.properties?.email_otp,
+            user_id: user_id,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.error('Tokens not found in response. Link data:', JSON.stringify(linkData));
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to extract auth tokens' }),
+        JSON.stringify({ success: false, error: 'Failed to extract auth tokens', debug: linkData }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

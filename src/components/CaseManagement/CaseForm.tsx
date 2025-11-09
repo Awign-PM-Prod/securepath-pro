@@ -51,6 +51,10 @@ export interface CaseFormData {
   // These fields will be auto-calculated from client contract
   tat_hours: number;
   due_date: Date;
+  base_rate_inr: number;
+  bonus_inr: number;
+  penalty_inr: number;
+  total_payout_inr: number;
   instructions?: string;
   company_name?: string;
 }
@@ -74,6 +78,10 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
     vendor_tat_start_date: initialData?.vendor_tat_start_date || new Date(),
     tat_hours: initialData?.tat_hours || 24,
     due_date: initialData?.due_date || new Date(Date.now() + 24 * 60 * 60 * 1000),
+    base_rate_inr: initialData?.base_rate_inr || 0,
+    bonus_inr: initialData?.bonus_inr || 0,
+    penalty_inr: initialData?.penalty_inr || 0,
+    total_payout_inr: initialData?.total_payout_inr || 0,
     instructions: initialData?.instructions || '',
     company_name: initialData?.company_name || '',
   });
