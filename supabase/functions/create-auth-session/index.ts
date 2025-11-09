@@ -56,13 +56,10 @@ serve(async (req) => {
       }
     }
 
-    // Generate magic link to get session tokens
+    // Generate a recovery link which includes valid session tokens
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: email,
-      options: {
-        redirectTo: `${Deno.env.get('SUPABASE_URL')}/auth/v1/verify`
-      }
+      type: 'recovery',
+      email: email
     });
 
     if (linkError || !linkData) {
@@ -73,15 +70,28 @@ serve(async (req) => {
       );
     }
 
+    // Extract tokens from the properties
+    const accessToken = linkData.properties?.access_token;
+    const refreshToken = linkData.properties?.refresh_token;
+    const expiresAt = linkData.properties?.expires_at;
+
+    if (!accessToken || !refreshToken) {
+      console.error('Tokens not found in response');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to extract auth tokens' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     console.log('Auth tokens generated successfully');
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Session tokens created successfully',
-        access_token: linkData.properties.access_token,
-        refresh_token: linkData.properties.refresh_token,
-        expires_at: linkData.properties.expires_at,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
