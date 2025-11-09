@@ -179,19 +179,33 @@ export default function OTPAuth() {
       });
 
       if (sessionError || !sessionData?.access_token) {
+        console.error('Session creation error:', sessionError);
         setError('Failed to create session. Please try again.');
         setIsLoading(false);
         return;
       }
 
       // Set the session in Supabase client
-      const { error: setSessionError } = await supabase.auth.setSession({
+      const { data: authData, error: setSessionError } = await supabase.auth.setSession({
         access_token: sessionData.access_token,
         refresh_token: sessionData.refresh_token
       });
 
-      if (setSessionError) {
+      if (setSessionError || !authData.session) {
+        console.error('Set session error:', setSessionError);
         setError('Failed to establish session. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Wait for auth state to update
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Verify session is active
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        setError('Session not established. Please try again.');
         setIsLoading(false);
         return;
       }
