@@ -9,7 +9,7 @@ import { AppLayout } from "@/components/Layout/AppLayout";
 import { NoSidebarLayout } from "@/components/Layout/NoSidebarLayout";
 import { LoadingFallback, ErrorFallback } from "@/components/LoadingFallback";
 import Index from "./pages/Index";
-import Login from "./pages/Login";
+import OTPAuth from "./pages/OTPAuth";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import TestForgotPassword from "./pages/TestForgotPassword";
@@ -90,7 +90,7 @@ const App = () => {
             <BrowserRouter>
               <Routes>
                 {/* Landing page - Login */}
-                <Route path="/" element={<Login />} />
+                <Route path="/" element={<OTPAuth />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />

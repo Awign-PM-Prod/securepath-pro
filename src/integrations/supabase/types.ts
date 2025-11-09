@@ -347,6 +347,7 @@ export type Database = {
           due_at: string
           id: string
           instructions: string | null
+          is_positive: boolean | null
           last_updated_by: string | null
           location_id: string
           metadata: Json
@@ -388,6 +389,7 @@ export type Database = {
           due_at: string
           id?: string
           instructions?: string | null
+          is_positive?: boolean | null
           last_updated_by?: string | null
           location_id: string
           metadata?: Json
@@ -429,6 +431,7 @@ export type Database = {
           due_at?: string
           id?: string
           instructions?: string | null
+          is_positive?: boolean | null
           last_updated_by?: string | null
           location_id?: string
           metadata?: Json
@@ -1159,6 +1162,7 @@ export type Database = {
           created_by: string
           id: string
           is_active: boolean
+          is_negative: boolean
           template_name: string
           template_version: number
           updated_at: string
@@ -1169,6 +1173,7 @@ export type Database = {
           created_by: string
           id?: string
           is_active?: boolean
+          is_negative?: boolean
           template_name: string
           template_version?: number
           updated_at?: string
@@ -1179,6 +1184,7 @@ export type Database = {
           created_by?: string
           id?: string
           is_active?: boolean
+          is_negative?: boolean
           template_name?: string
           template_version?: number
           updated_at?: string
@@ -2008,7 +2014,7 @@ export type Database = {
           id: string
           is_active: boolean
           last_name: string
-          phone: string | null
+          phone: string
           role: Database["public"]["Enums"]["app_role"]
           updated_at: string
           user_id: string | null
@@ -2021,7 +2027,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_name: string
-          phone?: string | null
+          phone: string
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
           user_id?: string | null
@@ -2034,7 +2040,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_name?: string
-          phone?: string | null
+          phone?: string
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
           user_id?: string | null
