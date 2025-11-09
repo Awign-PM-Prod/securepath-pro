@@ -120,9 +120,10 @@ export default function Login() {
 
   const handleOTPVerified = async (otp: string) => {
     setIsLoading(true);
+    setError('');
     
     try {
-      console.log('Creating auth session with OTP for phone:', phoneNumber);
+      console.log('Creating auth session with OTP for phone:', phoneNumber, 'OTP:', otp);
       
       // Call create-auth-session which verifies OTP and creates session
       const { data, error } = await supabase.functions.invoke('create-auth-session', {
