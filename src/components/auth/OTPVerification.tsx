@@ -9,7 +9,7 @@ interface OTPVerificationProps {
   phoneNumber: string;
   purpose: 'login' | 'account_setup';
   email?: string;
-  onVerified: () => void;
+  onVerified: (otp: string) => void;
   onCancel?: () => void;
 }
 
@@ -92,7 +92,7 @@ export function OTPVerification({
     if (result.success) {
       setSuccess('OTP verified successfully!');
       setTimeout(() => {
-        onVerified();
+        onVerified(otp); // Pass the OTP code to the callback
       }, 500);
     } else {
       setError(result.error || 'Invalid OTP code');

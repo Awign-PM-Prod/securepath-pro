@@ -7,9 +7,10 @@ const corsHeaders = {
 };
 
 interface CreateSessionRequest {
-  email: string;
-  user_id: string;
+  email?: string;
   phone?: string;
+  user_id: string;
+  otp: string; // We need the OTP code to verify and create session
 }
 
 serve(async (req) => {
@@ -18,105 +19,78 @@ serve(async (req) => {
   }
 
   try {
-    const { email, user_id, phone }: CreateSessionRequest = await req.json();
+    const { email, phone, user_id, otp }: CreateSessionRequest = await req.json();
 
-    if (!email || !user_id) {
+    if (!user_id || !otp) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Email and user_id are required' }),
+        JSON.stringify({ success: false, error: 'user_id and otp are required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!email && !phone) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Either email or phone is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    
+    // Use anon client to verify OTP (like a normal user would)
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    console.log('Creating session for user:', user_id);
+    console.log('Verifying OTP and creating session for user:', user_id);
 
-    // Check if user exists in auth.users
-    const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user_id);
-
-    if (authError || !authUser) {
-      console.error('User not found in auth:', authError);
-      return new Response(
-        JSON.stringify({ success: false, error: 'User not found in authentication system' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Update phone number if provided and not already set
-    if (phone && !authUser.user.phone) {
-      console.log('Updating user phone number:', phone);
-      const { error: updateError } = await supabase.auth.admin.updateUserById(user_id, {
-        phone: phone
+    // Verify OTP and get session tokens directly
+    let verifyResult;
+    
+    if (phone) {
+      console.log('Verifying phone OTP:', phone);
+      verifyResult = await supabase.auth.verifyOtp({
+        phone: phone,
+        token: otp,
+        type: 'sms'
       });
-      
-      if (updateError) {
-        console.error('Failed to update phone:', updateError);
-      }
+    } else if (email) {
+      console.log('Verifying email OTP:', email);
+      verifyResult = await supabase.auth.verifyOtp({
+        email: email,
+        token: otp,
+        type: 'email'
+      });
     }
 
-    // Generate a magic link which should include access tokens
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: email,
-    });
+    const { data, error } = verifyResult!;
 
-    if (linkError || !linkData) {
-      console.error('Link generation error:', linkError);
+    if (error) {
+      console.error('OTP verification error:', error);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to generate auth tokens' }),
+        JSON.stringify({ success: false, error: 'Failed to verify OTP: ' + error.message }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!data.session) {
+      console.error('No session returned from OTP verification');
+      return new Response(
+        JSON.stringify({ success: false, error: 'No session created' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Link data structure:', JSON.stringify(linkData, null, 2));
-
-    // Try different property paths
-    const accessToken = linkData.properties?.access_token || 
-                       linkData.session?.access_token ||
-                       (linkData as any).access_token;
-    const refreshToken = linkData.properties?.refresh_token || 
-                        linkData.session?.refresh_token ||
-                        (linkData as any).refresh_token;
-    const expiresAt = linkData.properties?.expires_at || 
-                     linkData.session?.expires_at ||
-                     (linkData as any).expires_at;
-
-    // If tokens still not found, try to extract from hashed_token
-    if (!accessToken || !refreshToken) {
-      const hashedToken = linkData.properties?.hashed_token;
-      if (hashedToken) {
-        console.log('Using hashed token approach');
-        // Return the hashed token for the client to verify
-        return new Response(
-          JSON.stringify({ 
-            success: true, 
-            message: 'Token generated - needs client-side verification',
-            hashed_token: hashedToken,
-            email_otp: linkData.properties?.email_otp,
-            user_id: user_id,
-          }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      console.error('Tokens not found in response. Link data:', JSON.stringify(linkData));
-      return new Response(
-        JSON.stringify({ success: false, error: 'Failed to extract auth tokens', debug: linkData }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log('Auth tokens generated successfully');
+    console.log('Session created successfully:', data.session.user.id);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Session tokens created successfully',
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
+        message: 'Session created successfully',
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at,
+        expires_in: data.session.expires_in,
+        user: data.user,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -124,7 +98,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ success: false, error: 'An unexpected error occurred' }),
+      JSON.stringify({ success: false, error: 'An unexpected error occurred: ' + (error as Error).message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

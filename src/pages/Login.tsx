@@ -147,13 +147,61 @@ export default function Login() {
     }
   };
 
-  const handleOTPVerified = () => {
-    setShowOTP(false);
-    toast({
-      title: 'Success',
-      description: 'Login successful!',
-    });
-    // The useEffect will handle the redirect now that showOTP is false
+  const handleOTPVerified = async (otp: string) => {
+    setIsLoading(true);
+    
+    try {
+      // Get current user
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      
+      if (!authUser) {
+        setError('User session not found');
+        setIsLoading(false);
+        return;
+      }
+
+      // Call create-auth-session with the OTP to get proper tokens
+      const { data, error } = await supabase.functions.invoke('create-auth-session', {
+        body: {
+          email: userEmail,
+          phone: phoneNumber,
+          user_id: authUser.id,
+          otp: otp
+        }
+      });
+
+      if (error || !data?.success) {
+        console.error('Session creation error:', error || data);
+        setError(data?.error || 'Failed to create session');
+        setIsLoading(false);
+        return;
+      }
+
+      // Set the session using the tokens from the Edge Function
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token
+      });
+
+      if (sessionError) {
+        console.error('Set session error:', sessionError);
+        setError('Failed to establish session');
+        setIsLoading(false);
+        return;
+      }
+
+      setShowOTP(false);
+      setIsLoading(false);
+      toast({
+        title: 'Success',
+        description: 'Login successful!',
+      });
+      // The useEffect will handle the redirect now that showOTP is false
+    } catch (err) {
+      console.error('Unexpected error during session creation:', err);
+      setError('An unexpected error occurred');
+      setIsLoading(false);
+    }
   };
 
   const handleCancelOTP = async () => {
