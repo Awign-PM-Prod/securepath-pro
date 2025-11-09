@@ -140,22 +140,7 @@ export default function OTPAuth() {
     setError('');
 
     try {
-      // Step 1: Verify OTP
-      const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-otp', {
-        body: {
-          phone_number: phoneNumber,
-          otp_code: otpCode,
-          purpose: 'login'
-        }
-      });
-
-      if (verifyError || !verifyData?.success) {
-        setError(verifyData?.error || 'Invalid or expired OTP');
-        setIsLoading(false);
-        return;
-      }
-
-      // Step 2: Get user profile with role
+      // Step 1: Get user profile to get email
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('user_id, email, role, first_name')
@@ -164,38 +149,28 @@ export default function OTPAuth() {
         .single();
 
       if (profileError || !profile) {
-        setError('Failed to load user profile');
+        setError('Account not found');
         setIsLoading(false);
         return;
       }
 
-      // Step 3: Create auth session
-      const { data: sessionData, error: sessionError } = await supabase.functions.invoke('create-auth-session', {
-        body: {
-          email: profile.email,
-          user_id: profile.user_id,
-          phone: phoneNumber
-        }
+      // Step 2: Verify OTP using Supabase's built-in method (creates session automatically)
+      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+        phone: phoneNumber,
+        token: otpCode,
+        type: 'sms'
       });
 
-      console.log('Session response:', sessionData, sessionError);
-
-      if (sessionError || !sessionData?.success) {
-        console.error('Session creation failed:', sessionError, sessionData);
-        setError(sessionData?.error || 'Failed to create session. Please try again.');
+      if (verifyError) {
+        console.error('OTP verification error:', verifyError);
+        setError('Invalid or expired OTP. Please try again.');
         setIsLoading(false);
         return;
       }
 
-      // Step 4: Set session in client
-      const { error: setSessionError } = await supabase.auth.setSession({
-        access_token: sessionData.access_token,
-        refresh_token: sessionData.refresh_token,
-      });
-
-      if (setSessionError) {
-        console.error('Failed to set session:', setSessionError);
-        setError('Failed to establish session. Please try again.');
+      // Verify session was created
+      if (!verifyData.session) {
+        setError('Failed to create session. Please try again.');
         setIsLoading(false);
         return;
       }
