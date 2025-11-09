@@ -173,7 +173,8 @@ export default function OTPAuth() {
       const { data: sessionData, error: sessionError } = await supabase.functions.invoke('create-auth-session', {
         body: {
           email: profile.email,
-          user_id: profile.user_id
+          user_id: profile.user_id,
+          phone: phoneNumber
         }
       });
 

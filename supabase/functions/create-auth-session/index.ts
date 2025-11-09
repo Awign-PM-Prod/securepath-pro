@@ -9,6 +9,7 @@ const corsHeaders = {
 interface CreateSessionRequest {
   email: string;
   user_id: string;
+  phone?: string;
 }
 
 serve(async (req) => {
@@ -17,7 +18,7 @@ serve(async (req) => {
   }
 
   try {
-    const { email, user_id }: CreateSessionRequest = await req.json();
+    const { email, user_id, phone }: CreateSessionRequest = await req.json();
 
     if (!email || !user_id) {
       return new Response(
@@ -41,6 +42,18 @@ serve(async (req) => {
         JSON.stringify({ success: false, error: 'User not found in authentication system' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Update phone number if provided and not already set
+    if (phone && !authUser.user.phone) {
+      console.log('Updating user phone number:', phone);
+      const { error: updateError } = await supabase.auth.admin.updateUserById(user_id, {
+        phone: phone
+      });
+      
+      if (updateError) {
+        console.error('Failed to update phone:', updateError);
+      }
     }
 
     // Create a session token for the user
