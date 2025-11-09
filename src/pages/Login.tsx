@@ -31,6 +31,7 @@ export default function Login() {
   const [showOTP, setShowOTP] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const [userId, setUserId] = useState('');
 
   const {
     register,
@@ -134,6 +135,7 @@ export default function Login() {
       // Show OTP verification screen
       setPhoneNumber(gigWorker.phone);
       setUserEmail(data.email);
+      setUserId(authUser.id); // Store user ID for later
       setShowOTP(true);
       setIsLoading(false);
       
@@ -151,17 +153,14 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      // Get current user - but we'll create a new session with the OTP
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      
-      console.log('Creating auth session with OTP for:', phoneNumber, userEmail);
+      console.log('Creating auth session with OTP for:', phoneNumber, userEmail, userId);
       
       // Call create-auth-session with the OTP to get proper tokens
       const { data, error } = await supabase.functions.invoke('create-auth-session', {
         body: {
           email: userEmail,
           phone: phoneNumber,
-          user_id: authUser?.id,
+          user_id: userId,
           otp: otp
         }
       });
@@ -207,6 +206,7 @@ export default function Login() {
     setShowOTP(false);
     setPhoneNumber('');
     setUserEmail('');
+    setUserId('');
   };
 
   return (
