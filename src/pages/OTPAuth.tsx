@@ -155,20 +155,26 @@ export default function OTPAuth() {
         return;
       }
 
-      // Use the magic link to authenticate
-      const magicLink = data.access_token;
-      
-      // Extract token from magic link and verify it
-      const { data: verifyData, error: verifyLinkError } = await supabase.auth.verifyOtp({
-        token_hash: magicLink.split('token_hash=')[1]?.split('&')[0] || '',
-        type: 'magiclink'
-      });
-
-      if (verifyLinkError) {
-        console.error('Session creation error:', verifyLinkError);
-        setError('Failed to create session');
-        setIsLoading(false);
+      // Handle magic link authentication if provided
+      if (data.magic_link) {
+        // Open magic link in current window to authenticate
+        window.location.href = data.magic_link;
         return;
+      }
+
+      // If session data is provided, set it directly
+      if (data.session) {
+        const { error: setSessionError } = await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        });
+
+        if (setSessionError) {
+          console.error('Session set error:', setSessionError);
+          setError('Failed to establish session');
+          setIsLoading(false);
+          return;
+        }
       }
 
       toast({

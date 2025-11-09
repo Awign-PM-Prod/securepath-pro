@@ -91,17 +91,42 @@ serve(async (req) => {
 
     console.log('Creating session for user:', profile.user_id);
 
-    // Generate access token using admin API
-    const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
+    // Create session using admin API
+    const { data: sessionData, error: sessionError } = await supabase.auth.admin.createUser({
       email: profile.email,
+      email_confirm: true,
+      user_metadata: {
+        phone: phone_number,
+        role: profile.role
+      }
     });
 
-    if (sessionError || !sessionData) {
-      console.error('Session generation error:', sessionError);
+    if (sessionError) {
+      console.error('Session creation error:', sessionError);
+      // User might already exist, try to generate a session token instead
+      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+        type: 'magiclink',
+        email: profile.email,
+      });
+
+      if (linkError || !linkData) {
+        console.error('Link generation error:', linkError);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to create session' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to create session' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          success: true, 
+          message: 'OTP verified successfully',
+          user_id: profile.user_id,
+          role: profile.role,
+          email: profile.email,
+          magic_link: linkData.properties.action_link,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -112,7 +137,7 @@ serve(async (req) => {
         user_id: profile.user_id,
         role: profile.role,
         email: profile.email,
-        access_token: sessionData.properties.action_link,
+        session: sessionData.session,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
