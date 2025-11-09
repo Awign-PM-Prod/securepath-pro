@@ -143,8 +143,8 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
 
       console.log('✅ User created:', { role: data.role, userId: result.user?.id, phone: data.phone });
 
-      // If this is a gig worker, send SMS OTP for account setup
-      if (data.role === 'gig_worker' && result.user?.id && data.phone) {
+      // Send SMS OTP for account setup to ALL users (not just gig workers)
+      if (result.user?.id && data.phone) {
         console.log('📱 Attempting to send OTP to:', data.phone);
         try {
           const { data: otpResult, error: otpError } = await supabase.functions.invoke('send-otp', {
@@ -152,7 +152,8 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
               user_id: result.user.id,
               phone_number: data.phone,
               purpose: 'account_setup',
-              email: data.email
+              email: data.email,
+              first_name: data.first_name
             }
           });
 
@@ -187,9 +188,8 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
         }
       }
 
-      const successMessage = data.role === 'gig_worker' 
-        ? `${data.first_name} ${data.last_name} has been added. They will receive an SMS OTP to set up their account.`
-        : `${data.first_name} ${data.last_name} has been added to the system.`;
+      // All users now receive OTP for account setup
+      const successMessage = `${data.first_name} ${data.last_name} has been added. They will receive an SMS OTP to login for the first time.`;
 
       toast({
         title: 'User created successfully',
