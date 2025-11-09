@@ -140,7 +140,7 @@ export default function OTPAuth() {
     setError('');
 
     try {
-      // Step 1: Verify OTP using existing verify-otp function
+      // Step 1: Verify OTP
       const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-otp', {
         body: {
           phone_number: phoneNumber,
@@ -155,21 +155,21 @@ export default function OTPAuth() {
         return;
       }
 
-      // Step 2: Get user profile for authentication
+      // Step 2: Get user profile with role
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('user_id, email, role')
+        .select('user_id, email, role, first_name')
         .eq('phone', phoneNumber)
         .eq('is_active', true)
         .single();
 
       if (profileError || !profile) {
-        setError('Failed to authenticate user');
+        setError('Failed to load user profile');
         setIsLoading(false);
         return;
       }
 
-      // Step 3: Create session using admin API
+      // Step 3: Create auth session
       const { data: sessionData, error: sessionError } = await supabase.functions.invoke('create-auth-session', {
         body: {
           email: profile.email,
@@ -177,14 +177,16 @@ export default function OTPAuth() {
         }
       });
 
+      console.log('Session response:', sessionData, sessionError);
+
       if (sessionError || !sessionData?.success) {
-        console.error('Session creation error:', sessionError);
-        setError('Failed to create session. Please try again.');
+        console.error('Session creation failed:', sessionError, sessionData);
+        setError(sessionData?.error || 'Failed to create session. Please try again.');
         setIsLoading(false);
         return;
       }
 
-      // Step 4: Set the session in Supabase client
+      // Step 4: Set session in client
       const { error: setSessionError } = await supabase.auth.setSession({
         access_token: sessionData.access_token,
         refresh_token: sessionData.refresh_token,
@@ -199,7 +201,7 @@ export default function OTPAuth() {
 
       toast({
         title: 'Success',
-        description: 'Login successful!',
+        description: `Welcome back, ${profile.first_name}!`,
       });
 
       // Redirect based on role
