@@ -123,17 +123,25 @@ export default function Login() {
     setError('');
     
     try {
-      console.log('Creating auth session with OTP for phone:', phoneNumber, 'OTP:', otp);
+      const requestBody = {
+        phone_number: phoneNumber,
+        otp_code: otp
+      };
+      
+      console.log('=== CREATING AUTH SESSION ===');
+      console.log('Phone Number:', phoneNumber);
+      console.log('OTP Code:', otp);
+      console.log('Request Body:', JSON.stringify(requestBody));
       
       // Call create-auth-session which verifies OTP and creates session
       const { data, error } = await supabase.functions.invoke('create-auth-session', {
-        body: {
-          phone_number: phoneNumber,
-          otp_code: otp
-        }
+        body: requestBody
       });
       
-      console.log('Auth session response:', data, error);
+      console.log('=== AUTH SESSION RESPONSE ===');
+      console.log('Success:', data?.success);
+      console.log('Error:', error);
+      console.log('Full Response:', JSON.stringify({ data, error }));
 
       if (error || !data?.success) {
         console.error('Session creation error:', error || data);
