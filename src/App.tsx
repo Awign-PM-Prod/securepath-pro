@@ -89,9 +89,9 @@ const App = () => {
           <AuthProvider>
             <BrowserRouter>
               <Routes>
-                {/* Landing page - Login */}
+                {/* Landing page - OTP Auth */}
                 <Route path="/" element={<OTPAuth />} />
-                <Route path="/login" element={<Login />} />
+                <Route path="/login" element={<OTPAuth />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/test-forgot-password" element={<TestForgotPassword />} />

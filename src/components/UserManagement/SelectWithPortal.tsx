@@ -35,7 +35,6 @@ export function SelectWithPortal({
         align="start"
         position="popper"
         sideOffset={4}
-        container={document.body}
       >
         {children}
       </SelectContent>

@@ -54,8 +54,8 @@ export default function NotificationCenter({ gigWorkerId }: NotificationCenterPr
       ]);
       
       if (result && typeof result === 'object' && 'success' in result && result.success && 'notifications' in result && result.notifications) {
-        setNotifications(result.notifications);
-        const unread = result.notifications.filter((n: any) => n.status === 'pending' || n.status === 'sent').length;
+        setNotifications(result.notifications as Notification[]);
+        const unread = (result.notifications as any[]).filter((n: any) => n.status === 'pending' || n.status === 'sent').length;
         setUnreadCount(unread);
       }
     } catch (error) {

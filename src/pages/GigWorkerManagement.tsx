@@ -1238,7 +1238,6 @@ export default function GigWorkerManagement() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="direct">Direct Gig Worker</SelectItem>
-                            {console.log('Rendering vendors dropdown with vendors:', vendors)}
                             {vendors.map((vendor) => (
                               <SelectItem key={vendor.id} value={vendor.id}>
                                 {vendor.name}

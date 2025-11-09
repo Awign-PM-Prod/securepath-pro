@@ -113,7 +113,7 @@ export default function GigWorkerAuth() {
       
       if (usersError) throw usersError;
 
-      const user = users?.find(u => u.email === setupForm.email);
+      const user = users?.find((u: any) => u.email === setupForm.email);
       
       if (!user) {
         throw new Error('User not found. Please contact your administrator.');

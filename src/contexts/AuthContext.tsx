@@ -143,7 +143,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       console.log('AuthContext: Sign out successful');
-      return { success: true };
     } catch (error) {
       console.error('AuthContext: Sign out failed:', error);
       // Clear state even on error

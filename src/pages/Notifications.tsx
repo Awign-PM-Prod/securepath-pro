@@ -111,8 +111,8 @@ export default function Notifications() {
         timeoutPromise
       ]);
       
-      if (result.success && result.notifications) {
-        setNotifications(result.notifications);
+      if (result && typeof result === 'object' && 'success' in result && result.success && 'notifications' in result && result.notifications) {
+        setNotifications(result.notifications as any[]);
       }
     } catch (error) {
       console.error('Error loading notifications:', error);

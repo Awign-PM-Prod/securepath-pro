@@ -1366,7 +1366,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               individual_file_locations: individualFileLocations,
               submission_timestamp: new Date().toISOString(),
             }
-          };
+          } as any;
           setTimeout(() => onSaveDraft(formDataWithLocation), 0);
         } else {
           // Fallback to auto-save if save draft callback is unavailable
@@ -1437,7 +1437,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               individual_file_locations: individualFileLocations,
               submission_timestamp: new Date().toISOString(),
             }
-          };
+          } as any;
           setTimeout(() => onSaveDraft(formDataWithLocation), 0);
         } else {
           // Fallback to auto-save if save draft callback is unavailable
@@ -1582,7 +1582,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             individual_file_locations: updatedIndividualFileLocations,
             submission_timestamp: new Date().toISOString(),
           }
-        };
+        } as any;
         
         // Trigger save draft if available
         if (onSaveDraft) {
