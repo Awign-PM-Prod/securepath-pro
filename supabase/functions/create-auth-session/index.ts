@@ -17,9 +17,13 @@ serve(async (req) => {
   }
 
   try {
-    const { phone_number, otp_code }: CreateSessionRequest = await req.json();
+    const body = await req.json();
+    console.log('Received request body:', JSON.stringify(body));
+    
+    const { phone_number, otp_code }: CreateSessionRequest = body;
 
     if (!phone_number || !otp_code) {
+      console.error('Missing required fields:', { phone_number: !!phone_number, otp_code: !!otp_code });
       return new Response(
         JSON.stringify({ success: false, error: 'phone_number and otp_code are required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -29,12 +33,16 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    // Use service role client for admin operations
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
 
-    console.log('Verifying OTP for phone:', phone_number);
+    console.log('Step 1: Verifying OTP for phone:', phone_number);
 
-    // Step 1: Verify the OTP from our custom otp_tokens table
+    // Verify the OTP from our custom otp_tokens table
     const { data: otpToken, error: otpError } = await supabase
       .from('otp_tokens')
       .select('*')
@@ -45,29 +53,24 @@ serve(async (req) => {
       .single();
 
     if (otpError || !otpToken) {
-      console.error('OTP verification error:', otpError);
+      console.error('OTP verification failed:', otpError);
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid or expired OTP' }),
+        JSON.stringify({ success: false, error: 'Invalid or expired OTP code' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // Check if OTP expired
     if (new Date(otpToken.expires_at) < new Date()) {
+      console.error('OTP expired at:', otpToken.expires_at);
       return new Response(
-        JSON.stringify({ success: false, error: 'OTP has expired' }),
+        JSON.stringify({ success: false, error: 'OTP has expired. Please request a new one.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Check attempts
-    if (otpToken.attempts >= otpToken.max_attempts) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Maximum attempts exceeded' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
+    console.log('Step 2: OTP verified, marking as used');
+    
     // Mark OTP as verified
     await supabase
       .from('otp_tokens')
@@ -77,7 +80,9 @@ serve(async (req) => {
       })
       .eq('id', otpToken.id);
 
-    // Step 2: Get user profile with this phone number
+    console.log('Step 3: Getting user profile for phone:', phone_number);
+
+    // Get user profile with this phone number
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('user_id, email, role, first_name')
@@ -86,39 +91,50 @@ serve(async (req) => {
       .single();
 
     if (profileError || !profile || !profile.user_id) {
-      console.error('Profile lookup error:', profileError);
+      console.error('Profile lookup failed:', profileError);
       return new Response(
         JSON.stringify({ success: false, error: 'User not found or inactive' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Creating session for user:', profile.user_id);
+    console.log('Step 4: Creating session for user_id:', profile.user_id);
 
-    // Step 3: Create auth session using admin API
-    const { data: sessionData, error: sessionError } = await supabase.auth.admin.createSession({
+    // Create auth session using admin API
+    const { data: { session }, error: sessionError } = await supabase.auth.admin.createSession({
       user_id: profile.user_id
     });
 
-    if (sessionError || !sessionData.session) {
+    if (sessionError) {
       console.error('Session creation error:', sessionError);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to create session: ' + sessionError?.message }),
+        JSON.stringify({ 
+          success: false, 
+          error: 'Failed to create session: ' + sessionError.message 
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Session created successfully for user:', profile.user_id);
+    if (!session) {
+      console.error('No session returned from createSession');
+      return new Response(
+        JSON.stringify({ success: false, error: 'No session created' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Step 5: Session created successfully for user:', profile.user_id);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Session created successfully',
-        access_token: sessionData.session.access_token,
-        refresh_token: sessionData.session.refresh_token,
-        expires_at: sessionData.session.expires_at,
-        expires_in: sessionData.session.expires_in,
-        user: sessionData.user,
+        message: 'Login successful',
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at,
+        expires_in: session.expires_in,
+        user: session.user,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -126,7 +142,10 @@ serve(async (req) => {
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ success: false, error: 'An unexpected error occurred: ' + (error as Error).message }),
+      JSON.stringify({ 
+        success: false, 
+        error: 'Server error: ' + (error as Error).message 
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
