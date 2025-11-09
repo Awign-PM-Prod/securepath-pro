@@ -157,6 +157,57 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
     }
   };
 
+  // Auto-fill city and state from pincode when pincode is entered
+  useEffect(() => {
+    const loadLocationFromPincode = async () => {
+      // Only auto-fill if pincode is 6 digits
+      if (!formData.pincode || formData.pincode.length !== 6) {
+        // If pincode is cleared, clear auto-filled city/state
+        if (formData.pincode.length === 0) {
+          setFormData(prev => {
+            // Only clear if they were auto-filled (check by comparing with empty)
+            if (prev.city && prev.state) {
+              return { ...prev, city: '', state: '' };
+            }
+            return prev;
+          });
+          setAutoFilled(prev => {
+            const newSet = new Set(prev);
+            newSet.delete('city');
+            newSet.delete('state');
+            return newSet;
+          });
+        }
+        return;
+      }
+
+      setIsLoadingDefaults(true);
+      try {
+        const location = await caseFormService.getLocationFromPincode(formData.pincode);
+        
+        if (location) {
+          setFormData(prev => ({
+            ...prev,
+            city: location.city,
+            state: location.state
+          }));
+          setAutoFilled(prev => {
+            const newSet = new Set(prev);
+            newSet.add('city');
+            newSet.add('state');
+            return newSet;
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load location from pincode:', error);
+      } finally {
+        setIsLoadingDefaults(false);
+      }
+    };
+
+    loadLocationFromPincode();
+  }, [formData.pincode]);
+
   // Load case defaults when client, contract type, and pincode are all available
   useEffect(() => {
     const loadCaseDefaults = async () => {
@@ -173,18 +224,7 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
         
         if (defaults) {
           const updates: Partial<CaseFormData> = {};
-          const newAutoFilled = new Set<string>();
-
-          // Only auto-fill if fields are empty or were previously auto-filled
-          if (!formData.city || autoFilled.has('city')) {
-            updates.city = defaults.city;
-            newAutoFilled.add('city');
-          }
-          
-          if (!formData.state || autoFilled.has('state')) {
-            updates.state = defaults.state;
-            newAutoFilled.add('state');
-          }
+          const newAutoFilled = new Set<string>(autoFilled);
 
           // Auto-fill TAT hours and calculate due date
           if (!formData.tat_hours || autoFilled.has('tat_hours')) {
@@ -405,20 +445,28 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
+                <Label htmlFor="pincode">Pincode <span className="text-red-500">*</span></Label>
+                <Input
+                  id="pincode"
+                  value={formData.pincode}
+                  onChange={(e) => handleInputChange('pincode', e.target.value)}
+                  placeholder="Enter pincode"
+                  className={errors.pincode ? 'border-red-500' : ''}
+                  maxLength={6}
+                />
+                {errors.pincode && <p className="text-sm text-red-500">{errors.pincode}</p>}
+                {isLoadingDefaults && formData.pincode.length === 6 && (
+                  <p className="text-xs text-blue-600">Loading location...</p>
+                )}
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="city">City <span className="text-red-500">*</span></Label>
                 <Input
                   id="city"
                   value={formData.city}
-                  onChange={(e) => {
-                    handleInputChange('city', e.target.value);
-                    setAutoFilled(prev => {
-                      const newSet = new Set(prev);
-                      newSet.delete('city');
-                      return newSet;
-                    });
-                  }}
-                  placeholder="Enter city"
-                  className={errors.city ? 'border-red-500' : ''}
+                  readOnly
+                  placeholder="Auto-filled from pincode"
+                  className={errors.city ? 'border-red-500 bg-muted' : 'bg-muted'}
                 />
                 {errors.city && <p className="text-sm text-red-500">{errors.city}</p>}
                 {autoFilled.has('city') && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
@@ -428,30 +476,12 @@ export default function CaseForm({ onSubmit, onCancel, isLoading = false, client
                 <Input
                   id="state"
                   value={formData.state}
-                  onChange={(e) => {
-                    handleInputChange('state', e.target.value);
-                    setAutoFilled(prev => {
-                      const newSet = new Set(prev);
-                      newSet.delete('state');
-                      return newSet;
-                    });
-                  }}
-                  placeholder="Enter state"
-                  className={errors.state ? 'border-red-500' : ''}
+                  readOnly
+                  placeholder="Auto-filled from pincode"
+                  className={errors.state ? 'border-red-500 bg-muted' : 'bg-muted'}
                 />
                 {errors.state && <p className="text-sm text-red-500">{errors.state}</p>}
                 {autoFilled.has('state') && <p className="text-xs text-blue-600">Auto-filled from pincode</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pincode">Pincode <span className="text-red-500">*</span></Label>
-                <Input
-                  id="pincode"
-                  value={formData.pincode}
-                  onChange={(e) => handleInputChange('pincode', e.target.value)}
-                  placeholder="Enter pincode"
-                  className={errors.pincode ? 'border-red-500' : ''}
-                />
-                {errors.pincode && <p className="text-sm text-red-500">{errors.pincode}</p>}
               </div>
             </div>
             <div className="space-y-2">
