@@ -169,17 +169,30 @@ export default function OTPAuth() {
         return;
       }
 
-      // Step 3: Generate magic link for authentication
-      const { data: linkData, error: linkError } = await supabase.functions.invoke('create-auth-session', {
+      // Step 3: Create session using admin API
+      const { data: sessionData, error: sessionError } = await supabase.functions.invoke('create-auth-session', {
         body: {
           email: profile.email,
           user_id: profile.user_id
         }
       });
 
-      if (linkError || !linkData?.success) {
-        console.error('Session creation error:', linkError);
+      if (sessionError || !sessionData?.success) {
+        console.error('Session creation error:', sessionError);
         setError('Failed to create session. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Step 4: Set the session in Supabase client
+      const { error: setSessionError } = await supabase.auth.setSession({
+        access_token: sessionData.access_token,
+        refresh_token: sessionData.refresh_token,
+      });
+
+      if (setSessionError) {
+        console.error('Failed to set session:', setSessionError);
+        setError('Failed to establish session. Please try again.');
         setIsLoading(false);
         return;
       }
@@ -189,14 +202,9 @@ export default function OTPAuth() {
         description: 'Login successful!',
       });
 
-      // Redirect to magic link for automatic authentication
-      if (linkData.magic_link) {
-        window.location.href = linkData.magic_link;
-      } else {
-        // Fallback: redirect based on role
-        const redirectPath = getRoleRedirectPath(profile.role as UserRole);
-        navigate(redirectPath, { replace: true });
-      }
+      // Redirect based on role
+      const redirectPath = getRoleRedirectPath(profile.role as UserRole);
+      navigate(redirectPath, { replace: true });
 
     } catch (err: any) {
       setError('An unexpected error occurred. Please try again.');

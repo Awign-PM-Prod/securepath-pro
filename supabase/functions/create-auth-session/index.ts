@@ -32,25 +32,39 @@ serve(async (req) => {
 
     console.log('Creating session for user:', user_id);
 
-    // Generate a magic link for authentication
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: email,
+    // Check if user exists in auth.users
+    const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(user_id);
+
+    if (authError || !authUser) {
+      console.error('User not found in auth:', authError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'User not found in authentication system' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Create a session token for the user
+    const { data: sessionData, error: sessionError } = await supabase.auth.admin.createSession({
+      user_id: user_id
     });
 
-    if (linkError || !linkData) {
-      console.error('Link generation error:', linkError);
+    if (sessionError || !sessionData) {
+      console.error('Session creation error:', sessionError);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to generate authentication link' }),
+        JSON.stringify({ success: false, error: 'Failed to create session' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    console.log('Session created successfully');
+
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Session link created successfully',
-        magic_link: linkData.properties.action_link,
+        message: 'Session created successfully',
+        access_token: sessionData.session.access_token,
+        refresh_token: sessionData.session.refresh_token,
+        expires_at: sessionData.session.expires_at,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
