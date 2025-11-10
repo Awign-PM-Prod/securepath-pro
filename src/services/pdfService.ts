@@ -423,10 +423,12 @@ export class PDFService {
         );
         
         // Separate non-file-upload fields and file-upload fields
-        // Exclude signature field from regular file uploads (will be added at the end)
-        const textFields = sortedFields.filter(field => field.field_type !== 'file_upload');
+        // Include signature fields in textFields (they'll be rendered in the table)
+        const textFields = sortedFields.filter(field => 
+          field.field_type !== 'file_upload' || field.field_type === 'signature'
+        );
         const fileUploadFields = sortedFields.filter(field => 
-          field.field_type === 'file_upload' && field.field_key !== 'signature_of_person_met'
+          field.field_type === 'file_upload'
         );
 
         // Create table with Question and Answer columns
@@ -454,38 +456,111 @@ export class PDFService {
             
             // Calculate row height based on content
             const fieldTitle = field.field_title || field.field_key;
-            const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key, field.field_title);
             
-            // Estimate height needed for wrapped text - use narrower widths to prevent overlap
-            const questionLines = doc.splitTextToSize(fieldTitle, questionColWidth - 10); // Reduced width with padding
-            const answerLines = doc.splitTextToSize(formattedAnswer, answerColWidth - 10); // Reduced width with padding
-            const actualRowHeight = Math.max(questionLines.length, answerLines.length) * lineHeight + 4;
-            
-            // Alternate row background
-            if (rowIndex % 2 === 0) {
-              doc.setFillColor(250, 250, 250);
-              doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight, 'F');
-              doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight, 'F');
+            // Handle signature fields specially - embed image in table cell
+            if (field.field_type === 'signature') {
+              // Get signature URL from submission_data or form_submission_files
+              const signatureUrl = answer || (submission.form_submission_files?.find(file => 
+                file.form_field?.field_key === field.field_key
+              )?.file_url);
+              
+              const signatureImageHeight = 30; // Height for signature image in table
+              const actualRowHeight = Math.max(signatureImageHeight + 8, 20);
+              
+              // Alternate row background
+              if (rowIndex % 2 === 0) {
+                doc.setFillColor(250, 250, 250);
+                doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight, 'F');
+                doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight, 'F');
+              }
+              
+              // Question text
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'bold');
+              const questionLines = doc.splitTextToSize(fieldTitle, questionColWidth - 10);
+              doc.text(questionLines, questionColX + 3, yPosition);
+              
+              // Answer - embed signature image
+              if (signatureUrl) {
+                try {
+                  const imageData = await this.fetchSignatureImageAsBase64(signatureUrl, 400, 300);
+                  if (imageData) {
+                    // Calculate dimensions to fit in answer cell
+                    const maxImageWidth = answerColWidth - 10;
+                    const maxImageHeight = signatureImageHeight;
+                    const { width, height } = this.calculateImageDimensions(
+                      imageData.width,
+                      imageData.height,
+                      maxImageWidth,
+                      maxImageHeight
+                    );
+                    
+                    // Center image in answer cell
+                    const imageX = answerColX + (answerColWidth - width) / 2;
+                    const imageY = yPosition - 2;
+                    
+                    doc.addImage(imageData.base64, 'PNG', imageX, imageY, width, height);
+                  } else {
+                    // Fallback to text if image can't be loaded
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text('Signature image unavailable', answerColX + 3, yPosition);
+                  }
+                } catch (error) {
+                  console.error('Error embedding signature in PDF table:', error);
+                  doc.setFontSize(8);
+                  doc.setFont('helvetica', 'normal');
+                  doc.text('Signature image unavailable', answerColX + 3, yPosition);
+                }
+              } else {
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.text('Not provided', answerColX + 3, yPosition);
+              }
+              
+              // Row borders
+              doc.setDrawColor(200, 200, 200);
+              doc.setLineWidth(0.2);
+              doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight);
+              doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight);
+              doc.line(answerColX, yPosition - 4, answerColX, yPosition - 4 + actualRowHeight);
+              
+              yPosition += actualRowHeight;
+            } else {
+              // Regular text field handling
+              const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key, field.field_title);
+              
+              // Estimate height needed for wrapped text - use narrower widths to prevent overlap
+              const questionLines = doc.splitTextToSize(fieldTitle, questionColWidth - 10); // Reduced width with padding
+              const answerLines = doc.splitTextToSize(formattedAnswer, answerColWidth - 10); // Reduced width with padding
+              const actualRowHeight = Math.max(questionLines.length, answerLines.length) * lineHeight + 4;
+              
+              // Alternate row background
+              if (rowIndex % 2 === 0) {
+                doc.setFillColor(250, 250, 250);
+                doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight, 'F');
+                doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight, 'F');
+              }
+              
+              // Question text - no row number
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'bold');
+              doc.text(questionLines, questionColX + 3, yPosition);
+              
+              // Answer text - start with proper spacing from column border
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'normal');
+              doc.text(answerLines, answerColX + 3, yPosition);
+              
+              // Row borders
+              doc.setDrawColor(200, 200, 200);
+              doc.setLineWidth(0.2);
+              doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight);
+              doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight);
+              doc.line(answerColX, yPosition - 4, answerColX, yPosition - 4 + actualRowHeight);
+              
+              yPosition += actualRowHeight;
             }
-            
-            // Question text - no row number
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'bold');
-            doc.text(questionLines, questionColX + 3, yPosition);
-            
-            // Answer text - start with proper spacing from column border
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'normal');
-            doc.text(answerLines, answerColX + 3, yPosition);
-            
-            // Row borders
-            doc.setDrawColor(200, 200, 200);
-            doc.setLineWidth(0.2);
-            doc.rect(questionColX, yPosition - 4, questionColWidth, actualRowHeight);
-            doc.rect(answerColX, yPosition - 4, answerColWidth, actualRowHeight);
-            doc.line(answerColX, yPosition - 4, answerColX, yPosition - 4 + actualRowHeight);
-            
-            yPosition += actualRowHeight;
           }
         }
 
@@ -501,7 +576,7 @@ export class PDFService {
                 (a.field_order || 0) - (b.field_order || 0)
               );
               const subFileUploadFields = sortedFields.filter(field => 
-                field.field_type === 'file_upload' && field.field_key !== 'signature_of_person_met'
+                field.field_type === 'file_upload'
               );
               
               for (let fieldIdx = 0; fieldIdx < subFileUploadFields.length; fieldIdx++) {
@@ -643,83 +718,7 @@ export class PDFService {
       }
     }
 
-    // Add signature image as the very last image, after all other images
-    // Check all submissions for signature
-    let signatureFound = false;
-    for (const submission of submissions) {
-      // Check for signature in submission_data or form_submission_files
-      const signatureUrl = submission.submission_data['signature_of_person_met'];
-      const signatureFile = submission.form_submission_files?.find(file => 
-        file.form_field?.field_key === 'signature_of_person_met'
-      );
-      const signatureImageUrl = signatureFile?.file_url || signatureUrl;
-      
-      if (signatureImageUrl && !signatureFound) {
-        signatureFound = true;
-        
-        // Create new page for signature
-        doc.addPage();
-        yPosition = margin + 15;
-        
-        // Show signature title
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        const signatureTitle = 'Signature of the Person Met';
-        const titleWidth = doc.getTextWidth(signatureTitle);
-        const titleX = (pageWidth - titleWidth) / 2; // Center the title
-        doc.text(signatureTitle, titleX, yPosition);
-        yPosition += 12;
-        
-        try {
-          // Fetch signature image with special handling for PNG format
-          const imageData = await this.fetchSignatureImageAsBase64(signatureImageUrl, 1600, 1200);
-          if (imageData) {
-            // Calculate dimensions to fit the page (with margins)
-            // Reserve space for stamp below signature
-            const availableWidth = pageWidth - 2 * margin;
-            const reservedBottomSpace = 50; // Reserve 50mm for stamp
-            const availableHeight = pageHeight - yPosition - reservedBottomSpace;
-            
-            // Calculate dimensions maintaining aspect ratio
-            const { width, height } = this.calculateImageDimensions(
-              imageData.width,
-              imageData.height,
-              availableWidth,
-              availableHeight
-            );
-            
-            // Center the image horizontally
-            const imageX = (pageWidth - width) / 2;
-            
-            // Use PNG format for signature (preserves white background)
-            doc.addImage(imageData.base64, 'PNG', imageX, yPosition, width, height);
-            
-            // Add stamp and signature below the signature image
-            await this.addStampAndSignature(doc, pageWidth, yPosition + height, margin);
-          } else {
-            // Fallback to URL if image can't be loaded
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            doc.text(`Signature URL: ${signatureImageUrl}`, margin, yPosition);
-            
-            // Add stamp even if signature image failed
-            await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
-          }
-        } catch (error) {
-          // Fallback to URL on error
-          console.error('Error embedding signature image:', error);
-          doc.setFontSize(10);
-          doc.setFont('helvetica', 'normal');
-          doc.text(`Signature URL: ${signatureImageUrl}`, margin, yPosition);
-          
-          // Add stamp even if signature image failed
-          await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
-        }
-        
-        // Only process first signature found (should be only one)
-        break;
-      }
-    }
+    // Signature fields are now included in the table, so no separate signature section needed
 
     return doc;
   }
@@ -895,6 +894,20 @@ export class PDFService {
           return value.label;
         }
         return String(value);
+      }
+
+      case 'signature': {
+        // Signature fields are handled specially in table rendering (images embedded)
+        // This is just a fallback for text display
+        const signatureUrl = value || (submission.form_submission_files?.find(file => 
+          file.form_field?.field_key === fieldKey
+        )?.file_url);
+        
+        if (!signatureUrl) {
+          return 'Not provided';
+        }
+        
+        return '[Signature Image]'; // Placeholder - actual image is embedded in table
       }
 
       case 'file_upload': {
