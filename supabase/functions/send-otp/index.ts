@@ -142,19 +142,14 @@ serve(async (req) => {
     // Build SMS message for login using template format
     console.log('Step 4: Building SMS message');
     const displayName = userName || 'User';
-    // Template format with placeholders
+    // Template with placeholders (DON'T replace them - API will do it)
     const template = `Hi {#var#}\nYour OTP to login to the BGV Portal is {#var#}\n\nRegards -Awign`;
     
-    // Replace placeholders with actual values (first {#var#} = name, second {#var#} = OTP)
-    let message = template;
-    let replacementCount = 0;
-    message = message.replace(/{#var#}/g, () => {
-      replacementCount++;
-      return replacementCount === 1 ? displayName : otpCode;
-    });
+    // Create variables array - order matters! First {#var#} = displayName, second {#var#} = otpCode
+    const variables = [displayName, otpCode];
     
     console.log('SMS message template:', template);
-    console.log('SMS message with values:', message);
+    console.log('Template variables (in order):', variables);
     console.log('Variables - Name:', displayName, 'OTP:', otpCode);
 
     // Normalize phone number - ensure it has +91 prefix if it's a 10-digit Indian number
@@ -167,9 +162,9 @@ serve(async (req) => {
 
     console.log('Step 5: Sending SMS');
     console.log(`Sending SMS to normalized phone: ${normalizedPhone} (original: ${phone_number})`);
-    console.log(`SMS Message: ${message.substring(0, 100)}...`);
     console.log('SMS API URL: https://core-api.awign.com/api/v1/sms/to_number');
     console.log('Template ID: 1107176258859911807');
+    console.log('Template variables:', variables);
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
@@ -183,8 +178,9 @@ serve(async (req) => {
       body: JSON.stringify({
         sms: {
           mobile_number: normalizedPhone,
-          template_id: '1107176258859911807', // Template ID for tracking
-          message: message, // Message with actual values (name and OTP replaced)
+          template_id: '1107176258859911807',
+          message: template, // Send template WITH placeholders
+          variables: variables, // API will replace {#var#} with these values in order
           sender_id: 'IAWIGN',
           channel: 'telspiel',
         },
@@ -199,7 +195,8 @@ serve(async (req) => {
     const requestBody = {
       mobile_number: normalizedPhone,
       template_id: '1107176258859911807',
-      message: message,
+      message: template,
+      variables: variables,
       sender_id: 'IAWIGN',
       channel: 'telspiel',
     };
@@ -286,8 +283,10 @@ serve(async (req) => {
     // Build comprehensive debug info
     const debugInfo = {
       phone: normalizedPhone,
-      message_sent: message,
-      message_length: message.length,
+      template: template,
+      variables: variables,
+      final_message: template.replace(/{#var#}/g, () => variables.shift() || ''),
+      message_length: template.replace(/{#var#}/g, () => variables.shift() || '').length,
       otp_code: otpCode,
       user_name: displayName,
       sms_response: responseData || responseText,
