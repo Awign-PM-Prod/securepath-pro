@@ -102,22 +102,9 @@ serve(async (req) => {
       );
     }
 
-    // Build SMS message for login using template format
+    // Build SMS message for login
     const displayName = userName || 'User';
-    // Template format with placeholders
-    const template = `Hi {#var#}\nYour OTP to login to the BGV Portal is {#var#}\n\nRegards -Awign`;
-    
-    // Replace placeholders with actual values (first {#var#} = name, second {#var#} = OTP)
-    let message = template;
-    let replacementCount = 0;
-    message = message.replace(/{#var#}/g, () => {
-      replacementCount++;
-      return replacementCount === 1 ? displayName : otpCode;
-    });
-    
-    console.log('SMS message template:', template);
-    console.log('SMS message with values:', message);
-    console.log('Variables - Name:', displayName, 'OTP:', otpCode);
+    const message = `Hi ${displayName}\nYour OTP to login to the BGV Portal is ${otpCode}\n\nRegards -Awign`;
 
     // Normalize phone number - ensure it has +91 prefix if it's a 10-digit Indian number
     let normalizedPhone = phone_number.trim();
@@ -142,8 +129,8 @@ serve(async (req) => {
       body: JSON.stringify({
         sms: {
           mobile_number: normalizedPhone,
-          template_id: '1107176258859911807', // Template ID for tracking
-          message: message, // Message with actual values (name and OTP replaced)
+          template_id: '1107176258859911807',
+          message: message,
           sender_id: 'IAWIGN',
           channel: 'telspiel',
         },
@@ -153,160 +140,45 @@ serve(async (req) => {
     const responseText = await smsResponse.text();
     console.log(`SMS API Response Status: ${smsResponse.status}`);
     console.log(`SMS API Response: ${responseText}`);
-    
-    // Log request details (include variables)
-    const requestBody = {
-      mobile_number: normalizedPhone,
-      template_id: '1107176258859911807',
-      message: message,
-      sender_id: 'IAWIGN',
-      channel: 'telspiel',
-    };
-    console.log(`SMS Request Body: ${JSON.stringify(requestBody, null, 2)}`);
 
-    // Try to parse response
-    let responseData: any = null;
-    let parseError: string | null = null;
-    try {
-      responseData = JSON.parse(responseText);
-      console.log('SMS API Response parsed successfully');
-    } catch (e) {
-      parseError = e instanceof Error ? e.message : 'Unknown parse error';
-      console.log('SMS API response is not JSON:', parseError);
-    }
-
-    // Check HTTP status
     if (!smsResponse.ok) {
-      console.error('SMS API HTTP error - Status:', smsResponse.status);
+      console.error('SMS API error:', responseText);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: `Failed to send OTP SMS: HTTP ${smsResponse.status}`,
-          debug: {
-            http_status: smsResponse.status,
-            response_text: responseText,
-            response_data: responseData,
-            phone: normalizedPhone,
-            message_sent: message,
-            request_body: requestBody,
-            parse_error: parseError
-          }
-        }),
+        JSON.stringify({ success: false, error: `Failed to send OTP SMS: ${responseText}` }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Check response data for errors
-    if (responseData) {
-      console.log('Checking response data for errors...');
-      console.log('Response status:', responseData.status);
-      console.log('Response message:', responseData.message);
-      console.log('Response data:', JSON.stringify(responseData.data, null, 2));
-      
-      if (responseData.error || responseData.status === 'error' || responseData.success === false) {
-        console.error('SMS API returned error in response body');
+    // Try to parse response to check for errors in response body
+    try {
+      const responseData = JSON.parse(responseText);
+      if (responseData.error || responseData.status === 'error') {
+        console.error('SMS API returned error in response:', responseData);
         return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: responseData.message || responseData.error || 'Failed to send OTP SMS',
-            debug: {
-              http_status: smsResponse.status,
-              response_data: responseData,
-              phone: normalizedPhone,
-              message_sent: message,
-              request_body: requestBody
-            }
-          }),
+          JSON.stringify({ success: false, error: responseData.message || 'Failed to send OTP SMS' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-
-      // Check SMS status in response data
-      if (responseData.data) {
-        const smsStatus = responseData.data.status;
-        const smsId = responseData.data.id;
-        console.log(`SMS Status: ${smsStatus}, SMS ID: ${smsId}`);
-        
-        // Log important fields
-        if (responseData.data.message_reference_id) {
-          console.log('Message Reference ID:', responseData.data.message_reference_id);
-        }
-        if (responseData.data.notify_at) {
-          console.log('Notify At:', responseData.data.notify_at);
-        }
-        if (responseData.data.sync !== undefined) {
-          console.log('Sync Status:', responseData.data.sync);
-        }
-      }
+    } catch (e) {
+      // Response is not JSON, that's okay
+      console.log('SMS API response is not JSON, assuming success');
     }
 
     console.log(`OTP resent successfully to ${normalizedPhone}`);
-
-    // Build comprehensive debug info
-    const debugInfo = {
-      phone: normalizedPhone,
-      message_sent: message,
-      message_length: message.length,
-      otp_code: otpCode,
-      user_name: displayName,
-      sms_response: responseData || responseText,
-      http_status: smsResponse.status,
-      sms_status: responseData?.data?.status || 'unknown',
-      sms_id: responseData?.data?.id || null,
-      sms_gateway: responseData?.data?.sms_gateway || 'unknown',
-      sync_status: responseData?.data?.sync,
-      notify_at: responseData?.data?.notify_at,
-      created_at: responseData?.data?.created_at,
-      updated_at: responseData?.data?.updated_at,
-      channel_id: responseData?.data?.channel_id,
-      sender_id: responseData?.data?.sender_id,
-      request_body: requestBody,
-      full_response: responseData,
-      // Diagnostic info
-      diagnostic: {
-        is_status_created: responseData?.data?.status === 'created',
-        is_synced: responseData?.data?.sync === true,
-        has_notify_time: !!responseData?.data?.notify_at,
-        has_reference_id: !!responseData?.data?.message_reference_id,
-        gateway: responseData?.data?.sms_gateway,
-        warning: responseData?.data?.status === 'created' 
-          ? 'SMS is queued (status: created) but may not be sent yet. Check SMS gateway configuration.' 
-          : null
-      }
-    };
-
-    console.log('=== COMPLETE DEBUG INFO ===');
-    console.log(JSON.stringify(debugInfo, null, 2));
-    console.log('==========================');
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'OTP resent successfully',
-        expires_in_seconds: 300,
-        debug: debugInfo,
-        // Add a visible warning if status is 'created'
-        warning: responseData?.data?.status === 'created' 
-          ? 'SMS status is "created" - it may be queued but not yet sent. Check SMS gateway logs.' 
-          : undefined
+        expires_in_seconds: 300 
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
     console.error('Error in resend-otp function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: 'Internal server error',
-        debug: {
-          error_message: errorMessage,
-          error_stack: errorStack,
-          error_type: error?.constructor?.name || typeof error
-        }
-      }),
+      JSON.stringify({ success: false, error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

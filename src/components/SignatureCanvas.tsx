@@ -12,6 +12,9 @@ interface SignatureCanvasProps {
   caseId?: string; // For auto-save path
   templateId?: string; // For auto-save
   submissionId?: string; // For replacing existing signature
+  fieldKey?: string; // Field key for signature fields (defaults to 'signature_of_person_met' for legacy support)
+  fieldTitle?: string; // Field title/label to display (defaults to 'Signature of the Person Met' for legacy support)
+  isRequired?: boolean; // Whether the field is required/mandatory
 }
 
 export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
@@ -21,7 +24,10 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
   disabled = false,
   caseId,
   templateId,
-  submissionId
+  submissionId,
+  fieldKey = 'signature_of_person_met', // Default for legacy support
+  fieldTitle = 'Signature of the Person Met', // Default for legacy support
+  isRequired = true // Default to required for legacy support
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -133,11 +139,11 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
     try {
       setIsUploading(true);
       
-      // Generate file path
+      // Generate file path using fieldKey (or default to 'signature_of_person_met' for legacy)
       const uploadTime = new Date().toISOString().replace(/[:.]/g, '-');
       const filePath = submissionId 
-        ? `${submissionId}/signature_of_person_met/signature-${uploadTime}.png`
-        : `${caseId}/signature_of_person_met/signature-${uploadTime}.png`;
+        ? `${submissionId}/${fieldKey}/signature-${uploadTime}.png`
+        : `${caseId}/${fieldKey}/signature-${uploadTime}.png`;
 
       // Delete old signature if exists
       if (existingSignaturePath) {
@@ -188,7 +194,7 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
     } finally {
       setIsUploading(false);
     }
-  }, [caseId, submissionId, existingSignaturePath, onSignatureUploaded]);
+  }, [caseId, submissionId, existingSignaturePath, onSignatureUploaded, fieldKey]);
 
   // Handle signature change and auto-save
   const handleSignatureChange = useCallback(async () => {
@@ -303,7 +309,7 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
   return (
     <div className="space-y-2">
       <Label htmlFor="signature-canvas" className="text-sm font-medium">
-        Signature of the Person Met <span className="text-red-500">*</span>
+        {fieldTitle} {isRequired && <span className="text-red-500">*</span>}
       </Label>
       <div className="relative border-2 border-gray-300 rounded-lg bg-white">
         <canvas

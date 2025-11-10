@@ -7,7 +7,8 @@ export type FormFieldType =
   | 'file_upload'
   | 'number'
   | 'date'
-  | 'boolean';
+  | 'boolean'
+  | 'signature';
 
 export type FormFieldValidation = 
   | 'mandatory'
@@ -125,4 +126,5 @@ export interface FormBuilderTemplate {
   template_name: string;
   contract_type_id: string;
   fields: FormBuilderField[];
+  is_negative?: boolean; // Whether this is a negative case template (default: false for positive)
 }

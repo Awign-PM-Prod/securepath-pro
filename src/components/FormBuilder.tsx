@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
@@ -34,7 +35,8 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
   const [template, setTemplate] = useState<FormBuilderTemplate>({
     template_name: '',
     contract_type_id: contractTypeId,
-    fields: []
+    fields: [],
+    is_negative: false
   });
 
   const [editingField, setEditingField] = useState<FormBuilderField | null>(null);
@@ -43,7 +45,10 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
 
   useEffect(() => {
     if (initialTemplate) {
-      setTemplate(initialTemplate);
+      setTemplate({
+        ...initialTemplate,
+        is_negative: initialTemplate.is_negative ?? false
+      });
     }
   }, [initialTemplate]);
 
@@ -247,6 +252,7 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
                   <option value="number">Number</option>
                   <option value="date">Date</option>
                   <option value="boolean">Boolean</option>
+                  <option value="signature">Signature</option>
                 </select>
                 <div className="text-xs text-gray-500 mt-1">
                   Current value: {localField.field_type}
@@ -386,6 +392,23 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
               onChange={(e) => setTemplate(prev => ({ ...prev, template_name: e.target.value }))}
               placeholder="e.g., Business Address Verification Form"
             />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="is_negative">Case Type</Label>
+              <p className="text-sm text-muted-foreground">
+                {template.is_negative ? 'Negative Case Template' : 'Positive Case Template'}
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm font-medium">Positive</span>
+              <Switch
+                id="is_negative"
+                checked={template.is_negative ?? false}
+                onCheckedChange={(checked) => setTemplate(prev => ({ ...prev, is_negative: checked }))}
+              />
+              <span className="text-sm font-medium">Negative</span>
+            </div>
           </div>
           <div>
             <Label htmlFor="contract_type">Contract Type</Label>

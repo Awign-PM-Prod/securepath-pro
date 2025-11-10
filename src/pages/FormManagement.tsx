@@ -86,6 +86,7 @@ export default function FormManagement() {
     const formBuilderTemplate = {
       template_name: template.template_name,
       contract_type_id: template.contract_type_id,
+      is_negative: template.is_negative ?? false,
       fields: template.form_fields?.map(field => ({
         field_key: field.field_key,
         field_title: field.field_title,
@@ -293,7 +294,9 @@ export default function FormManagement() {
                 {templates.map((template) => (
                   <TableRow key={template.id}>
                     <TableCell className="font-medium">
-                      {template.template_name}
+                      <span className={template.is_negative ? 'text-red-600' : ''}>
+                        {template.template_name}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {template.contract_type_config?.display_name ? (

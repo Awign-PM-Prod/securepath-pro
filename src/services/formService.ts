@@ -14,9 +14,18 @@ export class FormService {
       let template;
 
       if (isNegative) {
-        // For negative cases, find the template by name "Negative-Case-Template"
-        // First try by exact template name
-        let { data: negativeTemplate, error: negativeTemplateError } = await supabase
+        // For negative cases, find the negative template for the specific contract type
+        // Get the contract type ID from the contract type key
+        const { data: contractType, error: contractTypeError } = await supabase
+          .from('contract_type_config')
+          .select('id')
+          .eq('type_key', contractTypeKey)
+          .single();
+
+        if (contractTypeError) throw contractTypeError;
+
+        // Get the negative form template for this contract type
+        const { data: negativeTemplate, error: negativeTemplateError } = await supabase
           .from('form_templates')
           .select(`
             *,
@@ -35,7 +44,7 @@ export class FormService {
               max_file_size_mb
             )
           `)
-          .eq('template_name', 'Negative-Case-Template')
+          .eq('contract_type_id', contractType.id)
           .eq('is_active', true)
           .eq('is_negative', true)
           .order('template_version', { ascending: false })
@@ -44,52 +53,10 @@ export class FormService {
 
         if (negativeTemplateError) throw negativeTemplateError;
 
-        // If not found by name, try to find by contract type "Negative Case Contract"
-        if (!negativeTemplate) {
-          const { data: negativeContractType, error: contractTypeError } = await supabase
-            .from('contract_type_config')
-            .select('id')
-            .or('display_name.ilike.%Negative Case Contract%,display_name.ilike.%negative case%')
-            .limit(1)
-            .maybeSingle();
-
-          if (!contractTypeError && negativeContractType) {
-            const { data: templateByContract, error: templateError } = await supabase
-              .from('form_templates')
-              .select(`
-                *,
-                form_fields (
-                  id,
-                  field_key,
-                  field_title,
-                  field_type,
-                  validation_type,
-                  field_order,
-                  field_config,
-                  depends_on_field_id,
-                  depends_on_value,
-                  max_files,
-                  allowed_file_types,
-                  max_file_size_mb
-                )
-              `)
-              .eq('contract_type_id', negativeContractType.id)
-              .eq('is_active', true)
-              .eq('is_negative', true)
-              .order('template_version', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (!templateError && templateByContract) {
-              negativeTemplate = templateByContract;
-            }
-          }
-        }
-
         if (!negativeTemplate) {
           return {
             success: false,
-            error: 'No negative form template found. Please ensure you have a template named "Negative-Case-Template" with is_negative = true, or a template linked to "Negative Case Contract" contract type.'
+            error: `No negative form template found for contract type: ${contractTypeKey}. Please ensure you have a negative template published for this contract type.`
           };
         }
 
@@ -875,21 +842,26 @@ export class FormService {
         fields_count: templateData.fields?.length || 0
       });
 
-      // Check if there's already an active template for this contract type
+      // Get is_negative value (default to false for positive cases)
+      const isNegative = templateData.is_negative ?? false;
+
+      // Check ALL templates (active and inactive) for this contract type and case type (positive/negative)
+      // This prevents unique constraint violations when creating a new template
+      // The unique constraint is on (contract_type_id, template_version, is_negative)
       const { data: existingTemplates, error: checkError } = await supabase
         .from('form_templates')
         .select('template_version')
         .eq('contract_type_id', templateData.contract_type_id)
-        .eq('is_active', true)
+        .eq('is_negative', isNegative)
         .order('template_version', { ascending: false })
         .limit(1);
 
       if (checkError) throw checkError;
 
       // Determine the next version number
-      // For new templates, we only consider active templates
-      // If there's an active template, increment its version
-      // If no active template exists, start from V1
+      // Check ALL templates (not just active) to avoid unique constraint violations
+      // If there's any template of the same type (positive/negative), increment its version
+      // If no template exists, start from V1
       const nextVersion = existingTemplates && existingTemplates.length > 0 
         ? existingTemplates[0].template_version + 1 
         : 1;
@@ -900,12 +872,13 @@ export class FormService {
         throw new Error('User not authenticated');
       }
 
-      // Create template with the provided contract_type_id and version
+      // Create template with the provided contract_type_id, version, and is_negative flag
       const templateInsertData = {
         contract_type_id: templateData.contract_type_id,
         template_name: templateData.template_name,
         template_version: nextVersion,
         is_active: false, // Start as draft
+        is_negative: isNegative,
         created_by: user.id
       };
 
@@ -975,6 +948,7 @@ export class FormService {
 
   /**
    * Publish a form template (assign to contract type)
+   * Only unpublishes templates with the same is_negative value, allowing one positive and one negative template per contract type
    */
   async publishFormTemplate(templateId: string, contractTypeKey: string): Promise<{ success: boolean; error?: string }> {
     try {
@@ -987,12 +961,25 @@ export class FormService {
 
       if (contractTypeError) throw contractTypeError;
 
-      // First, unpublish any existing form for this contract type
+      // Get the template's is_negative value to determine which templates to unpublish
+      const { data: template, error: templateFetchError } = await supabase
+        .from('form_templates')
+        .select('is_negative')
+        .eq('id', templateId)
+        .single();
+
+      if (templateFetchError) throw templateFetchError;
+
+      const isNegative = template.is_negative ?? false;
+
+      // First, unpublish any existing active template for this contract type with the same is_negative value
+      // This allows one positive and one negative template to be active simultaneously
       const { error: unpublishError } = await supabase
         .from('form_templates')
         .update({ is_active: false })
         .eq('contract_type_id', contractType.id)
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .eq('is_negative', isNegative);
 
       if (unpublishError) throw unpublishError;
 
@@ -1025,7 +1012,6 @@ export class FormService {
       const { error } = await supabase
         .from('form_templates')
         .update({ 
-          contract_type_id: null,
           is_active: false 
         })
         .eq('id', templateId);
@@ -1043,7 +1029,7 @@ export class FormService {
   }
 
   /**
-   * Delete a form template (only if it's a draft)
+   * Delete a form template (only if it's a draft and has no submissions)
    */
   async deleteFormTemplate(templateId: string): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1068,7 +1054,23 @@ export class FormService {
         throw new Error('Cannot delete published templates. Please unpublish first.');
       }
 
-      console.log('Template is draft, proceeding with deletion...');
+      // Check if there are any form submissions using this template
+      const { data: submissions, error: submissionsError } = await supabase
+        .from('form_submissions')
+        .select('id')
+        .eq('template_id', templateId)
+        .limit(1);
+
+      if (submissionsError) {
+        console.error('Error checking form submissions:', submissionsError);
+        throw submissionsError;
+      }
+
+      if (submissions && submissions.length > 0) {
+        throw new Error('Cannot delete template because it has existing form submissions. Templates with submissions cannot be deleted to preserve data integrity.');
+      }
+
+      console.log('Template is draft with no submissions, proceeding with deletion...');
 
       // Delete the template (this will cascade delete the fields due to foreign key constraint)
       const { error: deleteError, count } = await supabase

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FormTemplate, FormField, FormData, FormFieldValue } from '@/types/form';
 import { formService } from '@/services/formService';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -527,6 +528,34 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     setLoadingTemplate(true);
     setDraftLoaded(false);
     console.log('Loading form template for contract type:', contractTypeId, 'isNegative:', isNegative);
+    
+    // Fetch gig worker's name for auto-filling executive name fields
+    let gigWorkerName: string | null = null;
+    if (gigWorkerId) {
+      try {
+        const { data: gigWorker, error: gigWorkerError } = await supabase
+          .from('gig_partners')
+          .select(`
+            profile_id,
+            profiles!inner(
+              first_name,
+              last_name
+            )
+          `)
+          .eq('id', gigWorkerId)
+          .single();
+        
+        if (!gigWorkerError && gigWorker?.profiles) {
+          const firstName = (gigWorker.profiles as any).first_name || '';
+          const lastName = (gigWorker.profiles as any).last_name || '';
+          gigWorkerName = `${firstName} ${lastName}`.trim();
+          console.log('Gig worker name fetched:', gigWorkerName);
+        }
+      } catch (error) {
+        console.warn('Error fetching gig worker name:', error);
+      }
+    }
+    
     const result = await formService.getFormTemplate(contractTypeId, isNegative);
     console.log('Form template result:', result);
     
@@ -600,6 +629,33 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           autoFillMappings['company_name'] = caseData.company_name;
           autoFillMappings['business_name'] = caseData.company_name;
           autoFillMappings['company'] = caseData.company_name;
+        }
+
+        // Auto-fill "report check" field based on case type
+        if (isNegative) {
+          // For negative cases, set to "Negative"
+          autoFillMappings['report_check'] = 'Negative';
+          autoFillMappings['reportcheck'] = 'Negative';
+          autoFillMappings['report check'] = 'Negative';
+        } else {
+          // For positive cases, set to "Positive"
+          autoFillMappings['report_check'] = 'Positive';
+          autoFillMappings['reportcheck'] = 'Positive';
+          autoFillMappings['report check'] = 'Positive';
+        }
+
+        // Auto-fill executive name fields with gig worker's name
+        if (gigWorkerName) {
+          autoFillMappings['executive_name'] = gigWorkerName;
+          autoFillMappings['executive name'] = gigWorkerName;
+          autoFillMappings['field_executive_name'] = gigWorkerName;
+          autoFillMappings['field executive name'] = gigWorkerName;
+          autoFillMappings['verified_by_name'] = gigWorkerName;
+          autoFillMappings['verified by name'] = gigWorkerName;
+          autoFillMappings['verified_by'] = gigWorkerName;
+          autoFillMappings['verified by'] = gigWorkerName;
+          autoFillMappings['verifier_name'] = gigWorkerName;
+          autoFillMappings['verifier name'] = gigWorkerName;
         }
 
         // Track which fields are being auto-filled
@@ -1849,6 +1905,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           if (!fieldData?.files || fieldData.files.length === 0) {
             newErrors[field.field_key] = `${field.field_title} is required`;
           }
+        } else if (field.field_type === 'signature') {
+          // For signature fields, check if signature exists (either as URL or file)
+          const hasSignature = (fieldData?.value && typeof fieldData.value === 'string' && fieldData.value.trim() !== '') ||
+                               (fieldData?.files && fieldData.files.length > 0);
+          if (!hasSignature) {
+            newErrors[field.field_key] = `${field.field_title} is required`;
+          }
         } else {
           // For other field types, check the value
           if (!fieldData?.value || 
@@ -1877,11 +1940,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       }
     });
 
-    // Validate signature (only mandatory for positive cases, not for negative cases)
-    if (!isNegative && !signatureFile && !signatureUrl) {
-      newErrors['signature_of_person_met'] = 'Signature of the Person Met is required';
-    }
-
     console.log('Validation errors:', newErrors);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -1897,6 +1955,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         if (field.field_type === 'file_upload') {
           const files = fieldData?.files || [];
           return files.length > 0;
+        } else if (field.field_type === 'signature') {
+          // Check if signature exists (either as URL or file)
+          const hasSignature = (fieldData?.value && typeof fieldData.value === 'string' && fieldData.value.trim() !== '') ||
+                               (fieldData?.files && fieldData.files.length > 0);
+          return hasSignature;
         } else {
           const value = fieldData?.value;
           return value && (typeof value !== 'string' || value.trim() !== '');
@@ -1905,10 +1968,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       return true;
     });
     
-    // Signature is only mandatory for positive cases, not for negative cases
-    const signatureComplete = isNegative || (signatureFile !== null || signatureUrl !== null);
-    
-    return allFieldsComplete && signatureComplete;
+    return allFieldsComplete;
   };
 
   const handleSubmit = async () => {
@@ -1998,8 +2058,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       const isCompanyNameField = /company_name|business_name|company/.test(field.field_key || '');
       const isCompanyNameReadOnly = isCompanyNameField && !isBusinessContract && caseData; // Read-only if company field exists but not a business contract
       
-      // Field is read-only if it was auto-filled OR if it's a phone field with auto-filled value OR if it's company name in non-business contract
-      const isReadOnly = isAutoFilled || isAutoFilledPhone || isCompanyNameReadOnly;
+      // Check if it's a report check field (should be read-only for both positive and negative cases)
+      const isReportCheckField = /report.*check|reportcheck/i.test(field.field_key || '') || /report.*check|reportcheck/i.test(field.field_title || '');
+      const isReportCheckReadOnly = isReportCheckField; // Read-only for both positive and negative cases
+      
+      // Check if it's an executive name field (should be read-only, auto-filled with gig worker name)
+      const isExecutiveNameField = /executive.*name|field_executive|verified_by|verifier.*name/i.test(field.field_key || '') || 
+                                   /executive.*name|field.*executive|verified.*by|verifier.*name/i.test(field.field_title || '');
+      const isExecutiveNameReadOnly = isExecutiveNameField;
+      
+      // Field is read-only if it was auto-filled OR if it's a phone field with auto-filled value OR if it's company name in non-business contract OR if it's report check field OR if it's executive name field
+      const isReadOnly = isAutoFilled || isAutoFilledPhone || isCompanyNameReadOnly || isReportCheckReadOnly || isExecutiveNameReadOnly;
       const isCoordinateAutoFilled = isAutoFilled && ['latitude_and_longitude', 'lat_lng', 'coordinates', 'location_coordinates'].includes(field.field_key);
       
       // Debug: Log field data for each field
@@ -2023,7 +2092,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label htmlFor={field.field_key}>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
-                {isReadOnly && !isCompanyNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReadOnly && !isCompanyNameReadOnly && !isReportCheckReadOnly && !isExecutiveNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReportCheckReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled: {isNegative ? 'Negative' : 'Positive'})</span>}
+                {isExecutiveNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
                 {isCompanyNameReadOnly && <span className="text-gray-600 ml-2 text-sm">(Not applicable)</span>}
                 {isCoordinateAutoFilled && <span className="text-green-600 ml-2 text-sm">(Auto-filled from GPS)</span>}
               </Label>
@@ -2049,7 +2120,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label htmlFor={field.field_key}>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
-                {isReadOnly && !isCompanyNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReadOnly && !isCompanyNameReadOnly && !isReportCheckReadOnly && !isExecutiveNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReportCheckReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled: {isNegative ? 'Negative' : 'Positive'})</span>}
+                {isExecutiveNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
                 {isCompanyNameReadOnly && <span className="text-gray-600 ml-2 text-sm">(Not applicable)</span>}
                 {isCoordinateAutoFilled && <span className="text-green-600 ml-2 text-sm">(Auto-filled from GPS)</span>}
               </Label>
@@ -2081,7 +2154,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               <Label>
                 {field.field_title}
                 {field.validation_type === 'mandatory' && <span className="text-red-500 ml-1">*</span>}
-                {isReadOnly && !isCompanyNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReadOnly && !isCompanyNameReadOnly && !isReportCheckReadOnly && !isExecutiveNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
+                {isReportCheckReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled: {isNegative ? 'Negative' : 'Positive'})</span>}
+                {isExecutiveNameReadOnly && <span className="text-blue-600 ml-2 text-sm">(Auto-filled)</span>}
                 {isCompanyNameReadOnly && <span className="text-gray-600 ml-2 text-sm">(Not applicable)</span>}
               </Label>
               <RadioGroup
@@ -2392,6 +2467,52 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             </div>
           );
 
+        case 'signature':
+          // Get signature URL from formData (could be string URL or in files)
+          const signatureFieldUrl = typeof fieldData.value === 'string' && fieldData.value 
+            ? fieldData.value 
+            : (fieldData.files && fieldData.files.length > 0 && fieldData.files[0] instanceof File
+                ? null // File not yet uploaded
+                : null);
+          
+          // Check if there's a signature file in the files array
+          const signatureFieldFile = fieldData.files && fieldData.files.length > 0 
+            ? (fieldData.files[0] instanceof File ? fieldData.files[0] : null)
+            : null;
+
+          return (
+            <div key={field.id} className="space-y-2">
+              <SignatureCanvas
+                onSignatureChange={(file) => {
+                  // Update formData with signature file
+                  setFormData(prev => ({
+                    ...prev,
+                    [field.field_key]: file ? { value: '', files: [file] } : { value: '', files: [] }
+                  }));
+                }}
+                onSignatureUploaded={(url) => {
+                  // Update signature URL when auto-saved
+                  setFormData(prev => ({
+                    ...prev,
+                    [field.field_key]: { value: url, files: [] }
+                  }));
+                }}
+                initialSignature={signatureFieldUrl || undefined}
+                disabled={loading}
+                caseId={caseId}
+                templateId={template?.id}
+                submissionId={draftData?.id}
+                fieldKey={field.field_key}
+                fieldTitle={field.field_title}
+                isRequired={field.validation_type === 'mandatory'}
+              />
+              {field.field_config.description && (
+                <p className="text-sm text-gray-600">{field.field_config.description}</p>
+              )}
+              {fieldError && <p className="text-sm text-red-500">{fieldError}</p>}
+            </div>
+          );
+
         default:
           console.warn('Unknown field type:', field.field_type, 'for field:', field.field_key);
           return null;
@@ -2458,38 +2579,6 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       <CardContent className="p-0 flex flex-col h-[70vh]">
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
           {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
-          
-          {/* Signature Canvas - Only show for positive cases, not for negative cases */}
-          {!isNegative && (
-            <div className="border-t pt-6 mt-6">
-              <SignatureCanvas
-                onSignatureChange={(file) => {
-                  setSignatureFile(file);
-                  // Update formData with signature
-                  setFormData(prev => ({
-                    ...prev,
-                    signature_of_person_met: file ? { value: '', files: [file] } : { value: '', files: [] }
-                  }));
-                }}
-                onSignatureUploaded={(url) => {
-                  // Update signature URL when auto-saved
-                  setSignatureUrl(url);
-                  setFormData(prev => ({
-                    ...prev,
-                    signature_of_person_met: { value: url, files: [] }
-                  }));
-                }}
-                initialSignature={signatureUrl || undefined}
-                disabled={loading}
-                caseId={caseId}
-                templateId={template?.id}
-                submissionId={draftData?.id}
-              />
-              {errors['signature_of_person_met'] && (
-                <p className="text-sm text-red-500 mt-1">{errors['signature_of_person_met']}</p>
-              )}
-            </div>
-          )}
         </div>
         
         {/* Sticky Footer */}

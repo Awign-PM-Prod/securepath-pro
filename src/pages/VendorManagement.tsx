@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CreateVendorDialog } from '@/components/VendorManagement/CreateVendorDialog';
+import { EditVendorDialog } from '@/components/VendorManagement/EditVendorDialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { 
@@ -67,6 +68,8 @@ export default function VendorManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -443,7 +446,14 @@ export default function VendorManagement() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => {
+                              setEditingVendor(vendor);
+                              setIsEditDialogOpen(true);
+                            }}
+                          >
                             <Settings className="h-4 w-4" />
                           </Button>
                           <Button 
@@ -631,6 +641,19 @@ export default function VendorManagement() {
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}
         onVendorCreated={loadData}
+      />
+
+      {/* Edit Vendor Dialog */}
+      <EditVendorDialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open);
+          if (!open) {
+            setEditingVendor(null);
+          }
+        }}
+        vendor={editingVendor}
+        onVendorUpdated={loadData}
       />
     </div>
   );

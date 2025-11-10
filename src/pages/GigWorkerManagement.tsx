@@ -335,7 +335,8 @@ export default function GigWorkerManagement() {
 
       // Send SMS OTP for account setup
       const userId = data.user?.id;
-      console.log('📱 Sending OTP to phone:', formData.phone, 'for user:', userId);
+      // SMS sending disabled - no OTP sent on user creation
+      // console.log('📱 Sending OTP to phone:', formData.phone, 'for user:', userId);
       
       if (!userId) {
         console.error('❌ No user_id returned from create-user function');
@@ -350,37 +351,15 @@ export default function GigWorkerManagement() {
         return;
       }
       
-      try {
-        const otpResult = await otpService.sendOTP(
-          formData.phone,
-          'account_setup',
-          formData.email,
-          userId,
-          formData.first_name
-        );
+      // SMS sending code commented out
+      // try {
+      //   const otpResult = await otpService.sendOTP(...);
+      // } catch (otpError) { ... }
 
-        if (otpResult.success) {
-          console.log('✅ OTP sent successfully to:', formData.phone);
-          toast({
-            title: 'Success',
-            description: `${formData.first_name} ${formData.last_name} has been created. SMS OTP sent to ${formData.phone} for account setup.`,
-          });
-        } else {
-          console.warn('❌ OTP send failed:', otpResult.error);
-          toast({
-            title: 'User Created',
-            description: `Gig worker created but SMS failed: ${otpResult.error}. Please resend OTP manually.`,
-            variant: 'destructive',
-          });
-        }
-      } catch (otpError) {
-        console.error('Error sending OTP:', otpError);
-        toast({
-          title: 'User Created',
-          description: 'Gig worker created but failed to send SMS. Please resend OTP manually.',
-          variant: 'destructive',
-        });
-      }
+      toast({
+        title: 'Success',
+        description: `${formData.first_name} ${formData.last_name} has been created successfully.`,
+      });
 
       setIsCreateDialogOpen(false);
       resetForm();

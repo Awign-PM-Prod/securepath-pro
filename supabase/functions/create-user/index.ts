@@ -57,7 +57,18 @@ serve(async (req) => {
       )
     }
 
-    const { email, password, first_name, last_name, phone, role, vendor_data, gig_worker_data } = await req.json()
+    const { email, first_name, last_name, phone, role, vendor_data, gig_worker_data } = await req.json()
+
+    // Validate required fields
+    if (!email || !first_name || !last_name || !phone || !role) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields: email, first_name, last_name, phone, and role are required' }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
 
     // Verify permission to create user with this role
     const canCreate = checkPermissions(currentProfile.role, role)
@@ -71,6 +82,26 @@ serve(async (req) => {
       )
     }
 
+    // Generate a secure random password (user will set their own via OTP)
+    const generateRandomPassword = () => {
+      const length = 16;
+      const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+      let password = '';
+      // Ensure at least one of each required character type
+      password += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]; // uppercase
+      password += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]; // lowercase
+      password += '0123456789'[Math.floor(Math.random() * 10)]; // number
+      password += '!@#$%^&*'[Math.floor(Math.random() * 8)]; // special char
+      // Fill the rest randomly
+      for (let i = password.length; i < length; i++) {
+        password += charset[Math.floor(Math.random() * charset.length)];
+      }
+      // Shuffle the password
+      return password.split('').sort(() => Math.random() - 0.5).join('');
+    }
+
+    const generatedPassword = generateRandomPassword();
+
     // Create admin client for user creation
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -81,7 +112,7 @@ serve(async (req) => {
     // For gig workers, don't confirm email automatically (they'll use SMS OTP instead)
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
-      password,
+      password: generatedPassword,
       email_confirm: role !== 'gig_worker', // Don't send email to gig workers
       user_metadata: {
         first_name,

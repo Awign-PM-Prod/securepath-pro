@@ -29,19 +29,10 @@ import { UserRole, CreateUserData } from '@/types/auth';
 
 const createUserSchema = z.object({
   email: z.string().email('Please enter a valid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
-  phone: z.string().optional(),
+  phone: z.string().min(1, 'Phone number is required'),
   role: z.enum(['super_admin', 'ops_team', 'vendor_team', 'qc_team', 'vendor', 'gig_worker', 'client'] as const),
-}).refine((data) => {
-  if (data.role === 'gig_worker' && !data.phone) {
-    return false;
-  }
-  return true;
-}, {
-  message: 'Phone number is required for gig workers',
-  path: ['phone'],
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
@@ -114,7 +105,6 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
       const { data: result, error } = await supabase.functions.invoke('create-user', {
         body: {
           email: data.email,
-          password: data.password,
           first_name: data.first_name,
           last_name: data.last_name,
           phone: data.phone,
@@ -143,53 +133,12 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
 
       console.log('✅ User created:', { role: data.role, userId: result.user?.id, phone: data.phone });
 
-      // Send SMS OTP for account setup to ALL users (not just gig workers)
-      if (result.user?.id && data.phone) {
-        console.log('📱 Attempting to send OTP to:', data.phone);
-        try {
-          const { data: otpResult, error: otpError } = await supabase.functions.invoke('send-otp', {
-            body: {
-              user_id: result.user.id,
-              phone_number: data.phone,
-              purpose: 'account_setup',
-              email: data.email,
-              first_name: data.first_name
-            }
-          });
+      // SMS sending disabled - no OTP sent on user creation
+      // if (result.user?.id && data.phone) {
+      //   // SMS sending code commented out
+      // }
 
-          if (otpError) {
-            console.warn('❌ Failed to send OTP:', otpError);
-            toast({
-              title: 'SMS Warning',
-              description: 'User created but SMS failed to send.',
-              variant: 'destructive',
-            });
-          } else if (otpResult?.success) {
-            console.log('✅ OTP sent successfully to:', data.phone);
-            toast({
-              title: 'SMS Sent',
-              description: `OTP sent to ${data.phone}. Gig worker can now set up their account.`,
-            });
-          } else {
-            console.warn('❌ OTP send failed:', otpResult?.error);
-            toast({
-              title: 'SMS Warning',
-              description: `User created but SMS failed: ${otpResult?.error}`,
-              variant: 'destructive',
-            });
-          }
-        } catch (error) {
-          console.warn('Could not send OTP:', error);
-          toast({
-            title: 'SMS Warning',
-            description: 'User created but SMS failed to send.',
-            variant: 'destructive',
-          });
-        }
-      }
-
-      // All users now receive OTP for account setup
-      const successMessage = `${data.first_name} ${data.last_name} has been added. They will receive an SMS OTP to login for the first time.`;
+      const successMessage = `${data.first_name} ${data.last_name} has been added successfully.`;
 
       toast({
         title: 'User created successfully',
@@ -266,26 +215,12 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              {...register('password')}
-              className={errors.password ? 'border-destructive' : ''}
-            />
-            {errors.password && (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="phone">
-              Phone {selectedRole === 'gig_worker' && <span className="text-destructive">*</span>}
-              {selectedRole !== 'gig_worker' && <span className="text-muted-foreground">(Optional)</span>}
+              Phone <span className="text-destructive">*</span>
             </Label>
             <Input
               id="phone"
-              placeholder={selectedRole === 'gig_worker' ? 'Required for SMS OTP' : 'Optional'}
+              placeholder="Required for SMS OTP"
               {...register('phone')}
               className={errors.phone ? 'border-destructive' : ''}
             />
