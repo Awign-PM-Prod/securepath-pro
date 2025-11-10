@@ -19,7 +19,6 @@ import { useToast } from '@/hooks/use-toast';
 import { allocationService } from '@/services/allocationService';
 import { allocationSummaryService, AllocationSummaryData } from '@/services/allocationSummaryService';
 import AllocationSummary from '@/components/Allocation/AllocationSummary';
-import CSVManagement from './CSVManagement';
 import BulkCaseUpload from '@/components/BulkCaseUpload';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -171,12 +170,9 @@ export default function CaseListWithAllocation({
   const [allocationType, setAllocationType] = useState<'gig' | 'vendor'>('gig');
   const [isLoadingGigWorkers, setIsLoadingGigWorkers] = useState(false);
   const [isLoadingVendors, setIsLoadingVendors] = useState(false);
-  const [activeTab, setActiveTab] = useState<'cases' | 'csv'>('cases');
   const [qcResponseTab, setQcResponseTab] = useState('all');
   const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
-  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [isDownloading, setIsDownloading] = useState(false);
   const { toast } = useToast();
 
@@ -194,6 +190,19 @@ export default function CaseListWithAllocation({
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab]);
+
+  // Check if any filter is active
+  const hasActiveFilters = useMemo(() => {
+    return (
+      searchTerm.trim() !== '' ||
+      statusFilter !== 'all' ||
+      dateFilter !== null ||
+      tatExpiryFilter !== null ||
+      clientFilter !== 'all' ||
+      tierFilter !== 'all' ||
+      qcResponseTab !== 'all'
+    );
+  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab]);
 
   // Helper function to highlight matching text (handles multiple matches)
   const highlightText = (text: string, searchTerm: string): React.ReactNode => {
@@ -386,18 +395,6 @@ export default function CaseListWithAllocation({
   }, [filteredCases, currentPage, itemsPerPage]);
 
   const { totalPages, startIndex, endIndex, paginatedCases: displayCases } = paginationData;
-
-  // Check if any filter is active (not default)
-  const hasActiveFilters = useMemo(() => {
-    return (
-      statusFilter !== 'all' ||
-      clientFilter !== 'all' ||
-      tierFilter !== 'all' ||
-      dateFilter !== null ||
-      tatExpiryFilter !== null ||
-      searchTerm !== ''
-    );
-  }, [statusFilter, clientFilter, tierFilter, dateFilter, tatExpiryFilter, searchTerm]);
 
   // Clear all filters
   const clearAllFilters = () => {
@@ -883,75 +880,20 @@ export default function CaseListWithAllocation({
     return selectableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
   }, [displayCases, selectedCases]);
 
-  // Download cases metadata by month/year
-  const handleDownloadCasesByMonth = async (month: number, year: number) => {
+  // Download filtered cases metadata
+  const handleDownloadFilteredCases = async () => {
+    if (!hasActiveFilters || filteredCases.length === 0) {
+      toast({
+        title: 'No Cases to Download',
+        description: 'Please apply filters to download cases metadata',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsDownloading(true);
     try {
-      // Calculate start and end dates for the month
-      // month is 1-12, JavaScript months are 0-indexed
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0, 23, 59, 59, 999); // Last day of the month
-      
-      // Fetch cases created in this month
-      const { data: casesData, error } = await supabase
-        .from('cases')
-        .select(`
-          id,
-          case_number,
-          client_case_id,
-          contract_type,
-          candidate_name,
-          phone_primary,
-          phone_secondary,
-          status,
-          vendor_tat_start_date,
-          due_at,
-          base_rate_inr,
-          bonus_inr,
-          penalty_inr,
-          total_payout_inr,
-          tat_hours,
-          created_at,
-          updated_at,
-          created_by,
-          last_updated_by,
-          status_updated_at,
-          metadata,
-          clients!inner (
-            id,
-            name,
-            contact_person,
-            phone,
-            email
-          ),
-          locations!inner (
-            id,
-            address_line,
-            city,
-            state,
-            pincode,
-            pincode_tier,
-            lat,
-            lng,
-            location_url
-          )
-        `)
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      if (!casesData || casesData.length === 0) {
-        toast({
-          title: 'No Cases Found',
-          description: `No cases were created in ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}`,
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      // Convert to CSV
+      // Convert filtered cases to CSV
       const csvRows: string[] = [];
       
       // CSV Header
@@ -987,13 +929,17 @@ export default function CaseListWithAllocation({
         'Created By',
         'Last Updated By',
         'Status Updated At',
-        'Metadata'
+        'QC Response',
+        'Assigned At',
+        'Submitted At',
+        'Current Assignee',
+        'Assignee Type'
       ];
       csvRows.push(headers.join(','));
 
-      // CSV Rows
-      casesData.forEach((caseItem: any) => {
-        const metadataStr = caseItem.metadata ? JSON.stringify(caseItem.metadata).replace(/"/g, '""') : '';
+      // CSV Rows - use filteredCases directly
+      filteredCases.forEach((caseItem) => {
+        const metadataStr = (caseItem as any).metadata ? JSON.stringify((caseItem as any).metadata).replace(/"/g, '""') : '';
         const row = [
           `"${caseItem.case_number || ''}"`,
           `"${caseItem.client_case_id || ''}"`,
@@ -1002,18 +948,18 @@ export default function CaseListWithAllocation({
           `"${caseItem.phone_primary || ''}"`,
           `"${caseItem.phone_secondary || ''}"`,
           `"${caseItem.status || ''}"`,
-          `"${caseItem.clients?.name || ''}"`,
-          `"${caseItem.clients?.email || ''}"`,
-          `"${caseItem.clients?.contact_person || ''}"`,
-          `"${caseItem.clients?.phone || ''}"`,
-          `"${caseItem.locations?.address_line || ''}"`,
-          `"${caseItem.locations?.city || ''}"`,
-          `"${caseItem.locations?.state || ''}"`,
-          `"${caseItem.locations?.pincode || ''}"`,
-          `"${caseItem.locations?.pincode_tier || ''}"`,
-          caseItem.locations?.lat || '',
-          caseItem.locations?.lng || '',
-          `"${caseItem.locations?.location_url || ''}"`,
+          `"${caseItem.client?.name || ''}"`,
+          `"${caseItem.client?.email || ''}"`,
+          `"${caseItem.client?.contact_person || ''}"`,
+          `"${caseItem.client?.phone || ''}"`,
+          `"${caseItem.location?.address_line || ''}"`,
+          `"${caseItem.location?.city || ''}"`,
+          `"${caseItem.location?.state || ''}"`,
+          `"${caseItem.location?.pincode || ''}"`,
+          `"${caseItem.location?.pincode_tier || ''}"`,
+          caseItem.location?.lat || '',
+          caseItem.location?.lng || '',
+          `"${caseItem.location?.location_url || ''}"`,
           `"${caseItem.vendor_tat_start_date || ''}"`,
           `"${caseItem.due_at || ''}"`,
           caseItem.tat_hours || '',
@@ -1026,7 +972,11 @@ export default function CaseListWithAllocation({
           `"${caseItem.created_by || ''}"`,
           `"${caseItem.last_updated_by || ''}"`,
           `"${caseItem.status_updated_at || ''}"`,
-          `"${metadataStr}"`
+          `"${caseItem.QC_Response || ''}"`,
+          `"${caseItem.assigned_at || ''}"`,
+          `"${caseItem.submitted_at || ''}"`,
+          `"${caseItem.current_assignee?.name || ''}"`,
+          `"${caseItem.current_assignee?.type || ''}"`
         ];
         csvRows.push(row.join(','));
       });
@@ -1036,8 +986,8 @@ export default function CaseListWithAllocation({
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
-      link.download = `cases_metadata_${monthName}_${year}.csv`;
+      const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      link.download = `filtered_cases_metadata_${timestamp}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1045,10 +995,8 @@ export default function CaseListWithAllocation({
 
       toast({
         title: 'Download Complete',
-        description: `Downloaded ${casesData.length} case(s) metadata for ${monthName} ${year}`,
+        description: `Downloaded ${filteredCases.length} filtered case(s) metadata`,
       });
-
-      setIsDownloadDialogOpen(false);
     } catch (error) {
       console.error('Failed to download cases:', error);
       toast({
@@ -1060,14 +1008,6 @@ export default function CaseListWithAllocation({
       setIsDownloading(false);
     }
   };
-
-  const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
   
 
@@ -1098,10 +1038,20 @@ export default function CaseListWithAllocation({
             </CardDescription>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setIsDownloadDialogOpen(true)}>
-              <Download className="h-4 w-4 mr-2" />
-              Download Metadata
-            </Button>
+            {hasActiveFilters && (
+              <Button 
+                variant="outline" 
+                onClick={handleDownloadFilteredCases}
+                disabled={isDownloading}
+              >
+                {isDownloading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                Download Filtered Cases
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Bulk Upload
@@ -1114,30 +1064,8 @@ export default function CaseListWithAllocation({
         </div>
       </CardHeader>
       <CardContent>
-        {/* Tab Navigation */}
-        <div className="flex space-x-1 mb-6">
-          <Button
-            variant={activeTab === 'cases' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('cases')}
-            className="flex items-center gap-2"
-          >
-            <Building className="h-4 w-4" />
-            Cases
-          </Button>
-          <Button
-            variant={activeTab === 'csv' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('csv')}
-            className="flex items-center gap-2"
-          >
-            <FileText className="h-4 w-4" />
-            CSV Management
-          </Button>
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === 'cases' && (
-          <>
-            {/* QC Response Tabs */}
+        {/* QC Response Tabs */}
+        <>
             <Tabs value={qcResponseTab} onValueChange={setQcResponseTab} className="w-full mb-6">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="all" className="flex items-center gap-2">
@@ -2142,13 +2070,7 @@ export default function CaseListWithAllocation({
             </DialogFooter>
           </DialogContent>
         </Dialog>
-          </>
-        )}
-
-        {/* CSV Management Tab */}
-        {activeTab === 'csv' && (
-          <CSVManagement onRefresh={onRefresh} />
-        )}
+        </>
 
         {/* Bulk Upload Dialog */}
         <Dialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen}>
@@ -2173,70 +2095,6 @@ export default function CaseListWithAllocation({
           </DialogContent>
         </Dialog>
 
-        {/* Download Metadata Dialog */}
-        <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Download Cases Metadata</DialogTitle>
-              <DialogDescription>
-                Select a month and year to download the metadata of all cases created in that period.
-              </DialogDescription>
-            </DialogHeader>
-            
-            <div className="space-y-4">
-              {/* Year Selector - Top Right */}
-              <div className="flex justify-end">
-                <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {years.map((year) => (
-                      <SelectItem key={year} value={year.toString()}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Month Grid - 4x3 */}
-              <div className="grid grid-cols-4 gap-2">
-                {months.map((month, index) => {
-                  const monthNumber = index + 1;
-                  return (
-                    <Button
-                      key={monthNumber}
-                      variant="outline"
-                      className="h-16 flex flex-col items-center justify-center hover:bg-primary hover:text-primary-foreground"
-                      onClick={() => handleDownloadCasesByMonth(monthNumber, selectedYear)}
-                      disabled={isDownloading}
-                    >
-                      <span className="text-xs font-medium">{month.slice(0, 3)}</span>
-                    </Button>
-                  );
-                })}
-              </div>
-
-              {isDownloading && (
-                <div className="flex items-center justify-center py-2">
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  <span className="text-sm text-muted-foreground">Downloading...</span>
-                </div>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setIsDownloadDialogOpen(false)}
-                disabled={isDownloading}
-              >
-                Cancel
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </CardContent>
     </Card>
   );
