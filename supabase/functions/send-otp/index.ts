@@ -152,12 +152,17 @@ serve(async (req) => {
     console.log('Template variables (in order):', variables);
     console.log('Variables - Name:', displayName, 'OTP:', otpCode);
 
-    // Normalize phone number - ensure it has +91 prefix if it's a 10-digit Indian number
+    // Normalize phone number - AWIGN API expects just 10 digits (no country code)
     let normalizedPhone = phone_number.trim();
-    if (normalizedPhone.length === 10 && /^[6-9]\d{9}$/.test(normalizedPhone)) {
-      normalizedPhone = `+91${normalizedPhone}`;
-    } else if (!normalizedPhone.startsWith('+')) {
-      normalizedPhone = `+91${normalizedPhone.replace(/^91/, '')}`;
+    // Remove +91 or 91 prefix if present
+    normalizedPhone = normalizedPhone.replace(/^\+?91/, '');
+    // Validate it's a 10-digit Indian mobile number
+    if (!/^[6-9]\d{9}$/.test(normalizedPhone)) {
+      console.error('Invalid phone number format:', normalizedPhone);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid Indian mobile number format. Must be 10 digits starting with 6-9.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     console.log('Step 5: Sending SMS');
@@ -179,8 +184,7 @@ serve(async (req) => {
         sms: {
           mobile_number: normalizedPhone,
           template_id: '1107176258859911807',
-          message: template, // Send template WITH placeholders
-          variables: variables, // API will replace {#var#} with these values in order
+          message: template,
           sender_id: 'IAWIGN',
           channel: 'telspiel',
         },
@@ -196,7 +200,6 @@ serve(async (req) => {
       mobile_number: normalizedPhone,
       template_id: '1107176258859911807',
       message: template,
-      variables: variables,
       sender_id: 'IAWIGN',
       channel: 'telspiel',
     };
