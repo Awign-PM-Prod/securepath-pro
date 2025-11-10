@@ -139,17 +139,19 @@ serve(async (req) => {
       );
     }
 
-    // Build SMS message for login using template format
+    // Build SMS message for login - replace placeholders with actual values
     console.log('Step 4: Building SMS message');
     const displayName = userName || 'User';
-    // Template with placeholders (DON'T replace them - API will do it)
     const template = `Hi {#var#}\nYour OTP to login to the BGV Portal is {#var#}\n\nRegards -Awign`;
     
-    // Create variables array - order matters! First {#var#} = displayName, second {#var#} = otpCode
+    // Replace {#var#} placeholders with actual values in order
     const variables = [displayName, otpCode];
+    let varIndex = 0;
+    const finalMessage = template.replace(/{#var#}/g, () => variables[varIndex++] || '');
     
     console.log('SMS message template:', template);
     console.log('Template variables (in order):', variables);
+    console.log('Final message with substituted values:', finalMessage);
     console.log('Variables - Name:', displayName, 'OTP:', otpCode);
 
     // Normalize phone number - AWIGN API expects just 10 digits (no country code)
@@ -169,7 +171,7 @@ serve(async (req) => {
     console.log(`Sending SMS to normalized phone: ${normalizedPhone} (original: ${phone_number})`);
     console.log('SMS API URL: https://core-api.awign.com/api/v1/sms/to_number');
     console.log('Template ID: 1107176258859911807');
-    console.log('Template variables:', variables);
+    console.log('Message to send:', finalMessage);
 
     const smsResponse = await fetch('https://core-api.awign.com/api/v1/sms/to_number', {
       method: 'POST',
@@ -184,7 +186,7 @@ serve(async (req) => {
         sms: {
           mobile_number: normalizedPhone,
           template_id: '1107176258859911807',
-          message: template,
+          message: finalMessage, // Send fully-formed message with values already substituted
           sender_id: 'IAWIGN',
           channel: 'telspiel',
         },
@@ -199,7 +201,7 @@ serve(async (req) => {
     const requestBody = {
       mobile_number: normalizedPhone,
       template_id: '1107176258859911807',
-      message: template,
+      message: finalMessage,
       sender_id: 'IAWIGN',
       channel: 'telspiel',
     };
@@ -228,7 +230,7 @@ serve(async (req) => {
             response_text: responseText,
             response_data: responseData,
             phone: normalizedPhone,
-            message_sent: message,
+            message_sent: finalMessage,
             request_body: requestBody,
             parse_error: parseError
           }
@@ -254,7 +256,7 @@ serve(async (req) => {
               http_status: smsResponse.status,
               response_data: responseData,
               phone: normalizedPhone,
-              message_sent: message,
+              message_sent: finalMessage,
               request_body: requestBody
             }
           }),
@@ -284,8 +286,6 @@ serve(async (req) => {
     console.log(`OTP sent successfully to ${normalizedPhone} for login`);
 
     // Build comprehensive debug info
-    let varIndex = 0;
-    const finalMessage = template.replace(/{#var#}/g, () => variables[varIndex++] || '');
     const debugInfo = {
       phone: normalizedPhone,
       template: template,
