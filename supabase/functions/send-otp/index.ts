@@ -281,12 +281,14 @@ serve(async (req) => {
     console.log(`OTP sent successfully to ${normalizedPhone} for login`);
 
     // Build comprehensive debug info
+    let varIndex = 0;
+    const finalMessage = template.replace(/{#var#}/g, () => variables[varIndex++] || '');
     const debugInfo = {
       phone: normalizedPhone,
       template: template,
       variables: variables,
-      final_message: template.replace(/{#var#}/g, () => variables.shift() || ''),
-      message_length: template.replace(/{#var#}/g, () => variables.shift() || '').length,
+      final_message: finalMessage,
+      message_length: finalMessage.length,
       otp_code: otpCode,
       user_name: displayName,
       sms_response: responseData || responseText,
