@@ -880,12 +880,17 @@ export default function CaseListWithAllocation({
     return selectableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
   }, [displayCases, selectedCases]);
 
-  // Download filtered cases metadata
+  // Download cases metadata (all cases or filtered cases)
   const handleDownloadFilteredCases = async () => {
-    if (!hasActiveFilters || filteredCases.length === 0) {
+    // Determine which cases to download: filtered if filters are active, otherwise all cases
+    const casesToDownload = hasActiveFilters ? filteredCases : cases;
+    
+    if (casesToDownload.length === 0) {
       toast({
         title: 'No Cases to Download',
-        description: 'Please apply filters to download cases metadata',
+        description: hasActiveFilters 
+          ? 'No cases match the applied filters'
+          : 'There are no cases available to download',
         variant: 'destructive',
       });
       return;
@@ -893,7 +898,7 @@ export default function CaseListWithAllocation({
 
     setIsDownloading(true);
     try {
-      // Convert filtered cases to CSV
+      // Convert cases to CSV
       const csvRows: string[] = [];
       
       // CSV Header
@@ -937,8 +942,8 @@ export default function CaseListWithAllocation({
       ];
       csvRows.push(headers.join(','));
 
-      // CSV Rows - use filteredCases directly
-      filteredCases.forEach((caseItem) => {
+      // CSV Rows - use casesToDownload
+      casesToDownload.forEach((caseItem) => {
         const metadataStr = (caseItem as any).metadata ? JSON.stringify((caseItem as any).metadata).replace(/"/g, '""') : '';
         const row = [
           `"${caseItem.case_number || ''}"`,
@@ -987,7 +992,10 @@ export default function CaseListWithAllocation({
       const link = document.createElement('a');
       link.href = url;
       const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      link.download = `filtered_cases_metadata_${timestamp}.csv`;
+      const filename = hasActiveFilters 
+        ? `filtered_cases_metadata_${timestamp}.csv`
+        : `all_cases_metadata_${timestamp}.csv`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -995,7 +1003,9 @@ export default function CaseListWithAllocation({
 
       toast({
         title: 'Download Complete',
-        description: `Downloaded ${filteredCases.length} filtered case(s) metadata`,
+        description: hasActiveFilters
+          ? `Downloaded ${casesToDownload.length} filtered case(s) metadata`
+          : `Downloaded ${casesToDownload.length} case(s) metadata`,
       });
     } catch (error) {
       console.error('Failed to download cases:', error);
@@ -1038,20 +1048,18 @@ export default function CaseListWithAllocation({
             </CardDescription>
           </div>
           <div className="flex gap-2">
-            {hasActiveFilters && (
-              <Button 
-                variant="outline" 
-                onClick={handleDownloadFilteredCases}
-                disabled={isDownloading}
-              >
-                {isDownloading ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-2" />
-                )}
-                Download Filtered Cases
-              </Button>
-            )}
+            <Button 
+              variant="outline" 
+              onClick={handleDownloadFilteredCases}
+              disabled={isDownloading}
+            >
+              {isDownloading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {hasActiveFilters ? 'Download Filtered Cases' : 'Download Cases'}
+            </Button>
             <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Bulk Upload

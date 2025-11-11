@@ -132,6 +132,10 @@ export default function Reports() {
   // Filter states
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [submissionStartDate, setSubmissionStartDate] = useState<string>('');
+  const [submissionEndDate, setSubmissionEndDate] = useState<string>('');
+  const [approvalStartDate, setApprovalStartDate] = useState<string>('');
+  const [approvalEndDate, setApprovalEndDate] = useState<string>('');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   
   // Options for filters
@@ -372,7 +376,7 @@ export default function Reports() {
     // Search filter - now searches all metadata
     const matchesSearch = caseMatchesSearch(caseItem, searchTerm);
 
-    // Date range filter
+    // Creation date range filter
     let matchesDateRange = true;
     if (startDate || endDate) {
       const caseDate = new Date(caseItem.created_at);
@@ -391,19 +395,71 @@ export default function Reports() {
       }
     }
 
+    // Submission date range filter
+    let matchesSubmissionDateRange = true;
+    if (submissionStartDate || submissionEndDate) {
+      if (!caseItem.submitted_at) {
+        matchesSubmissionDateRange = false;
+      } else {
+        const submissionDate = new Date(caseItem.submitted_at);
+        submissionDate.setHours(0, 0, 0, 0);
+        
+        if (submissionStartDate) {
+          const start = new Date(submissionStartDate);
+          start.setHours(0, 0, 0, 0);
+          if (submissionDate < start) matchesSubmissionDateRange = false;
+        }
+        
+        if (submissionEndDate && matchesSubmissionDateRange) {
+          const end = new Date(submissionEndDate);
+          end.setHours(23, 59, 59, 999);
+          if (submissionDate > end) matchesSubmissionDateRange = false;
+        }
+      }
+    }
+
+    // Approval date range filter (for QC Approved cases)
+    let matchesApprovalDateRange = true;
+    if (approvalStartDate || approvalEndDate) {
+      // Only filter by approval date if case is approved (QC_Response === 'Approved' or status === 'qc_passed')
+      const isApproved = caseItem.QC_Response === 'Approved' || caseItem.status === 'qc_passed';
+      if (!isApproved || !caseItem.status_updated_at) {
+        matchesApprovalDateRange = false;
+      } else {
+        const approvalDate = new Date(caseItem.status_updated_at);
+        approvalDate.setHours(0, 0, 0, 0);
+        
+        if (approvalStartDate) {
+          const start = new Date(approvalStartDate);
+          start.setHours(0, 0, 0, 0);
+          if (approvalDate < start) matchesApprovalDateRange = false;
+        }
+        
+        if (approvalEndDate && matchesApprovalDateRange) {
+          const end = new Date(approvalEndDate);
+          end.setHours(23, 59, 59, 999);
+          if (approvalDate > end) matchesApprovalDateRange = false;
+        }
+      }
+    }
+
     // Client filter
     const matchesClient = selectedClient === 'all' || caseItem.client.id === selectedClient;
 
-    return matchesSearch && matchesDateRange && matchesClient;
+    return matchesSearch && matchesDateRange && matchesSubmissionDateRange && matchesApprovalDateRange && matchesClient;
   });
 
   const clearFilters = () => {
     setStartDate('');
     setEndDate('');
+    setSubmissionStartDate('');
+    setSubmissionEndDate('');
+    setApprovalStartDate('');
+    setApprovalEndDate('');
     setSelectedClient('all');
   };
 
-  const hasActiveFilters = startDate || endDate || selectedClient !== 'all';
+  const hasActiveFilters = startDate || endDate || submissionStartDate || submissionEndDate || approvalStartDate || approvalEndDate || selectedClient !== 'all';
 
   // Get today's date in YYYY-MM-DD format for max date validation
   const getTodayString = () => {
@@ -435,6 +491,58 @@ export default function Reports() {
       return;
     }
     setEndDate(value);
+  };
+
+  const handleSubmissionStartDateChange = (value: string) => {
+    setSubmissionStartDate(value);
+    // If end date is before new start date, clear it
+    if (submissionEndDate && value && submissionEndDate < value) {
+      setSubmissionEndDate('');
+      toast({
+        title: 'Date Range Updated',
+        description: 'Submission end date has been cleared because it was before the start date',
+        variant: 'default',
+      });
+    }
+  };
+
+  const handleSubmissionEndDateChange = (value: string) => {
+    // Validate that end date is not before start date
+    if (submissionStartDate && value && value < submissionStartDate) {
+      toast({
+        title: 'Invalid Date',
+        description: 'Submission end date cannot be before start date',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setSubmissionEndDate(value);
+  };
+
+  const handleApprovalStartDateChange = (value: string) => {
+    setApprovalStartDate(value);
+    // If end date is before new start date, clear it
+    if (approvalEndDate && value && approvalEndDate < value) {
+      setApprovalEndDate('');
+      toast({
+        title: 'Date Range Updated',
+        description: 'Approval end date has been cleared because it was before the start date',
+        variant: 'default',
+      });
+    }
+  };
+
+  const handleApprovalEndDateChange = (value: string) => {
+    // Validate that end date is not before start date
+    if (approvalStartDate && value && value < approvalStartDate) {
+      toast({
+        title: 'Invalid Date',
+        description: 'Approval end date cannot be before start date',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setApprovalEndDate(value);
   };
 
   // Bulk download handlers
@@ -1170,9 +1278,9 @@ export default function Reports() {
 
             {/* Filter Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Date Range - Start Date */}
+              {/* Creation Date Range - Start Date */}
               <div className="space-y-2">
-                <Label htmlFor="start-date">Start Date</Label>
+                <Label htmlFor="start-date">Creation Start Date</Label>
                 <Input
                   id="start-date"
                   type="date"
@@ -1182,9 +1290,9 @@ export default function Reports() {
                 />
               </div>
 
-              {/* Date Range - End Date */}
+              {/* Creation Date Range - End Date */}
               <div className="space-y-2">
-                <Label htmlFor="end-date">End Date</Label>
+                <Label htmlFor="end-date">Creation End Date</Label>
                 <Input
                   id="end-date"
                   type="date"
@@ -1226,6 +1334,59 @@ export default function Reports() {
                     Clear Filters
                   </Button>
                 )}
+              </div>
+            </div>
+
+            {/* Second Filter Row - Submission and Approval Date Ranges */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Submission Date Range - Start Date */}
+              <div className="space-y-2">
+                <Label htmlFor="submission-start-date">Submission Start Date</Label>
+                <Input
+                  id="submission-start-date"
+                  type="date"
+                  value={submissionStartDate}
+                  onChange={(e) => handleSubmissionStartDateChange(e.target.value)}
+                  max={getTodayString()}
+                />
+              </div>
+
+              {/* Submission Date Range - End Date */}
+              <div className="space-y-2">
+                <Label htmlFor="submission-end-date">Submission End Date</Label>
+                <Input
+                  id="submission-end-date"
+                  type="date"
+                  value={submissionEndDate}
+                  onChange={(e) => handleSubmissionEndDateChange(e.target.value)}
+                  min={submissionStartDate || undefined}
+                  max={getTodayString()}
+                />
+              </div>
+
+              {/* Approval Date Range - Start Date */}
+              <div className="space-y-2">
+                <Label htmlFor="approval-start-date">Approval Start Date</Label>
+                <Input
+                  id="approval-start-date"
+                  type="date"
+                  value={approvalStartDate}
+                  onChange={(e) => handleApprovalStartDateChange(e.target.value)}
+                  max={getTodayString()}
+                />
+              </div>
+
+              {/* Approval Date Range - End Date */}
+              <div className="space-y-2">
+                <Label htmlFor="approval-end-date">Approval End Date</Label>
+                <Input
+                  id="approval-end-date"
+                  type="date"
+                  value={approvalEndDate}
+                  onChange={(e) => handleApprovalEndDateChange(e.target.value)}
+                  min={approvalStartDate || undefined}
+                  max={getTodayString()}
+                />
               </div>
             </div>
           </div>
