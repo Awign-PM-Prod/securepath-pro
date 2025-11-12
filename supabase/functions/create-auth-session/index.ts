@@ -56,6 +56,62 @@ serve(async (req) => {
 
     console.log('Step 1: Verifying OTP for phone:', phone_number);
 
+    // Check if this is user's first login by checking if they have any previously verified OTP
+    // IMPORTANT: Do this BEFORE marking current OTP as verified
+    // IMPORTANT: Only count OTPs that have verified_at set (actually used)
+    // OTPs marked as verified by resend-otp (to invalidate) don't have verified_at, so ignore those
+    // If they have a verified OTP with verified_at for this phone number, they've logged in before
+    // If no verified OTP with verified_at exists, this is their first login - show password setup
+    let isFirstLogin = true;
+    try {
+      console.log('🔍 Checking for previously verified OTPs for phone:', phone_number);
+      console.log('🔍 Query will only count OTPs with is_verified=true AND verified_at IS NOT NULL');
+      
+      // Query for verified OTPs that were actually used (have verified_at set)
+      // IMPORTANT: Use .not('verified_at', 'is', null) to exclude OTPs invalidated by resend-otp
+      // OTPs marked as verified by resend-otp have is_verified=true but verified_at=null
+      const { data: previousVerifiedOTPs, error: otpCheckError } = await supabase
+        .from('otp_tokens')
+        .select('id, verified_at, created_at, is_verified')
+        .eq('phone_number', phone_number)
+        .eq('purpose', 'login')
+        .eq('is_verified', true)
+        .not('verified_at', 'is', null) // CRITICAL: Only count OTPs that were actually used
+        .order('verified_at', { ascending: false })
+        .limit(1); // We only need to know if at least one exists
+      
+      console.log('🔍 Previous verified OTPs query result:', {
+        error: otpCheckError,
+        count: previousVerifiedOTPs?.length || 0,
+        data: previousVerifiedOTPs?.[0] || null,
+        phone_number: phone_number
+      });
+      
+      if (otpCheckError) {
+        console.error('❌ Error checking previous OTPs:', otpCheckError);
+        // On error, assume first login to be safe
+        isFirstLogin = true;
+        console.log('⚠️ Error occurred, defaulting to first login (safe default)');
+      } else if (previousVerifiedOTPs && previousVerifiedOTPs.length > 0) {
+        // User has previously verified an OTP (with verified_at), so they've logged in before
+        isFirstLogin = false;
+        console.log('✅ User has previously logged in (found verified OTP with verified_at)');
+        console.log('   Last verified OTP ID:', previousVerifiedOTPs[0].id);
+        console.log('   Last verified at:', previousVerifiedOTPs[0].verified_at);
+      } else {
+        // No previously verified OTP with verified_at found - this is first login
+        isFirstLogin = true;
+        console.log('🆕 First time login detected (no previously verified OTP with verified_at)');
+        console.log('   This means: No OTP with is_verified=true AND verified_at IS NOT NULL exists for this phone');
+      }
+    } catch (e) {
+      // If we can't check, assume first login to be safe (will prompt for password setup)
+      console.error('❌ Exception checking previous OTP status, assuming first login:', e);
+      isFirstLogin = true;
+    }
+    
+    console.log(`📊 First login determination: ${isFirstLogin ? 'YES (first login)' : 'NO (returning user)'}`);
+
     // Verify the OTP from our custom otp_tokens table
     const { data: otpToken, error: otpError } = await supabase
       .from('otp_tokens')
@@ -280,27 +336,51 @@ serve(async (req) => {
     }
 
     console.log('Step 9: Returning session tokens to client');
+    console.log(`📤 Returning is_first_login: ${isFirstLogin} (type: ${typeof isFirstLogin})`);
+    console.log(`📤 ${isFirstLogin ? 'SHOW PASSWORD SETUP' : 'DIRECT LOGIN'}`);
 
     // Return the tokens directly - the client will handle setting the session
     // Calculate expiry (default to 1 hour from now)
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
     
+    // Ensure isFirstLogin is explicitly a boolean
+    const isFirstLoginBool = Boolean(isFirstLogin);
+    
+    const responseData = { 
+      success: true, 
+      message: 'Login successful',
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_at: expiresAt,
+      expires_in: 3600,
+      is_first_login: isFirstLoginBool, // Explicitly ensure it's a boolean
+      user: {
+        id: profile.user_id,
+        email: user.email || profile.email,
+        phone: phone_number,
+        role: profile.role,
+        first_name: profile.first_name,
+      },
+    };
+    
+    console.log('📤 Response data (without tokens):', {
+      success: responseData.success,
+      is_first_login: responseData.is_first_login,
+      is_first_login_type: typeof responseData.is_first_login,
+      user_id: responseData.user.id,
+      user_role: responseData.user.role,
+      phone: phone_number
+    });
+    
+    // Double-check the value before sending
+    if (responseData.is_first_login !== true && responseData.is_first_login !== false) {
+      console.error('⚠️ WARNING: is_first_login is not a boolean! Value:', responseData.is_first_login);
+      // Force it to be true if it's not a proper boolean (safe default)
+      responseData.is_first_login = true;
+    }
+    
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: 'Login successful',
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
-        expires_in: 3600,
-        user: {
-          id: profile.user_id,
-          email: user.email || profile.email,
-          phone: phone_number,
-          role: profile.role,
-          first_name: profile.first_name,
-        },
-      }),
+      JSON.stringify(responseData),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

@@ -166,17 +166,47 @@ export default function Login() {
       }
 
       // Set the session using the tokens from the Edge Function
-      const { error: sessionError } = await supabase.auth.setSession({
+      console.log('🔐 Setting session with tokens...');
+      const { error: sessionError, data: sessionData } = await supabase.auth.setSession({
         access_token: data.access_token,
         refresh_token: data.refresh_token
       });
 
-      if (sessionError) {
-        console.error('Set session error:', sessionError);
+      if (sessionError || !sessionData.session) {
+        console.error('❌ Set session error:', sessionError);
         setError('Failed to establish session');
         setIsLoading(false);
         return;
       }
+
+      console.log('✅ Session set, verifying persistence...');
+      console.log('📅 Session expires at:', new Date(sessionData.session.expires_at! * 1000).toLocaleString());
+
+      // Wait a brief moment for localStorage to be updated
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Verify session is persisted by checking it again
+      const { data: { session: verifiedSession }, error: verifyError } = await supabase.auth.getSession();
+      
+      if (verifyError) {
+        console.error('❌ Error verifying session:', verifyError);
+        setError('Failed to verify session. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+      
+      if (!verifiedSession) {
+        console.error('❌ Session not persisted after setSession');
+        // Check localStorage directly
+        const storageKeys = Object.keys(localStorage).filter(key => key.includes('supabase') || key.includes('sb-'));
+        console.log('📦 localStorage keys:', storageKeys);
+        setError('Session not established. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('✅ Session successfully established and persisted');
+      console.log('✅ Verified session user ID:', verifiedSession.user.id);
 
       setShowOTP(false);
       setIsLoading(false);

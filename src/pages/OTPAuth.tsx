@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -32,7 +32,7 @@ type EmailForm = z.infer<typeof emailSchema>;
 export default function OTPAuth() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { signIn } = useAuth();
+  const { signIn, user, loading: authLoading } = useAuth();
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -43,6 +43,25 @@ export default function OTPAuth() {
   const [canResend, setCanResend] = useState(false);
   const [resendTimer, setResendTimer] = useState(30);
   const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
+  
+  // Track if we're currently processing OTP verification to prevent race condition
+  const isProcessingOTP = useRef(false);
+  const pendingFirstLoginRedirect = useRef(false);
+
+  // Redirect if already logged in (but skip if we're processing OTP verification)
+  useEffect(() => {
+    // Don't redirect if we're currently processing OTP verification
+    if (isProcessingOTP.current || pendingFirstLoginRedirect.current) {
+      console.log('⏸️ Skipping auto-redirect - OTP verification in progress');
+      return;
+    }
+    
+    if (!authLoading && user) {
+      const redirectPath = getRoleRedirectPath(user.profile.role);
+      console.log('🔄 Redirecting authenticated user to:', redirectPath);
+      navigate(redirectPath, { replace: true });
+    }
+  }, [user, authLoading, navigate]);
 
   const phoneForm = useForm<PhoneForm>({
     resolver: zodResolver(phoneSchema),
@@ -146,6 +165,7 @@ export default function OTPAuth() {
 
     setIsLoading(true);
     setError('');
+    isProcessingOTP.current = true; // Mark that we're processing OTP
 
     try {
       // Create Supabase session - this function handles OTP verification and session creation
@@ -176,6 +196,7 @@ export default function OTPAuth() {
       } catch (e) {
         setError('Server returned invalid response. Please try again.');
         setIsLoading(false);
+        isProcessingOTP.current = false;
         return;
       }
 
@@ -183,6 +204,7 @@ export default function OTPAuth() {
         const errorMessage = sessionData?.error || sessionData?.message || `Server error (${response.status})`;
         setError(errorMessage);
         setIsLoading(false);
+        isProcessingOTP.current = false;
         return;
       }
 
@@ -190,8 +212,13 @@ export default function OTPAuth() {
         const errorMessage = sessionData?.error || 'Invalid or expired OTP. Please try again.';
         setError(errorMessage);
         setIsLoading(false);
+        isProcessingOTP.current = false;
         return;
       }
+
+      // Store is_first_login from response for later use
+      const isFirstLogin = sessionData?.is_first_login === true;
+      console.log('📥 Received is_first_login from server:', sessionData?.is_first_login, '→ parsed as:', isFirstLogin);
 
       // Get user profile with role for redirect
       const { data: profile, error: profileError } = await supabase
@@ -204,65 +231,85 @@ export default function OTPAuth() {
       if (profileError || !profile) {
         setError('Failed to load user profile');
         setIsLoading(false);
+        isProcessingOTP.current = false;
         return;
       }
 
       // Set the session in Supabase client
+      console.log('🔐 Setting session with tokens...');
       const { data: authData, error: setSessionError } = await supabase.auth.setSession({
         access_token: sessionData.access_token,
         refresh_token: sessionData.refresh_token
       });
+      
+      // Store is_first_login in the session data for later reference
+      if (authData?.session) {
+        (authData.session as any).is_first_login = isFirstLogin;
+      }
 
       if (setSessionError || !authData.session) {
-        console.error('Set session error:', setSessionError);
+        console.error('❌ Set session error:', setSessionError);
         setError('Failed to establish session. Please try again.');
         setIsLoading(false);
+        isProcessingOTP.current = false;
         return;
       }
 
-      // Wait for auth state to update
-      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('✅ Session set, verifying persistence...');
+      console.log('📅 Session expires at:', new Date(authData.session.expires_at! * 1000).toLocaleString());
 
-      // Verify session is active
-      const { data: { session } } = await supabase.auth.getSession();
+      // Wait a brief moment for localStorage to be updated
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Verify session is persisted by checking it again
+      const { data: { session }, error: verifyError } = await supabase.auth.getSession();
+      
+      if (verifyError) {
+        console.error('❌ Error verifying session:', verifyError);
+        setError('Failed to verify session. Please try again.');
+        setIsLoading(false);
+        isProcessingOTP.current = false;
+        return;
+      }
       
       if (!session) {
+        console.error('❌ Session not persisted after setSession');
+        // Check localStorage directly
+        const storageKeys = Object.keys(localStorage).filter(key => key.includes('supabase') || key.includes('sb-'));
+        console.log('📦 localStorage keys:', storageKeys);
         setError('Session not established. Please try again.');
         setIsLoading(false);
+        isProcessingOTP.current = false;
         return;
       }
 
-      // Check if this is likely the user's first login
-      // We'll check if the account was created recently (within last 48 hours)
-      // New users created by admin/ops should set their password on first login
-      const accountCreatedAt = new Date(profile.created_at);
-      const hoursSinceCreation = (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60);
-      const isNewAccount = hoursSinceCreation < 48; // Account created within last 48 hours
+      console.log('✅ Session verified and persisted successfully');
+      console.log('✅ Verified session user ID:', session.user.id);
 
-      // Also check if last_sign_in_at is null or very close to created_at (first login)
-      const userCreatedAt = session.user.created_at ? new Date(session.user.created_at) : null;
-      const lastSignInAt = session.user.last_sign_in_at ? new Date(session.user.last_sign_in_at) : null;
-      
-      let isFirstLogin = false;
-      if (!lastSignInAt) {
-        // Never logged in before (this shouldn't happen after session is set, but check anyway)
-        isFirstLogin = true;
-      } else if (userCreatedAt && lastSignInAt) {
-        // Check if last_sign_in_at is very close to created_at (within 10 minutes)
-        // This indicates the account was just created and this might be first login
-        const timeDiff = Math.abs(lastSignInAt.getTime() - userCreatedAt.getTime());
-        isFirstLogin = timeDiff < 10 * 60 * 1000; // Within 10 minutes
-      }
-
-      // If it's a new account (created within 48 hours) or first login, redirect to password setup
-      if (isNewAccount || isFirstLogin) {
+      // Only redirect to password setup if this is user's first login
+      // isFirstLogin was already declared earlier from sessionData
+      console.log('🔀 Checking redirect logic - isFirstLogin:', isFirstLogin);
+      if (isFirstLogin) {
+        console.log('➡️ Redirecting to password setup (first login)');
+        // Set flag to prevent auto-redirect from overriding this
+        pendingFirstLoginRedirect.current = true;
         toast({
           title: 'Welcome!',
           description: `Welcome, ${profile.first_name}! Please set your password for future logins.`,
         });
-        navigate('/setup-password', { replace: true });
+        // Use setTimeout to ensure navigation happens after state updates
+        setTimeout(() => {
+          navigate('/setup-password', { replace: true });
+          // Clear the flag after a delay to allow navigation to complete
+          setTimeout(() => {
+            isProcessingOTP.current = false;
+            pendingFirstLoginRedirect.current = false;
+          }, 1000);
+        }, 100);
         return;
       }
+      
+      console.log('➡️ Redirecting to dashboard (returning user)');
 
       toast({
         title: 'Success',
@@ -271,13 +318,20 @@ export default function OTPAuth() {
 
       // Redirect based on role
       const redirectPath = getRoleRedirectPath(profile.role as UserRole);
+      // Clear processing flag before navigation
+      isProcessingOTP.current = false;
       navigate(redirectPath, { replace: true });
 
     } catch (err: any) {
       setError('An unexpected error occurred. Please try again.');
       console.error('OTP verification error:', err);
+      // Clear processing flags on error
+      isProcessingOTP.current = false;
+      pendingFirstLoginRedirect.current = false;
     } finally {
       setIsLoading(false);
+      // Note: Don't clear isProcessingOTP here if we're redirecting to password setup
+      // It will be cleared after the redirect completes
     }
   };
 
@@ -404,6 +458,18 @@ export default function OTPAuth() {
     setStep('phone');
     emailForm.reset();
   };
+
+  // Show loading screen while auth is initializing
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
