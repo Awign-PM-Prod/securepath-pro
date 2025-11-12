@@ -10,7 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Edit, Trash2 } from 'lucide-react';
+import { Plus, Edit, Trash2, UserX, Ban } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { UserProfile, UserRole } from '@/types/auth';
@@ -52,25 +52,84 @@ export function UserList() {
     }
   };
 
-  const handleToggleStatus = async (userId: string, currentStatus: boolean) => {
+  const handleToggleStatus = async (userProfile: UserProfile) => {
+    const action = userProfile.is_active ? 'deactivate' : 'activate';
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action} ${userProfile.first_name} ${userProfile.last_name}?`
+    );
+    
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ is_active: !currentStatus })
-        .eq('id', userId);
+        .update({ is_active: !userProfile.is_active })
+        .eq('id', userProfile.id);
 
       if (error) throw error;
       
       await fetchUsers();
       toast({
         title: 'Success',
-        description: `User ${!currentStatus ? 'activated' : 'deactivated'} successfully`,
+        description: `User ${action}d successfully`,
       });
     } catch (error) {
       console.error('Error updating user status:', error);
       toast({
         title: 'Error',
         description: 'Failed to update user status',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteUser = async (userProfile: UserProfile) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to PERMANENTLY DELETE ${userProfile.first_name} ${userProfile.last_name}?\n\nThis action cannot be undone and will:\n- Delete the user's authentication account\n- Delete the user's profile\n- Remove all associated data`
+    );
+    
+    if (!confirmed) return;
+
+    try {
+      // First, delete the auth user using the edge function
+      if (userProfile.user_id) {
+        const { data: deleteResult, error: deleteUserError } = await supabase.functions.invoke('delete-user', {
+          body: {
+            user_id: userProfile.user_id
+          }
+        });
+
+        if (deleteUserError) {
+          throw new Error(`Failed to delete auth user: ${deleteUserError.message}`);
+        }
+
+        if (deleteResult?.error) {
+          throw new Error(deleteResult.error);
+        }
+      }
+
+      // Then delete the profile record
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', userProfile.id);
+
+      if (profileError) {
+        // If profile deletion fails but auth user was deleted, log warning
+        console.warn('Auth user deleted but profile deletion failed:', profileError);
+        throw new Error('User authentication account deleted but failed to delete profile');
+      }
+      
+      await fetchUsers();
+      toast({
+        title: 'Success',
+        description: 'User permanently deleted from the system',
+      });
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to delete user',
         variant: 'destructive',
       });
     }
@@ -190,14 +249,23 @@ export function UserList() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleToggleStatus(userProfile.id, userProfile.is_active)}
+                            onClick={() => handleToggleStatus(userProfile)}
                             title={userProfile.is_active ? 'Deactivate user' : 'Activate user'}
                           >
                             {userProfile.is_active ? (
-                              <Trash2 className="h-4 w-4" />
+                              <Ban className="h-4 w-4" />
                             ) : (
-                              'Activate'
+                              <UserX className="h-4 w-4" />
                             )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteUser(userProfile)}
+                            title="Permanently delete user"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </>
                       )}

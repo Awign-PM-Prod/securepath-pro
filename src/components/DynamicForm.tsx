@@ -35,6 +35,7 @@ interface DynamicFormProps {
   caseData?: {
     id: string;
     case_number: string;
+    client_case_id?: string;
     candidate_name: string;
     phone_primary: string;
     location: {
@@ -588,9 +589,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         // Define the mapping of case data to form fields
         // For negative cases, use restricted list; for positive cases, use full list
         const autoFillMappings: Record<string, string | undefined> = {
-          // Case ID (always)
-          'case_id': caseData.case_number,
-          'lead_id': caseData.case_number,
+          // Case ID (always) - use client_case_id if available, otherwise fallback to case_number
+          'case_id': caseData.client_case_id || caseData.case_number,
+          'lead_id': caseData.client_case_id || caseData.case_number,
+          'applicant_id': caseData.client_case_id || caseData.case_number,
           
           // Applicant name (always)
           'applicant_name': caseData.candidate_name,

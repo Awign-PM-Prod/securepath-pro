@@ -224,16 +224,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: `Failed to send OTP SMS: HTTP ${smsResponse.status}`,
-          debug: {
-            http_status: smsResponse.status,
-            response_text: responseText,
-            response_data: responseData,
-            phone: normalizedPhone,
-            message_sent: finalMessage,
-            request_body: requestBody,
-            parse_error: parseError
-          }
+          error: `Failed to send OTP SMS: HTTP ${smsResponse.status}`
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -251,14 +242,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({ 
             success: false, 
-            error: responseData.message || responseData.error || 'Failed to send OTP SMS',
-            debug: {
-              http_status: smsResponse.status,
-              response_data: responseData,
-              phone: normalizedPhone,
-              message_sent: finalMessage,
-              request_body: requestBody
-            }
+            error: responseData.message || responseData.error || 'Failed to send OTP SMS'
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -285,51 +269,16 @@ serve(async (req) => {
 
     console.log(`OTP sent successfully to ${normalizedPhone} for login`);
 
-    // Build comprehensive debug info
-    const debugInfo = {
-      phone: normalizedPhone,
-      template: template,
-      variables: variables,
-      final_message: finalMessage,
-      message_length: finalMessage.length,
-      otp_code: otpCode,
-      user_name: displayName,
-      sms_response: responseData || responseText,
-      http_status: smsResponse.status,
-      sms_status: responseData?.data?.status || 'unknown',
-      sms_id: responseData?.data?.id || null,
-      sms_gateway: responseData?.data?.sms_gateway || 'unknown',
-      sync_status: responseData?.data?.sync,
-      notify_at: responseData?.data?.notify_at,
-      created_at: responseData?.data?.created_at,
-      updated_at: responseData?.data?.updated_at,
-      channel_id: responseData?.data?.channel_id,
-      sender_id: responseData?.data?.sender_id,
-      request_body: requestBody,
-      full_response: responseData,
-      // Diagnostic info
-      diagnostic: {
-        is_status_created: responseData?.data?.status === 'created',
-        is_synced: responseData?.data?.sync === true,
-        has_notify_time: !!responseData?.data?.notify_at,
-        has_reference_id: !!responseData?.data?.message_reference_id,
-        gateway: responseData?.data?.sms_gateway,
-        warning: responseData?.data?.status === 'created' 
-          ? 'SMS is queued (status: created) but may not be sent yet. Check SMS gateway configuration.' 
-          : null
-      }
-    };
-
-    console.log('=== COMPLETE DEBUG INFO ===');
-    console.log(JSON.stringify(debugInfo, null, 2));
-    console.log('==========================');
-
+    // Return sanitized response without OTP code or sensitive information
+    // Only include essential status information for client
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'OTP sent successfully',
         expires_in_seconds: 300,
-        debug: debugInfo,
+        // Only include non-sensitive status information
+        sms_status: responseData?.data?.status || 'unknown',
+        sms_id: responseData?.data?.id || null,
         // Add a visible warning if status is 'created'
         warning: responseData?.data?.status === 'created' 
           ? 'SMS status is "created" - it may be queued but not yet sent. Check SMS gateway logs.' 

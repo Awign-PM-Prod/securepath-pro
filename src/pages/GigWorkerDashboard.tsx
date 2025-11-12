@@ -2484,6 +2484,7 @@ export default function GigWorkerDashboard() {
                    caseData={{
                      id: selectedCase.id,
                      case_number: selectedCase.case_number,
+                     client_case_id: selectedCase.client_case_id,
                      candidate_name: selectedCase.candidate_name,
                      phone_primary: selectedCase.phone_primary,
                      location: {
@@ -2612,6 +2613,7 @@ export default function GigWorkerDashboard() {
                     caseData={{
                       id: selectedSubmissionCase.id,
                       case_number: selectedSubmissionCase.case_number,
+                      client_case_id: selectedSubmissionCase.client_case_id,
                       candidate_name: selectedSubmissionCase.candidate_name,
                       phone_primary: selectedSubmissionCase.phone_primary,
                       location: {

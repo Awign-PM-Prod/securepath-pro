@@ -6,6 +6,7 @@ import type { FormSubmissionData } from './csvService';
  */
 export interface CaseDataForPDF {
   case_number?: string;
+  client_case_id?: string;
   candidate_name?: string;
   phone_primary?: string;
   location?: {
@@ -252,9 +253,10 @@ export class PDFService {
 
     // Only map the specific fields requested
     const autoFillMappings: Record<string, string | undefined> = {
-      // Case ID
-      'case_id': caseData.case_number,
-      'lead_id': caseData.case_number,
+      // Case ID - use client_case_id if available, otherwise fallback to case_number
+      'case_id': caseData.client_case_id || caseData.case_number,
+      'lead_id': caseData.client_case_id || caseData.case_number,
+      'applicant_id': caseData.client_case_id || caseData.case_number,
       
       // Applicant name
       'applicant_name': caseData.candidate_name,

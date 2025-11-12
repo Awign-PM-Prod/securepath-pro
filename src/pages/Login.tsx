@@ -74,13 +74,10 @@ export default function Login() {
   };
 
   const onSubmit = async (data: PhoneForm) => {
-    console.log('=== SEND OTP BUTTON CLICKED ===');
-    console.log('Phone number:', data.phone);
     setIsLoading(true);
     setError('');
 
     try {
-      console.log('Step 1: Looking up profile for phone:', data.phone);
       // Verify the phone number exists in the system
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
@@ -89,23 +86,11 @@ export default function Login() {
         .eq('is_active', true)
         .single();
 
-      console.log('Profile lookup result:', { profileData, profileError });
-
       if (profileError || !profileData) {
-        console.error('Profile lookup failed:', profileError);
         setError('Phone number not registered in the system');
         setIsLoading(false);
         return;
       }
-
-      console.log('Step 2: Profile found, calling send-otp function');
-      console.log('Request body:', {
-        phone_number: data.phone,
-        purpose: 'login',
-        email: profileData.email,
-        user_id: profileData.user_id,
-        first_name: profileData.first_name,
-      });
 
       // Send OTP to the phone number
       const { data: otpData, error: otpError } = await supabase.functions.invoke('send-otp', {
@@ -118,29 +103,17 @@ export default function Login() {
         },
       });
 
-      console.log('Step 3: send-otp function response');
-      console.log('OTP Data:', otpData);
-      console.log('OTP Error:', otpError);
-
       if (otpError) {
-        console.error('OTP Error details:', {
-          message: otpError.message,
-          status: otpError.status,
-          error: otpError
-        });
         setError(otpError.message || 'Failed to send OTP');
         setIsLoading(false);
         return;
       }
 
       if (!otpData?.success) {
-        console.error('OTP send failed:', otpData);
         setError(otpData?.error || 'Failed to send OTP');
         setIsLoading(false);
         return;
       }
-
-      console.log('Step 4: OTP sent successfully, showing OTP verification screen');
       // Show OTP verification screen
       setPhoneNumber(data.phone);
       setShowOTP(true);

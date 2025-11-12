@@ -63,7 +63,7 @@ export class OTPService {
 
       return data as OTPResponse;
     } catch (error) {
-      console.error('Error verifying OTP:', error);
+      // Don't log OTP-related errors to console for security
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to verify OTP',
@@ -94,7 +94,7 @@ export class OTPService {
 
       return data as OTPResponse;
     } catch (error) {
-      console.error('Error resending OTP:', error);
+      // Don't log OTP-related errors to console for security
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to resend OTP',

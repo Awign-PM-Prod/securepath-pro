@@ -644,6 +644,7 @@ export default function Reports() {
               // Prepare case data for auto-fill in negative case PDFs
               const caseDataForPDF: CaseDataForPDF = {
                 case_number: caseItem.case_number,
+                client_case_id: caseItem.client_case_id,
                 candidate_name: caseItem.candidate_name,
                 phone_primary: caseItem.phone_primary,
                 location: {
@@ -1157,6 +1158,7 @@ export default function Reports() {
       // Prepare case data for auto-fill in negative case PDFs
       const caseDataForPDF: CaseDataForPDF = {
         case_number: caseItem.case_number,
+        client_case_id: caseItem.client_case_id,
         candidate_name: caseItem.candidate_name,
         phone_primary: caseItem.phone_primary,
         location: {

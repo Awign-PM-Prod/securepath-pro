@@ -136,7 +136,6 @@ export default function OTPAuth() {
       });
     } catch (err: any) {
       setError('An unexpected error occurred. Please try again.');
-      console.error('Phone submission error:', err);
     } finally {
       setIsLoading(false);
     }
@@ -150,8 +149,6 @@ export default function OTPAuth() {
 
     try {
       // Create Supabase session - this function handles OTP verification and session creation
-      console.log('Calling create-auth-session with:', { phone_number: phoneNumber, otp_code: otpCode });
-      
       // Use fetch directly to get better error details
       const supabaseUrl = 'https://ycbftnwzoxktoroqpslo.supabase.co';
       const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljYmZ0bnd6b3hrdG9yb3Fwc2xvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxMDU1MjYsImV4cCI6MjA3MzY4MTUyNn0.5MaCwrEC3yizhu62Ks2jFlS516MVWiPctlbPrVax2Ng';
@@ -172,16 +169,11 @@ export default function OTPAuth() {
       });
       
       const responseText = await response.text();
-      console.log('Raw server response:', responseText);
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
       
       let sessionData;
       try {
         sessionData = JSON.parse(responseText);
-        console.log('Parsed response data:', sessionData);
       } catch (e) {
-        console.error('Failed to parse response as JSON:', e);
         setError('Server returned invalid response. Please try again.');
         setIsLoading(false);
         return;
@@ -189,15 +181,12 @@ export default function OTPAuth() {
 
       if (!response.ok) {
         const errorMessage = sessionData?.error || sessionData?.message || `Server error (${response.status})`;
-        console.error('Server error response:', sessionData);
         setError(errorMessage);
         setIsLoading(false);
         return;
       }
 
       if (!sessionData?.success || !sessionData?.access_token) {
-        console.error('Session creation failed:', sessionData);
-        console.error('Response data:', JSON.stringify(sessionData, null, 2));
         const errorMessage = sessionData?.error || 'Invalid or expired OTP. Please try again.';
         setError(errorMessage);
         setIsLoading(false);
@@ -320,7 +309,6 @@ export default function OTPAuth() {
       });
     } catch (err: any) {
       setError('Failed to resend OTP. Please try again.');
-      console.error('OTP resend error:', err);
     } finally {
       setIsLoading(false);
     }

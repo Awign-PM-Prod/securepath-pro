@@ -260,6 +260,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       // Prepare case data for auto-fill in negative case PDFs
       const caseDataForPDF: CaseDataForPDF = {
         case_number: caseData.case_number,
+        client_case_id: caseData.client_case_id,
         candidate_name: caseData.candidate_name,
         phone_primary: caseData.phone_primary,
         location: {
