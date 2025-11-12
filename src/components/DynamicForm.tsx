@@ -13,7 +13,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Upload, X, FileText, Camera, Trash2 } from 'lucide-react';
 import { CameraCapture } from '@/components/CameraCapture';
-import { addImageOverlay, isImageFile } from '@/utils/imageOverlayUtils';
 import { SignatureCanvas } from '@/components/SignatureCanvas';
 
 interface DynamicFormProps {
@@ -1366,20 +1365,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         }
         
-        // Add overlay to images
-        if (isImageFile(processedFile)) {
-          try {
-            console.log(`Adding overlay to image: ${processedFile.name}`);
-            const fileWithOverlay = await addImageOverlay(processedFile, location, new Date());
-            console.log(`Overlay added successfully: ${fileWithOverlay.name} (${(fileWithOverlay.size / 1024 / 1024).toFixed(2)}MB)`);
-            processedFiles.push(fileWithOverlay);
-          } catch (overlayError) {
-            console.warn('Failed to add overlay, using original file:', overlayError);
-            processedFiles.push(processedFile);
-          }
-        } else {
-          processedFiles.push(processedFile);
-        }
+        // No overlay for uploaded images - overlay only for camera captures
+        processedFiles.push(processedFile);
       }
       
       // Store location for this field (for backward compatibility)
@@ -1461,20 +1448,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         }
         
-        // Add overlay to images (without location data)
-        if (isImageFile(processedFile)) {
-          try {
-            console.log(`Adding overlay to image (no location): ${processedFile.name}`);
-            const fileWithOverlay = await addImageOverlay(processedFile, undefined, new Date());
-            console.log(`Overlay added successfully: ${fileWithOverlay.name} (${(fileWithOverlay.size / 1024 / 1024).toFixed(2)}MB)`);
-            processedFiles.push(fileWithOverlay);
-          } catch (overlayError) {
-            console.warn('Failed to add overlay, using original file:', overlayError);
-            processedFiles.push(processedFile);
-          }
-        } else {
-          processedFiles.push(processedFile);
-        }
+        // No overlay for uploaded images - overlay only for camera captures
+        processedFiles.push(processedFile);
       }
 
       setFormData(prev => {
