@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { otpService } from '@/services/otpService';
 import { supabase } from '@/integrations/supabase/client';
 import { UserRole } from '@/types/auth';
+import { useAuth } from '@/contexts/AuthContext';
 
 const phoneSchema = z.object({
   phone: z.string()
@@ -20,11 +21,18 @@ const phoneSchema = z.object({
     .regex(/^[0-9+\-() ]+$/, 'Please enter a valid phone number'),
 });
 
+const emailSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+  password: z.string().min(1, 'Password is required'),
+});
+
 type PhoneForm = z.infer<typeof phoneSchema>;
+type EmailForm = z.infer<typeof emailSchema>;
 
 export default function OTPAuth() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { signIn } = useAuth();
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -34,13 +42,14 @@ export default function OTPAuth() {
   const [userFirstName, setUserFirstName] = useState('');
   const [canResend, setCanResend] = useState(false);
   const [resendTimer, setResendTimer] = useState(30);
+  const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<PhoneForm>({
+  const phoneForm = useForm<PhoneForm>({
     resolver: zodResolver(phoneSchema),
+  });
+
+  const emailForm = useForm<EmailForm>({
+    resolver: zodResolver(emailSchema),
   });
 
   const getRoleRedirectPath = (role: UserRole) => {
@@ -198,7 +207,7 @@ export default function OTPAuth() {
       // Get user profile with role for redirect
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('user_id, email, role, first_name')
+        .select('user_id, email, role, first_name, created_at')
         .eq('phone', phoneNumber)
         .eq('is_active', true)
         .single();
@@ -231,6 +240,38 @@ export default function OTPAuth() {
       if (!session) {
         setError('Session not established. Please try again.');
         setIsLoading(false);
+        return;
+      }
+
+      // Check if this is likely the user's first login
+      // We'll check if the account was created recently (within last 48 hours)
+      // New users created by admin/ops should set their password on first login
+      const accountCreatedAt = new Date(profile.created_at);
+      const hoursSinceCreation = (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60);
+      const isNewAccount = hoursSinceCreation < 48; // Account created within last 48 hours
+
+      // Also check if last_sign_in_at is null or very close to created_at (first login)
+      const userCreatedAt = session.user.created_at ? new Date(session.user.created_at) : null;
+      const lastSignInAt = session.user.last_sign_in_at ? new Date(session.user.last_sign_in_at) : null;
+      
+      let isFirstLogin = false;
+      if (!lastSignInAt) {
+        // Never logged in before (this shouldn't happen after session is set, but check anyway)
+        isFirstLogin = true;
+      } else if (userCreatedAt && lastSignInAt) {
+        // Check if last_sign_in_at is very close to created_at (within 10 minutes)
+        // This indicates the account was just created and this might be first login
+        const timeDiff = Math.abs(lastSignInAt.getTime() - userCreatedAt.getTime());
+        isFirstLogin = timeDiff < 10 * 60 * 1000; // Within 10 minutes
+      }
+
+      // If it's a new account (created within 48 hours) or first login, redirect to password setup
+      if (isNewAccount || isFirstLogin) {
+        toast({
+          title: 'Welcome!',
+          description: `Welcome, ${profile.first_name}! Please set your password for future logins.`,
+        });
+        navigate('/setup-password', { replace: true });
         return;
       }
 
@@ -308,42 +349,157 @@ export default function OTPAuth() {
     return masked + last4;
   };
 
+  const onEmailSubmit = async (data: EmailForm) => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const { error: signInError } = await signIn(data.email, data.password);
+
+      if (signInError) {
+        setError(signInError.message || 'Invalid email or password');
+        setIsLoading(false);
+        return;
+      }
+
+      // Wait for session to be established
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Get the current session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        setError('Failed to establish session. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch user profile to get role for redirect
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_id, email, role, first_name')
+        .eq('user_id', session.user.id)
+        .eq('is_active', true)
+        .single();
+
+      if (profileError || !profile) {
+        setError('Failed to load user profile. Please contact support.');
+        setIsLoading(false);
+        return;
+      }
+
+      toast({
+        title: 'Success',
+        description: `Welcome back, ${profile.first_name || 'User'}!`,
+      });
+
+      // Redirect based on role
+      const redirectPath = getRoleRedirectPath(profile.role as UserRole);
+      navigate(redirectPath, { replace: true });
+    } catch (err) {
+      console.error('Email login error:', err);
+      setError('An unexpected error occurred');
+      setIsLoading(false);
+    }
+  };
+
+  const switchToEmail = () => {
+    setLoginMethod('email');
+    setError('');
+    setStep('phone');
+    phoneForm.reset();
+  };
+
+  const switchToPhone = () => {
+    setLoginMethod('phone');
+    setError('');
+    setStep('phone');
+    emailForm.reset();
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
+      <div className="w-full max-w-md space-y-4">
+        <Card className="w-full">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Background Verification System</CardTitle>
           <CardDescription>
-            {step === 'phone' ? 'Enter your phone number to login' : 'Verify your identity'}
+            {step === 'otp' 
+              ? 'Verify your identity' 
+              : loginMethod === 'phone' 
+                ? 'Enter your phone number to login' 
+                : 'Enter your email and password to login'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {step === 'phone' ? (
-            <form onSubmit={handleSubmit(onPhoneSubmit)} className="space-y-4">
+            loginMethod === 'phone' ? (
+              <form onSubmit={phoneForm.handleSubmit(onPhoneSubmit)} className="space-y-4">
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="Enter your phone number"
-                  {...register('phone')}
-                  className={errors.phone ? 'border-destructive' : ''}
-                />
-                {errors.phone && (
-                  <p className="text-sm text-destructive">{errors.phone.message}</p>
-                )}
-              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="Enter your phone number"
+                    {...phoneForm.register('phone')}
+                    className={phoneForm.formState.errors.phone ? 'border-destructive' : ''}
+                  />
+                  {phoneForm.formState.errors.phone && (
+                    <p className="text-sm text-destructive">{phoneForm.formState.errors.phone.message}</p>
+                  )}
+                </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? 'Sending OTP...' : 'Send OTP'}
-              </Button>
-            </form>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? 'Sending OTP...' : 'Send OTP'}
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={emailForm.handleSubmit(onEmailSubmit)} className="space-y-4">
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="Enter your email address"
+                    {...emailForm.register('email')}
+                    className={emailForm.formState.errors.email ? 'border-destructive' : ''}
+                  />
+                  {emailForm.formState.errors.email && (
+                    <p className="text-sm text-destructive">{emailForm.formState.errors.email.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    {...emailForm.register('password')}
+                    className={emailForm.formState.errors.password ? 'border-destructive' : ''}
+                  />
+                  {emailForm.formState.errors.password && (
+                    <p className="text-sm text-destructive">{emailForm.formState.errors.password.message}</p>
+                  )}
+                </div>
+
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? 'Signing in...' : 'Sign In'}
+                </Button>
+              </form>
+            )
           ) : (
             <div className="space-y-4">
               {error && (
@@ -409,6 +565,30 @@ export default function OTPAuth() {
           )}
         </CardContent>
       </Card>
+
+      {/* Email/Phone Login Toggle Buttons - Below Card */}
+      {step === 'phone' && loginMethod === 'phone' && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={switchToEmail}
+          className="w-full"
+        >
+          Sign in with Email
+        </Button>
+      )}
+      
+      {step === 'phone' && loginMethod === 'email' && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={switchToPhone}
+          className="w-full"
+        >
+          Sign in with Phone & OTP
+        </Button>
+      )}
+      </div>
     </div>
   );
 }

@@ -18,23 +18,30 @@ const phoneSchema = z.object({
   phone: z.string().regex(/^[0-9]{10}$/, 'Please enter a valid 10-digit phone number'),
 });
 
+const emailSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+  password: z.string().min(1, 'Password is required'),
+});
+
 type PhoneForm = z.infer<typeof phoneSchema>;
+type EmailForm = z.infer<typeof emailSchema>;
 
 export default function Login() {
-  const { user } = useAuth();
+  const { user, signIn } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showOTP, setShowOTP] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<PhoneForm>({
+  const phoneForm = useForm<PhoneForm>({
     resolver: zodResolver(phoneSchema),
+  });
+
+  const emailForm = useForm<EmailForm>({
+    resolver: zodResolver(emailSchema),
   });
 
   // Redirect if already logged in
@@ -217,51 +224,187 @@ export default function Login() {
     setPhoneNumber('');
   };
 
+  const onEmailSubmit = async (data: EmailForm) => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const { error: signInError } = await signIn(data.email, data.password);
+
+      if (signInError) {
+        setError(signInError.message || 'Invalid email or password');
+        setIsLoading(false);
+        return;
+      }
+
+      toast({
+        title: 'Success',
+        description: 'Login successful!',
+      });
+      // The useEffect will handle the redirect
+    } catch (err) {
+      console.error('Email login error:', err);
+      setError('An unexpected error occurred');
+      setIsLoading(false);
+    }
+  };
+
+  const switchToEmail = () => {
+    setLoginMethod('email');
+    setError('');
+    phoneForm.reset();
+  };
+
+  const switchToPhone = () => {
+    setLoginMethod('phone');
+    setError('');
+    emailForm.reset();
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4 relative">
+      {/* Email Login Button - Top Right (only show when in phone mode and not showing OTP) */}
+      {!showOTP && loginMethod === 'phone' && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={switchToEmail}
+          className="absolute top-4 right-4"
+        >
+          Sign in with Email
+        </Button>
+      )}
+      
+      {/* Phone Login Button - Top Right (only show when in email mode) */}
+      {!showOTP && loginMethod === 'email' && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={switchToPhone}
+          className="absolute top-4 right-4"
+        >
+          Sign in with Phone
+        </Button>
+      )}
+
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Background Verification System</CardTitle>
           <CardDescription>
-            {showOTP ? 'Verify your identity' : 'Enter your phone number to sign in'}
+            {showOTP 
+              ? 'Verify your identity' 
+              : loginMethod === 'phone' 
+                ? 'Enter your phone number to sign in' 
+                : 'Enter your email and password to sign in'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {!showOTP ? (
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
+            <>
+              {loginMethod === 'phone' ? (
+                <form onSubmit={phoneForm.handleSubmit(onSubmit)} className="space-y-4">
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
 
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <div className="flex">
-                  <div className="flex items-center px-3 border border-r-0 rounded-l-md border-input bg-muted">
-                    <span className="text-sm text-muted-foreground">+91</span>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <div className="flex">
+                      <div className="flex items-center px-3 border border-r-0 rounded-l-md border-input bg-muted">
+                        <span className="text-sm text-muted-foreground">+91</span>
+                      </div>
+                      <Input
+                        id="phone"
+                        type="tel"
+                        placeholder="Enter 10-digit phone number"
+                        {...phoneForm.register('phone')}
+                        className={`rounded-l-none ${phoneForm.formState.errors.phone ? 'border-destructive' : ''}`}
+                      />
+                    </div>
+                    {phoneForm.formState.errors.phone && (
+                      <p className="text-sm text-destructive">{phoneForm.formState.errors.phone.message}</p>
+                    )}
                   </div>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="Enter 10-digit phone number"
-                    {...register('phone')}
-                    className={`rounded-l-none ${errors.phone ? 'border-destructive' : ''}`}
-                  />
-                </div>
-                {errors.phone && (
-                  <p className="text-sm text-destructive">{errors.phone.message}</p>
-                )}
-              </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? 'Sending OTP...' : 'Send OTP'}
-              </Button>
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? 'Sending OTP...' : 'Send OTP'}
+                  </Button>
 
-              <div className="text-center text-sm text-muted-foreground">
-                <p>You will receive an OTP on your registered mobile number</p>
-              </div>
-            </form>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={switchToEmail}
+                    className="w-full"
+                  >
+                    Sign in with Email
+                  </Button>
+
+                  <div className="text-center text-sm text-muted-foreground">
+                    <p>You will receive an OTP on your registered mobile number</p>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={emailForm.handleSubmit(onEmailSubmit)} className="space-y-4">
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="Enter your email address"
+                      {...emailForm.register('email')}
+                      className={emailForm.formState.errors.email ? 'border-destructive' : ''}
+                    />
+                    {emailForm.formState.errors.email && (
+                      <p className="text-sm text-destructive">{emailForm.formState.errors.email.message}</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="Enter your password"
+                      {...emailForm.register('password')}
+                      className={emailForm.formState.errors.password ? 'border-destructive' : ''}
+                    />
+                    {emailForm.formState.errors.password && (
+                      <p className="text-sm text-destructive">{emailForm.formState.errors.password.message}</p>
+                    )}
+                  </div>
+
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? 'Signing in...' : 'Sign In'}
+                  </Button>
+
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">Or</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={switchToPhone}
+                    className="w-full"
+                  >
+                    Sign in with Phone & OTP
+                  </Button>
+                </form>
+              )}
+            </>
           ) : (
             <OTPVerification
               phoneNumber={phoneNumber}

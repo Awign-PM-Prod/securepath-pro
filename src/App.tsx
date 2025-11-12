@@ -15,6 +15,7 @@ import ResetPassword from "./pages/ResetPassword";
 import TestForgotPassword from "./pages/TestForgotPassword";
 import Unauthorized from "./pages/Unauthorized";
 import NotFound from "./pages/NotFound";
+import SetupPassword from "./pages/SetupPassword";
 
 // Dashboard imports
 import SuperAdminDashboard from "./pages/dashboards/SuperAdminDashboard";
@@ -99,6 +100,7 @@ const App = () => {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/test-forgot-password" element={<TestForgotPassword />} />
+                <Route path="/setup-password" element={<SetupPassword />} />
                 <Route path="/original" element={<Index />} />
                 <Route path="/unauthorized" element={<Unauthorized />} />
                 <Route path="/db-test" element={<DatabaseTest />} />
