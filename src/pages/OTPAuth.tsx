@@ -318,9 +318,24 @@ export default function OTPAuth() {
 
       // Redirect based on role
       const redirectPath = getRoleRedirectPath(profile.role as UserRole);
+      console.log('🔄 Navigating to:', redirectPath);
+      
       // Clear processing flag before navigation
       isProcessingOTP.current = false;
-      navigate(redirectPath, { replace: true });
+      
+      // Add a small delay to ensure toast is visible and state is settled
+      setTimeout(() => {
+        navigate(redirectPath, { replace: true });
+        // Force a navigation if React Router doesn't pick it up
+        // This ensures the redirect happens even if there are state issues
+        setTimeout(() => {
+          // Double-check we're on the right page, if not, force navigation
+          if (window.location.pathname !== redirectPath) {
+            console.log('⚠️ Navigation may have failed, forcing redirect...');
+            window.location.href = redirectPath;
+          }
+        }, 1000);
+      }, 500);
 
     } catch (err: any) {
       setError('An unexpected error occurred. Please try again.');

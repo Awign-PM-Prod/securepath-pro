@@ -208,13 +208,39 @@ export default function Login() {
       console.log('✅ Session successfully established and persisted');
       console.log('✅ Verified session user ID:', verifiedSession.user.id);
 
+      // Fetch user profile to get role for redirect
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_id, email, role, first_name')
+        .eq('user_id', verifiedSession.user.id)
+        .eq('is_active', true)
+        .single();
+
+      if (profileError || !profile) {
+        console.error('❌ Error fetching profile:', profileError);
+        setError('Failed to load user profile. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('✅ Profile loaded:', profile.role);
+
       setShowOTP(false);
       setIsLoading(false);
+      
       toast({
         title: 'Success',
-        description: 'Login successful!',
+        description: `Welcome back, ${profile.first_name || 'User'}!`,
       });
-      // The useEffect will handle the redirect
+
+      // Manually redirect based on role instead of relying on useEffect
+      const redirectPath = getRoleRedirectPath(profile.role as UserRole);
+      console.log('🔄 Redirecting to:', redirectPath);
+      
+      // Small delay to ensure toast is visible, then redirect
+      setTimeout(() => {
+        navigate(redirectPath, { replace: true });
+      }, 500);
     } catch (err) {
       console.error('Unexpected error during session creation:', err);
       setError('An unexpected error occurred');
