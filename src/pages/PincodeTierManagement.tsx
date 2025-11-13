@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,7 +17,9 @@ import {
   Filter,
   Download,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { pincodeTierService, PincodeTier } from '@/services/pincodeTierService';
@@ -35,6 +37,8 @@ export default function PincodeTierManagement() {
   const [editingTier, setEditingTier] = useState<PincodeTier | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [tierToDelete, setTierToDelete] = useState<PincodeTier | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(100);
   const { toast } = useToast();
 
   const loadPincodeTiers = async () => {
@@ -78,7 +82,21 @@ export default function PincodeTierManagement() {
     }
 
     setFilteredTiers(filtered);
+    // Reset to page 1 when filters change
+    setCurrentPage(1);
   }, [pincodeTiers, searchQuery, tierFilter]);
+
+  // Pagination logic
+  const paginationData = useMemo(() => {
+    const totalPages = Math.ceil(filteredTiers.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedTiers = filteredTiers.slice(startIndex, endIndex);
+    
+    return { totalPages, startIndex, endIndex, paginatedTiers };
+  }, [filteredTiers, currentPage, itemsPerPage]);
+
+  const { totalPages, startIndex, endIndex, paginatedTiers } = paginationData;
 
   const handleAddSuccess = () => {
     loadPincodeTiers();
@@ -149,18 +167,18 @@ export default function PincodeTierManagement() {
 
   const getTierBadgeVariant = (tier: string) => {
     switch (tier) {
-      case 'tier_1': return 'default';
-      case 'tier_2': return 'secondary';
-      case 'tier_3': return 'outline';
+      case 'tier1': return 'default';
+      case 'tier2': return 'secondary';
+      case 'tier3': return 'outline';
       default: return 'outline';
     }
   };
 
   const getTierLabel = (tier: string) => {
     switch (tier) {
-      case 'tier_1': return 'Tier 1 (Metro)';
-      case 'tier_2': return 'Tier 2 (Cities)';
-      case 'tier_3': return 'Tier 3 (Towns/Rural)';
+      case 'tier1': return 'Tier 1 (Metro)';
+      case 'tier2': return 'Tier 2 (Cities)';
+      case 'tier3': return 'Tier 3 (Towns/Rural)';
       default: return tier;
     }
   };
@@ -293,9 +311,9 @@ export default function PincodeTierManagement() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Tiers</SelectItem>
-                <SelectItem value="tier_1">Tier 1 (Metro)</SelectItem>
-                <SelectItem value="tier_2">Tier 2 (Cities)</SelectItem>
-                <SelectItem value="tier_3">Tier 3 (Rural)</SelectItem>
+                <SelectItem value="tier1">Tier 1 (Metro)</SelectItem>
+                <SelectItem value="tier2">Tier 2 (Cities)</SelectItem>
+                <SelectItem value="tier3">Tier 3 (Rural)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -349,7 +367,7 @@ export default function PincodeTierManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredTiers.map((tier) => (
+                  {paginatedTiers.map((tier) => (
                     <TableRow key={tier.id}>
                       <TableCell className="font-mono">{tier.pincode}</TableCell>
                       <TableCell>
@@ -391,6 +409,63 @@ export default function PincodeTierManagement() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {filteredTiers.length > itemsPerPage && (
+            <div className="flex items-center justify-between mt-6">
+              <div className="text-sm text-muted-foreground">
+                Showing {startIndex + 1} to {Math.min(endIndex, filteredTiers.length)} of {filteredTiers.length} pincodes
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

@@ -32,13 +32,32 @@ export interface BulkPincodeTierData {
 export class PincodeTierService {
   async getPincodeTiers(): Promise<PincodeTier[]> {
     try {
-      const { data, error } = await supabase
-        .from('pincode_tiers')
-        .select('*')
-        .order('pincode');
+      const allData: PincodeTier[] = [];
+      const pageSize = 1000; // Supabase default limit
+      let from = 0;
+      let hasMore = true;
 
-      if (error) throw error;
-      return data || [];
+      // Fetch all records in batches to overcome Supabase's 1000 row limit
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('pincode_tiers')
+          .select('*')
+          .order('pincode')
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allData.push(...data);
+          from += pageSize;
+          // If we got less than pageSize, we've reached the end
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      return allData;
     } catch (error) {
       console.error('Failed to fetch pincode tiers:', error);
       return [];
@@ -129,16 +148,52 @@ export class PincodeTierService {
         created_by: user.id,
       }));
 
-      const { data, error } = await supabase
-        .from('pincode_tiers')
-        .insert(dataWithUser)
-        .select();
+      // Process in batches to avoid exceeding database limits
+      // Supabase/PostgreSQL typically has limits around 1000-2000 rows per insert
+      const BATCH_SIZE = 500;
+      const batches: BulkPincodeTierData[][] = [];
+      
+      for (let i = 0; i < dataWithUser.length; i += BATCH_SIZE) {
+        batches.push(dataWithUser.slice(i, i + BATCH_SIZE));
+      }
 
-      if (error) throw error;
+      let totalSuccess = 0;
+      const allErrors: any[] = [];
+
+      // Process each batch sequentially
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        console.log(`Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} records)`);
+
+        try {
+          const { data, error } = await supabase
+            .from('pincode_tiers')
+            .insert(batch)
+            .select();
+
+          if (error) {
+            console.error(`Error in batch ${batchIndex + 1}:`, error);
+            allErrors.push({
+              batch: batchIndex + 1,
+              error: error.message || error,
+              recordsInBatch: batch.length
+            });
+          } else {
+            totalSuccess += data?.length || 0;
+          }
+        } catch (batchError: any) {
+          console.error(`Failed to process batch ${batchIndex + 1}:`, batchError);
+          allErrors.push({
+            batch: batchIndex + 1,
+            error: batchError.message || batchError,
+            recordsInBatch: batch.length
+          });
+        }
+      }
       
       return {
-        success: data?.length || 0,
-        errors: []
+        success: totalSuccess,
+        errors: allErrors
       };
     } catch (error) {
       console.error('Failed to bulk create pincode tiers:', error);
@@ -151,14 +206,32 @@ export class PincodeTierService {
 
   async searchPincodeTiers(query: string): Promise<PincodeTier[]> {
     try {
-      const { data, error } = await supabase
-        .from('pincode_tiers')
-        .select('*')
-        .or(`pincode.ilike.%${query}%,city.ilike.%${query}%,state.ilike.%${query}%`)
-        .order('pincode');
+      const allData: PincodeTier[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      let hasMore = true;
 
-      if (error) throw error;
-      return data || [];
+      // Fetch all matching records in batches
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('pincode_tiers')
+          .select('*')
+          .or(`pincode.ilike.%${query}%,city.ilike.%${query}%,state.ilike.%${query}%`)
+          .order('pincode')
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allData.push(...data);
+          from += pageSize;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      return allData;
     } catch (error) {
       console.error('Failed to search pincode tiers:', error);
       return [];
@@ -167,15 +240,33 @@ export class PincodeTierService {
 
   async getPincodeTiersByTier(tier: 'tier1' | 'tier2' | 'tier3'): Promise<PincodeTier[]> {
     try {
-      const { data, error } = await supabase
-        .from('pincode_tiers')
-        .select('*')
-        .eq('tier', tier)
-        .eq('is_active', true)
-        .order('pincode');
+      const allData: PincodeTier[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      let hasMore = true;
 
-      if (error) throw error;
-      return data || [];
+      // Fetch all matching records in batches
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('pincode_tiers')
+          .select('*')
+          .eq('tier', tier)
+          .eq('is_active', true)
+          .order('pincode')
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allData.push(...data);
+          from += pageSize;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      return allData;
     } catch (error) {
       console.error('Failed to fetch pincode tiers by tier:', error);
       return [];

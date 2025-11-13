@@ -294,7 +294,11 @@ export default function BulkPincodeTierForm({
                       <strong>Errors encountered:</strong>
                       <ul className="mt-2 list-disc list-inside text-sm">
                         {uploadResult.errors.slice(0, 3).map((error, index) => (
-                          <li key={index}>{error.message || error}</li>
+                          <li key={index}>
+                            {error.batch 
+                              ? `Batch ${error.batch} (${error.recordsInBatch} records): ${error.error?.message || error.error || error}`
+                              : error.message || error}
+                          </li>
                         ))}
                         {uploadResult.errors.length > 3 && (
                           <li>... and {uploadResult.errors.length - 3} more errors</li>
