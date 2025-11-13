@@ -82,6 +82,16 @@ export default function FormManagement() {
   };
 
   const handleEditTemplate = (template: FormTemplate) => {
+    // Check if template is published before allowing edit
+    if (!template.is_active) {
+      toast({
+        title: 'Cannot Edit Draft Template',
+        description: 'You need to publish the form before editing it',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // Convert FormTemplate to FormBuilderTemplate format
     const formBuilderTemplate = {
       template_name: template.template_name,
