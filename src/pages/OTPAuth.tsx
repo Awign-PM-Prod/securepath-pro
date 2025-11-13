@@ -114,18 +114,23 @@ export default function OTPAuth() {
 
     try {
       // Look up user by phone number
-      const { data: profile, error: profileError } = await supabase
+      // Use limit(1) instead of single() to handle cases where multiple profiles have the same phone
+      const { data: profilesData, error: profileError } = await supabase
         .from('profiles')
         .select('email, first_name, user_id')
         .eq('phone', data.phone)
         .eq('is_active', true)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (profileError || !profile) {
+      if (profileError || !profilesData || profilesData.length === 0) {
         setError('No active account found with this phone number');
         setIsLoading(false);
         return;
       }
+
+      // Take the first (most recent) profile if multiple exist
+      const profile = profilesData[0];
 
       // Send OTP
       const otpResult = await otpService.sendOTP(
@@ -221,19 +226,24 @@ export default function OTPAuth() {
       console.log('📥 Received is_first_login from server:', sessionData?.is_first_login, '→ parsed as:', isFirstLogin);
 
       // Get user profile with role for redirect
-      const { data: profile, error: profileError } = await supabase
+      // Use limit(1) instead of single() to handle cases where multiple profiles have the same phone
+      const { data: profilesData, error: profileError } = await supabase
         .from('profiles')
         .select('user_id, email, role, first_name, created_at')
         .eq('phone', phoneNumber)
         .eq('is_active', true)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (profileError || !profile) {
+      if (profileError || !profilesData || profilesData.length === 0) {
         setError('Failed to load user profile');
         setIsLoading(false);
         isProcessingOTP.current = false;
         return;
       }
+
+      // Take the first (most recent) profile if multiple exist
+      const profile = profilesData[0];
 
       // Set the session in Supabase client
       console.log('🔐 Setting session with tokens...');

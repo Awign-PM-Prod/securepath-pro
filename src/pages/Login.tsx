@@ -79,18 +79,23 @@ export default function Login() {
 
     try {
       // Verify the phone number exists in the system
-      const { data: profileData, error: profileError } = await supabase
+      // Use limit(1) instead of single() to handle cases where multiple profiles have the same phone
+      const { data: profilesData, error: profileError } = await supabase
         .from('profiles')
         .select('email, first_name, user_id')
         .eq('phone', data.phone)
         .eq('is_active', true)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (profileError || !profileData) {
+      if (profileError || !profilesData || profilesData.length === 0) {
         setError('Phone number not registered in the system');
         setIsLoading(false);
         return;
       }
+
+      // Take the first (most recent) profile if multiple exist
+      const profileData = profilesData[0];
 
       // Send OTP to the phone number
       const { data: otpData, error: otpError } = await supabase.functions.invoke('send-otp', {
