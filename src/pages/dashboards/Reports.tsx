@@ -23,6 +23,7 @@ interface Case {
   client_case_id: string;
   contract_type: string;
   candidate_name: string;
+  company_name?: string;
   phone_primary: string;
   phone_secondary?: string;
   status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
@@ -229,6 +230,7 @@ export default function Reports() {
         client_case_id: caseItem.client_case_id,
         contract_type: caseItem.contract_type,
         candidate_name: caseItem.candidate_name,
+        company_name: caseItem.company_name,
         phone_primary: caseItem.phone_primary,
         phone_secondary: caseItem.phone_secondary,
         status: caseItem.status as any,
@@ -629,7 +631,7 @@ export default function Reports() {
         });
       } else if (selectedFormat === 'pdf') {
         // Bulk PDF download - create zip file with all PDFs (or download directly if single)
-        const pdfBlobs: Array<{ blob: Blob; caseNumber: string }> = [];
+        const pdfBlobs: Array<{ blob: Blob; caseData: CaseDataForPDF }> = [];
 
         for (let i = 0; i < selectedCases.length; i++) {
           const caseItem = selectedCases[i];
@@ -655,7 +657,7 @@ export default function Reports() {
                   lng: caseItem.location?.lng
                 },
                 contract_type: caseItem.contract_type,
-                company_name: (caseItem as any).company_name
+                company_name: caseItem.company_name
               };
               
               // Generate PDF as blob (same as single PDF, but returns blob instead of downloading)
@@ -666,7 +668,7 @@ export default function Reports() {
                 caseItem.is_positive,
                 caseDataForPDF
               );
-              pdfBlobs.push({ blob: pdfBlob, caseNumber: caseItem.case_number });
+              pdfBlobs.push({ blob: pdfBlob, caseData: caseDataForPDF });
             } catch (error) {
               console.error(`Error generating PDF for case ${caseItem.case_number}:`, error);
               // Continue with other cases even if one fails
@@ -687,9 +689,8 @@ export default function Reports() {
 
         if (pdfBlobs.length === 1) {
           // Single PDF - download directly
-          const { blob, caseNumber } = pdfBlobs[0];
-          const sanitizedCaseNumber = caseNumber.replace(/[^a-zA-Z0-9-_]/g, '_');
-          const filename = `case-${sanitizedCaseNumber}-responses-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+          const { blob, caseData } = pdfBlobs[0];
+          const filename = PDFService.generatePDFFilename(caseData);
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
@@ -702,9 +703,8 @@ export default function Reports() {
           // Multiple PDFs - create zip file
           const zip = new JSZip();
           
-          pdfBlobs.forEach(({ blob, caseNumber }) => {
-            const sanitizedCaseNumber = caseNumber.replace(/[^a-zA-Z0-9-_]/g, '_');
-            const filename = `case-${sanitizedCaseNumber}-responses-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+          pdfBlobs.forEach(({ blob, caseData }) => {
+            const filename = PDFService.generatePDFFilename(caseData);
             zip.file(filename, blob);
           });
 
@@ -1169,7 +1169,7 @@ export default function Reports() {
           lng: caseItem.location?.lng
         },
         contract_type: caseItem.contract_type,
-        company_name: (caseItem as any).company_name
+        company_name: caseItem.company_name
       };
       
       await PDFService.convertFormSubmissionsToPDF(

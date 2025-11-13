@@ -8,6 +8,7 @@ export interface Case {
   client_case_id: string;
   contract_type: string;
   candidate_name: string;
+  company_name?: string;
   phone_primary: string;
   phone_secondary?: string;
   status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled' | 'auto_allocated' | 'completed';
@@ -108,6 +109,7 @@ export class CaseService {
           client_case_id,
           contract_type,
           candidate_name,
+          company_name,
           phone_primary,
           phone_secondary,
           status,
@@ -322,6 +324,7 @@ export class CaseService {
           client_case_id: caseItem.client_case_id,
           contract_type: caseItem.contract_type,
           candidate_name: caseItem.candidate_name,
+          company_name: caseItem.company_name,
           phone_primary: caseItem.phone_primary,
           phone_secondary: caseItem.phone_secondary,
           status: caseItem.status,

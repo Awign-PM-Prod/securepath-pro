@@ -849,6 +849,34 @@ export class PDFService {
   }
 
   /**
+   * Generate PDF filename based on contract type
+   */
+  static generatePDFFilename(caseData?: CaseDataForPDF): string {
+    if (!caseData?.client_case_id) {
+      // Fallback to old format if client_case_id is not available
+      return `case-${caseData?.case_number || 'unknown'}-responses-${new Date().toISOString().split('T')[0]}.pdf`;
+    }
+
+    const contractType = caseData.contract_type?.toLowerCase() || '';
+    const sanitize = (str: string) => str.replace(/[^a-zA-Z0-9-_]/g, '_').trim();
+    
+    let namePart = '';
+    
+    if (contractType.includes('business_address_check')) {
+      // Business address check: client_case_id_company_name
+      namePart = caseData.company_name || 'UnknownCompany';
+    } else {
+      // Residential address check (default): client_case_id_Applicant Name
+      namePart = caseData.candidate_name || 'UnknownApplicant';
+    }
+    
+    const sanitizedClientCaseId = sanitize(caseData.client_case_id);
+    const sanitizedNamePart = sanitize(namePart);
+    
+    return `${sanitizedClientCaseId}_${sanitizedNamePart}.pdf`;
+  }
+
+  /**
    * Convert form submission data to PDF format (downloads automatically)
    */
   static async convertFormSubmissionsToPDF(
@@ -860,7 +888,7 @@ export class PDFService {
   ): Promise<void> {
     const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive, caseData);
     // Download the PDF
-    const filename = `case-${caseNumber}-responses-${new Date().toISOString().split('T')[0]}.pdf`;
+    const filename = this.generatePDFFilename(caseData);
     doc.save(filename);
   }
 

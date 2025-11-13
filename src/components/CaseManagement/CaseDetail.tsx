@@ -40,6 +40,7 @@ interface CaseDetailProps {
     client_case_id: string;
     contract_type: string;
     candidate_name: string;
+    company_name?: string;
     phone_primary: string;
     phone_secondary?: string;
     status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
@@ -271,7 +272,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
           lng: caseData.location?.lng
         },
         contract_type: caseData.contract_type,
-        company_name: (caseData as any).company_name
+        company_name: caseData.company_name
       };
       
       await PDFService.convertFormSubmissionsToPDF(
