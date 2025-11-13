@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     let hasInitialized = false;
     let subscription: { unsubscribe: () => void } | null = null;
+    let sessionValidationInterval: NodeJS.Timeout | null = null;
 
     // Helper function to load user profile and set state
     const loadUserFromSession = async (session: Session | null): Promise<void> => {
@@ -56,30 +57,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       
       if (session?.user) {
-        // Fetch profile with shorter timeout (3 seconds) - don't block UI
-        Promise.race([
-          fetchUserProfile(session.user.id),
-          new Promise<UserProfile | null>((_, reject) => 
-            setTimeout(() => reject(new Error('Profile fetch timeout')), 3000)
-          )
-        ]).then(profile => {
-          if (mounted) {
+        // Retry profile fetch up to 3 times with exponential backoff
+        let profile: UserProfile | null = null;
+        let lastError: any = null;
+        
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            profile = await Promise.race([
+              fetchUserProfile(session.user.id),
+              new Promise<UserProfile | null>((_, reject) => 
+                setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+              )
+            ]);
+            
             if (profile) {
-              setUser({
-                id: session.user.id,
-                email: session.user.email!,
-                profile
-              });
-            } else {
-              setUser(null);
+              break; // Success, exit retry loop
+            }
+          } catch (error) {
+            lastError = error;
+            // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
+            if (attempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
             }
           }
-        }).catch(error => {
-          // Profile fetch failed - set user to null but don't block
-          if (mounted) {
-            setUser(null);
+        }
+        
+        if (mounted) {
+          if (profile) {
+            setUser({
+              id: session.user.id,
+              email: session.user.email!,
+              profile
+            });
+          } else {
+            // Only set user to null if session is also invalid
+            // If session is valid but profile fetch failed, keep the session
+            // This prevents unnecessary logouts due to temporary network issues
+            console.warn('Profile fetch failed after retries, but session is valid. Keeping session.');
+            // Don't set user to null - keep the session alive
+            // The profile will be retried on next auth state change
           }
-        });
+        }
       } else {
         if (mounted) {
           setUser(null);
@@ -104,50 +122,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         
         if (session) {
-          // Check if session is expired (quick check)
-          const isExpired = session.expires_at && session.expires_at * 1000 < Date.now();
+          // Check if session is expired (with 5 minute buffer to refresh before actual expiration)
+          const expiresAt = session.expires_at ? session.expires_at * 1000 : null;
+          const bufferTime = 5 * 60 * 1000; // 5 minutes
+          const isExpired = expiresAt && (expiresAt - bufferTime) < Date.now();
           
           if (isExpired) {
-            // Try to refresh, but don't wait too long
-            const refreshPromise = supabase.auth.refreshSession();
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Refresh timeout')), 2000)
-            );
+            // Try to refresh with longer timeout and retry logic
+            let refreshedSession: Session | null = null;
+            let refreshError: any = null;
             
-            try {
-              const { data: { session: refreshedSession }, error: refreshError } = await Promise.race([
-                refreshPromise,
-                timeoutPromise
-              ]) as any;
-              
-              if (refreshError || !refreshedSession) {
-                if (mounted) {
-                  setSession(null);
-                  setUser(null);
-                  setLoading(false);
-                  hasInitialized = true;
+            // Retry refresh up to 2 times
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                const refreshPromise = supabase.auth.refreshSession();
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('Refresh timeout')), 10000) // Increased to 10 seconds
+                );
+                
+                const result = await Promise.race([refreshPromise, timeoutPromise]) as any;
+                
+                if (result?.data?.session) {
+                  refreshedSession = result.data.session;
+                  break; // Success
+                } else if (result?.error) {
+                  refreshError = result.error;
                 }
-                return;
+              } catch (err) {
+                refreshError = err;
+                // Wait before retrying
+                if (attempt < 1) {
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
               }
+            }
               
-              // Load user from refreshed session (non-blocking)
-              loadUserFromSession(refreshedSession).finally(() => {
+            if (refreshError || !refreshedSession) {
+              // Only clear session if refresh truly failed (not just timeout)
+              // If it's a network issue, keep the existing session
+              console.warn('Session refresh failed, but keeping existing session:', refreshError);
+              // Don't clear session - let Supabase auto-refresh handle it
+              // Load user from existing session
+              loadUserFromSession(session).finally(() => {
                 if (mounted) {
                   setLoading(false);
                   hasInitialized = true;
                 }
               });
-              return; // Exit early, loading will be set in finally
-            } catch (refreshErr) {
-              // Refresh failed or timed out, clear session
+              return;
+            }
+              
+            // Load user from refreshed session (non-blocking)
+            loadUserFromSession(refreshedSession).finally(() => {
               if (mounted) {
-                setSession(null);
-                setUser(null);
                 setLoading(false);
                 hasInitialized = true;
               }
-              return;
-            }
+            });
+            return; // Exit early, loading will be set in finally
           } else {
             // Session is valid, load user (non-blocking)
             loadUserFromSession(session).finally(() => {
@@ -200,12 +232,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // For all other events (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, etc.)
+        // Handle SIGNED_OUT event explicitly
+        if (event === 'SIGNED_OUT') {
+          if (mounted) {
+            setSession(null);
+            setUser(null);
+          }
+          return;
+        }
+
+        // For all other events (SIGNED_IN, TOKEN_REFRESHED, etc.)
         await loadUserFromSession(session);
       }
     );
     
     subscription = authSubscription;
+
+    // Set up periodic session validation (every 5 minutes)
+    sessionValidationInterval = setInterval(() => {
+      if (!mounted) return;
+      
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (!mounted) return;
+        
+        if (error) {
+          console.warn('Session validation error:', error);
+          return;
+        }
+        
+        if (session) {
+          // Check if session is still valid
+          const expiresAt = session.expires_at ? session.expires_at * 1000 : null;
+          const bufferTime = 5 * 60 * 1000; // 5 minutes
+          if (expiresAt && (expiresAt - bufferTime) < Date.now()) {
+            console.warn('Session expiring soon, attempting refresh...');
+            supabase.auth.refreshSession().catch(err => {
+              console.error('Failed to refresh session:', err);
+            });
+          } else {
+            // Session is valid - ensure user is loaded
+            // loadUserFromSession will handle retrying if needed
+            loadUserFromSession(session);
+          }
+        } else {
+          // No session - clear user if it exists
+          if (mounted) {
+            setUser(null);
+            setSession(null);
+          }
+        }
+      });
+    }, 5 * 60 * 1000); // Every 5 minutes
 
     // Initialize auth
     initializeAuth();
@@ -214,6 +291,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       if (subscription) {
         subscription.unsubscribe();
+      }
+      if (sessionValidationInterval) {
+        clearInterval(sessionValidationInterval);
       }
     };
   }, []);
