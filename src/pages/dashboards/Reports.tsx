@@ -196,7 +196,7 @@ export default function Reports() {
         `)
         .in('status', ['submitted', 'qc_passed'])
         .gte('created_at', cutoffDateISOString)
-        .order('created_at', { ascending: false });
+        .order('status_updated_at', { ascending: false });
 
       if (error) throw error;
 

@@ -1005,6 +1005,149 @@ export class FormService {
   }
 
   /**
+   * Update an existing draft form template (does not create a new version)
+   * This is used for editing draft templates
+   */
+  async updateFormTemplate(templateId: string, templateData: FormBuilderTemplate): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Validate required fields
+      if (!templateData.contract_type_id || templateData.contract_type_id.trim() === '') {
+        throw new Error('Contract type ID is required');
+      }
+      
+      if (!templateData.template_name || templateData.template_name.trim() === '') {
+        throw new Error('Template name is required');
+      }
+
+      // Check for duplicate field_keys in the input data and validate field_keys
+      const fieldKeys = templateData.fields
+        .map(f => f.field_key?.trim())
+        .filter(key => key && key.length > 0); // Filter out empty keys
+      
+      if (fieldKeys.length !== templateData.fields.length) {
+        throw new Error('All fields must have a non-empty field_key.');
+      }
+      
+      const uniqueFieldKeys = new Set(fieldKeys);
+      if (fieldKeys.length !== uniqueFieldKeys.size) {
+        throw new Error('Duplicate field keys found. Each field must have a unique field_key.');
+      }
+
+      // Check if template exists and is a draft
+      const { data: existingTemplate, error: templateCheckError } = await supabase
+        .from('form_templates')
+        .select('id, is_active, template_version')
+        .eq('id', templateId)
+        .single();
+
+      if (templateCheckError) throw templateCheckError;
+
+      if (existingTemplate.is_active) {
+        throw new Error('Cannot update published templates. Editing a published template creates a new version.');
+      }
+
+      // Get is_negative value
+      const isNegative = templateData.is_negative ?? false;
+
+      // Get current user ID
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Update template metadata (keep same version)
+      const { error: templateUpdateError } = await supabase
+        .from('form_templates')
+        .update({
+          template_name: templateData.template_name,
+          contract_type_id: templateData.contract_type_id,
+          is_negative: isNegative,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', templateId);
+
+      if (templateUpdateError) throw templateUpdateError;
+
+      // Delete existing fields first and wait for completion
+      const { error: deleteFieldsError } = await supabase
+        .from('form_fields')
+        .delete()
+        .eq('template_id', templateId);
+
+      if (deleteFieldsError) {
+        console.error('Error deleting existing fields:', deleteFieldsError);
+        throw deleteFieldsError;
+      }
+
+      // Verify deletion completed by checking if any fields remain
+      const { data: remainingFields, error: checkError } = await supabase
+        .from('form_fields')
+        .select('id')
+        .eq('template_id', templateId)
+        .limit(1);
+
+      if (checkError) {
+        console.error('Error checking remaining fields:', checkError);
+        throw checkError;
+      }
+
+      // If there are still fields remaining, wait a bit and try again
+      if (remainingFields && remainingFields.length > 0) {
+        console.warn('Some fields still exist after deletion, waiting and retrying...');
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const { error: retryDeleteError } = await supabase
+          .from('form_fields')
+          .delete()
+          .eq('template_id', templateId);
+
+        if (retryDeleteError) throw retryDeleteError;
+      }
+
+      // Only insert fields if there are any
+      if (templateData.fields && templateData.fields.length > 0) {
+        // Prepare fields to insert
+        const fieldsToInsert = templateData.fields.map((field, index) => {
+          const processedField = {
+            template_id: templateId,
+            field_key: field.field_key.trim(), // Ensure no leading/trailing spaces
+            field_title: field.field_title,
+            field_type: field.field_type,
+            validation_type: field.validation_type,
+            field_order: field.field_order || index,
+            field_config: field.field_config,
+            depends_on_field_id: field.depends_on_field_id && field.depends_on_field_id.trim() !== '' ? field.depends_on_field_id : null,
+            depends_on_value: field.depends_on_value && field.depends_on_value.trim() !== '' ? field.depends_on_value : null,
+            max_files: field.field_type === 'file_upload' ? field.field_config.maxFiles : undefined,
+            allowed_file_types: field.field_type === 'file_upload' ? field.field_config.allowedTypes : undefined,
+            max_file_size_mb: field.field_type === 'file_upload' ? field.field_config.maxSizeMB : undefined
+          };
+          
+          return processedField;
+        });
+
+        // Insert new fields
+        const { error: fieldsError } = await supabase
+          .from('form_fields')
+          .insert(fieldsToInsert);
+
+        if (fieldsError) {
+          console.error('Error inserting fields:', fieldsError);
+          throw fieldsError;
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating form template:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
    * Unpublish a form template (make it draft again)
    */
   async unpublishFormTemplate(templateId: string): Promise<{ success: boolean; error?: string }> {

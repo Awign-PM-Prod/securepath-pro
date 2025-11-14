@@ -25,6 +25,8 @@ export default function FormManagement() {
   const [loading, setLoading] = useState(true);
   const [isFormBuilderOpen, setIsFormBuilderOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<FormTemplate | null>(null);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null); // Track the original template ID
+  const [editingTemplateIsActive, setEditingTemplateIsActive] = useState<boolean>(false); // Track if original template is published
   const [selectedContractType, setSelectedContractType] = useState<string>('');
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [templateToPublish, setTemplateToPublish] = useState<FormTemplate | null>(null);
@@ -78,25 +80,18 @@ export default function FormManagement() {
   const handleCreateTemplate = () => {
     setSelectedContractType('');
     setEditingTemplate(null);
+    setEditingTemplateId(null);
+    setEditingTemplateIsActive(false);
     setIsFormBuilderOpen(true);
   };
 
   const handleEditTemplate = (template: FormTemplate) => {
-    // Check if template is published before allowing edit
-    if (!template.is_active) {
-      toast({
-        title: 'Cannot Edit Draft Template',
-        description: 'You need to publish the form before editing it',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+    // Allow editing both published and draft templates
     // Convert FormTemplate to FormBuilderTemplate format
     const formBuilderTemplate = {
       template_name: template.template_name,
       contract_type_id: template.contract_type_id,
-      is_negative: template.is_negative ?? false,
+      is_negative: (template as any).is_negative ?? false,
       fields: template.form_fields?.map(field => ({
         field_key: field.field_key,
         field_title: field.field_title,
@@ -109,23 +104,52 @@ export default function FormManagement() {
       })) || []
     };
     setEditingTemplate(formBuilderTemplate as any);
+    setEditingTemplateId(template.id); // Store the original template ID
+    setEditingTemplateIsActive(template.is_active); // Store if it's published
     setSelectedContractType(template.contract_type_id);
     setIsFormBuilderOpen(true);
   };
 
   const handleSaveTemplate = async (templateData: any) => {
     try {
-      const result = await formService.createFormTemplate(templateData);
+      let result;
+      
+      // If editing an existing draft template, update it (no new version)
+      if (editingTemplateId && !editingTemplateIsActive) {
+        result = await formService.updateFormTemplate(editingTemplateId, templateData);
+        if (result.success) {
+          toast({
+            title: 'Success',
+            description: 'Draft template updated successfully!',
+          });
+        }
+      } 
+      // If editing a published template, create a new version
+      else if (editingTemplateId && editingTemplateIsActive) {
+        result = await formService.createFormTemplate(templateData);
+        if (result.success) {
+          toast({
+            title: 'Success',
+            description: 'New version created successfully! The new version is saved as a draft.',
+          });
+        }
+      }
+      // If creating a new template
+      else {
+        result = await formService.createFormTemplate(templateData);
+        if (result.success) {
+          toast({
+            title: 'Success',
+            description: 'Form template created successfully!',
+          });
+        }
+      }
+
       if (result.success) {
-        const message = editingTemplate 
-          ? 'Form template updated successfully!' 
-          : 'Form template created successfully!';
-        toast({
-          title: 'Success',
-          description: message,
-        });
         setIsFormBuilderOpen(false);
         setEditingTemplate(null);
+        setEditingTemplateId(null);
+        setEditingTemplateIsActive(false);
         loadTemplates();
       } else {
         toast({
@@ -147,6 +171,8 @@ export default function FormManagement() {
   const handleCancelFormBuilder = () => {
     setIsFormBuilderOpen(false);
     setEditingTemplate(null);
+    setEditingTemplateId(null);
+    setEditingTemplateIsActive(false);
     setSelectedContractType('');
   };
 
