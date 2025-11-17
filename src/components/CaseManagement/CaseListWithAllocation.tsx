@@ -357,7 +357,8 @@ export default function CaseListWithAllocation({
 
   const unallocatableSelectedCases = useMemo(() => 
     filteredCases.filter(caseItem => 
-      caseItem.status === 'allocated' && caseItem.current_assignee
+      (caseItem.status === 'allocated' || caseItem.status === 'accepted') && 
+      caseItem.current_assignee
     ), [filteredCases]
   );
 
@@ -379,7 +380,9 @@ export default function CaseListWithAllocation({
   const selectedUnallocatableCases = useMemo(() => 
     Array.from(selectedCases).filter(caseId => {
       const caseItem = cases.find(c => c.id === caseId);
-      const isUnallocatable = caseItem && caseItem.status === 'allocated' && caseItem.current_assignee;
+      const isUnallocatable = caseItem && 
+        (caseItem.status === 'allocated' || caseItem.status === 'accepted') && 
+        caseItem.current_assignee;
       return isUnallocatable;
     }), [selectedCases, cases]
   );

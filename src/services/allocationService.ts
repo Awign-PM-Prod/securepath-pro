@@ -1032,6 +1032,7 @@ export class AllocationService {
       });
 
       // Update allocation log to mark as unallocated
+      // Check for both 'allocated' and 'accepted' decisions
       const { error: logError } = await supabase
         .from('allocation_logs')
         .update({
@@ -1041,7 +1042,7 @@ export class AllocationService {
         })
         .eq('case_id', caseId)
         .eq('gig_partner_id', caseData.current_assignee_id)
-        .eq('decision', 'allocated'); // Look for allocated records
+        .in('decision', ['allocated', 'accepted']); // Look for allocated or accepted records
 
       if (logError) {
         console.warn('Failed to update allocation log:', logError);
