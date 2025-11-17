@@ -773,6 +773,17 @@ export default function GigWorkerDashboard() {
           files: transformedSubmissionData.form_submission_files
         });
         
+        // Fetch QC review data for this case if not already available
+        if (allQcReviewData[caseItem.id]) {
+          setQcReviewData(allQcReviewData[caseItem.id]);
+        } else {
+          const qcData = await fetchQcReviewData(caseItem.id);
+          if (qcData) {
+            setQcReviewData(qcData);
+            setAllQcReviewData(prev => ({ ...prev, [caseItem.id]: qcData }));
+          }
+        }
+        
         // Set the previous submission data as draft data for editing
         setDraftData(transformedSubmissionData);
         setIsEditMode(true);
@@ -825,11 +836,19 @@ export default function GigWorkerDashboard() {
     setSelectedSubmissionCase(caseItem);
     setIsViewSubmissionDialogOpen(true);
     
-    // Use the stored QC review data
+    // Fetch QC review data if not already available
     if (allQcReviewData[caseItem.id]) {
       setQcReviewData(allQcReviewData[caseItem.id]);
     } else {
-      setQcReviewData(null);
+      // Fetch QC review data for this case
+      const qcData = await fetchQcReviewData(caseItem.id);
+      if (qcData) {
+        setQcReviewData(qcData);
+        // Also update allQcReviewData for future use
+        setAllQcReviewData(prev => ({ ...prev, [caseItem.id]: qcData }));
+      } else {
+        setQcReviewData(null);
+      }
     }
   };
 
@@ -2599,6 +2618,27 @@ export default function GigWorkerDashboard() {
                         </div>
                       </div>
                       
+                      {/* QC Remarks/Comments */}
+                      {qcReviewData.comments && (
+                        <div>
+                          <div className="font-medium text-gray-900 mb-2">QC Remarks:</div>
+                          <div className="bg-purple-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
+                            {qcReviewData.comments}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Reason Code */}
+                      {qcReviewData.reason_code && (
+                        <div>
+                          <div className="font-medium text-gray-900 mb-2">Reason Code:</div>
+                          <div className="bg-indigo-50 rounded-lg p-3 text-sm">
+                            {qcReviewData.reason_code.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Issues Found */}
                       {qcReviewData.issues_found && qcReviewData.issues_found.length > 0 && (
                         <div>
                           <div className="font-medium text-gray-900 mb-2">Issues Found:</div>
@@ -2612,11 +2652,11 @@ export default function GigWorkerDashboard() {
                         </div>
                       )}
                       
-                      
+                      {/* Rework Instructions */}
                       {qcReviewData.rework_instructions && (
                         <div>
                           <div className="font-medium text-gray-900 mb-2">Rework Instructions:</div>
-                          <div className="bg-blue-50 rounded-lg p-3 text-sm">
+                          <div className="bg-blue-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
                             {qcReviewData.rework_instructions}
                           </div>
                         </div>
