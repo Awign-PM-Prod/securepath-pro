@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { FormTemplate, FormField, FormData, FormFieldValue } from '@/types/form';
 import { formService } from '@/services/formService';
 import { supabase } from '@/integrations/supabase/client';
@@ -32,6 +32,7 @@ interface DynamicFormProps {
   isAutoSaving?: boolean;
   lastAutoSaveTime?: Date | null;
   isNegative?: boolean; // Whether this is a negative case form
+  hideFooterButtons?: boolean; // Whether to hide the footer buttons (Cancel, Save Draft, Submit)
   caseData?: {
     id: string;
     case_number: string;
@@ -48,7 +49,13 @@ interface DynamicFormProps {
   };
 }
 
-export const DynamicForm: React.FC<DynamicFormProps> = ({
+export interface DynamicFormRef {
+  submit: () => void;
+  saveDraft: () => void;
+  isFormComplete: () => boolean;
+}
+
+export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
   contractTypeId,
   caseId,
   gigWorkerId,
@@ -64,8 +71,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   isAutoSaving = false,
   lastAutoSaveTime,
   isNegative = false,
+  hideFooterButtons = false,
   caseData
-}) => {
+}, ref) => {
   const [template, setTemplate] = useState<FormTemplate | null>(null);
   const [formData, setFormData] = useState<FormData>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -296,30 +304,69 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     console.log('Form data has values:', hasValues);
   }, [formData, draftData, template]);
 
+  // Debug: Log formData changes to track if files are being lost
+  useEffect(() => {
+    if (draftLoaded && template) {
+      const fieldsWithFiles = Object.entries(formData)
+        .filter(([key, value]: [string, any]) => value?.files && value.files.length > 0)
+        .map(([key, value]: [string, any]) => ({
+          fieldKey: key,
+          fileCount: value.files.length,
+          fileNames: value.files.map((f: any) => f.name || f.file_name)
+        }));
+      
+      if (fieldsWithFiles.length > 0) {
+        console.log('DynamicForm: Current formData fields with files:', fieldsWithFiles);
+      } else {
+        console.warn('DynamicForm: No fields with files found in formData!');
+        console.log('DynamicForm: All formData keys:', Object.keys(formData));
+        console.log('DynamicForm: Sample formData entry:', Object.entries(formData)[0]);
+      }
+    }
+  }, [formData, draftLoaded, template]);
+
   // Removed debounced auto-save on any form change; auto-save should trigger only on value changes
 
   const loadDraftFilesFromDraft = async (draftData: any, initialData: FormData): Promise<FormData> => {
     try {
       // Get files from draft data
       const files = draftData.form_submission_files || [];
+      
+      console.log('loadDraftFilesFromDraft: Total files found:', files.length);
+      console.log('loadDraftFilesFromDraft: Files data:', files);
 
       // Group files by field_key
       const filesByField: Record<string, any[]> = {};
       files.forEach((file: any) => {
         const fieldKey = file.form_field?.field_key;
+        console.log('loadDraftFilesFromDraft: Processing file:', {
+          fileId: file.id,
+          fileName: file.file_name,
+          fieldKey: fieldKey,
+          hasFormField: !!file.form_field,
+          formFieldData: file.form_field
+        });
         if (fieldKey) {
           if (!filesByField[fieldKey]) {
             filesByField[fieldKey] = [];
           }
           filesByField[fieldKey].push(file);
+        } else {
+          console.warn('loadDraftFilesFromDraft: File missing field_key:', file);
         }
       });
 
+      console.log('loadDraftFilesFromDraft: Files grouped by field:', filesByField);
+      console.log('loadDraftFilesFromDraft: Fields with files:', Object.keys(filesByField));
+
       // Create a deep copy of initialData to avoid mutating the original
       const updatedData = JSON.parse(JSON.stringify(initialData));
+      
+      console.log('loadDraftFilesFromDraft: Initial data keys:', Object.keys(updatedData));
 
       // Update updatedData with files (transform database format to form format)
       Object.entries(filesByField).forEach(([fieldKey, fieldFiles]) => {
+        console.log(`loadDraftFilesFromDraft: Processing field ${fieldKey} with ${fieldFiles.length} files`);
         if (updatedData[fieldKey]) {
           // Transform database file format to form file format
           const transformedFiles = fieldFiles.map(file => ({
@@ -336,6 +383,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             index === self.findIndex(f => f.url === file.url)
           );
           
+          console.log(`loadDraftFilesFromDraft: Setting ${uniqueFiles.length} files for field ${fieldKey}`);
+          
           // REPLACE files instead of adding to existing ones
           updatedData[fieldKey].files = uniqueFiles;
           
@@ -350,8 +399,30 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             Object.defineProperty(fileObj, 'size', { value: file.size || 0 });
             markFileAsUploaded(fileObj);
           });
+        } else {
+          console.warn(`loadDraftFilesFromDraft: Field ${fieldKey} not found in initialData, creating it with files`);
+          // If field doesn't exist in initialData, create it with files
+          // This can happen if the template changed or field was removed
+          updatedData[fieldKey] = {
+            value: '',
+            files: fieldFiles.map(file => ({
+              ...file,
+              name: file.file_name,
+              size: file.file_size || 0,
+              url: file.file_url,
+              type: file.mime_type,
+              uploaded_at: file.uploaded_at
+            }))
+          };
         }
       });
+
+      console.log('loadDraftFilesFromDraft: Final updatedData keys:', Object.keys(updatedData));
+      console.log('loadDraftFilesFromDraft: Files in updatedData:', Object.entries(updatedData).map(([key, value]) => ({
+        fieldKey: key,
+        hasFiles: !!(value as any).files,
+        fileCount: (value as any).files?.length || 0
+      })));
 
       return updatedData;
     } catch (error) {
@@ -786,23 +857,29 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             }
             
             console.log(`Auto-filling date-time field "${field.field_title}" (${field.field_key}, type: ${field.field_type}) with:`, dateTimeValue);
+            // Preserve files when updating value
             formData[field.field_key] = {
               ...formData[field.field_key],
-              value: dateTimeValue
+              value: dateTimeValue,
+              files: formData[field.field_key]?.files || [] // Explicitly preserve files
             };
           } else if (isDateField || (isVisitField && !isTimeField)) {
             // Date only field
             console.log(`Auto-filling date field ${field.field_key} (${field.field_type}) with:`, currentDate);
+            // Preserve files when updating value
             formData[field.field_key] = {
               ...formData[field.field_key],
-              value: currentDate
+              value: currentDate,
+              files: formData[field.field_key]?.files || [] // Explicitly preserve files
             };
           } else if (isTimeField) {
             // Time only field
             console.log(`Auto-filling time field ${field.field_key} (${field.field_type}) with:`, currentTime);
+            // Preserve files when updating value
             formData[field.field_key] = {
               ...formData[field.field_key],
-              value: currentTime
+              value: currentTime,
+              files: formData[field.field_key]?.files || [] // Explicitly preserve files
             };
           }
         });
@@ -859,14 +936,16 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           
           if (initialData[key]) {
             // Field exists in template, merge the data
+            // NOTE: We preserve files here, but files will be loaded AFTER this merge
+            // So we keep the empty files array for now, files will be added in loadDraftFilesFromDraft
             if (value && typeof value === 'object' && 'value' in value) {
               // Standard structure: {value: "", files: []}
               if (value.value !== undefined) {
                 initialData[key] = {
                   value: value.value as string | number | boolean | string[],
-                  files: initialData[key].files // Keep existing files array, don't merge from draft data
+                  files: initialData[key].files || [] // Keep existing files array (will be populated later)
                 };
-                console.log(`Merging field ${key} with draft value:`, value.value);
+                console.log(`Merging field ${key} with draft value:`, value.value, 'files will be loaded next');
               } else {
                 console.log(`Skipping field ${key} - value is undefined`);
               }
@@ -874,16 +953,16 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               // Array structure: ["Yes", "No"] - convert to standard structure
               initialData[key] = {
                 value: value,
-                files: initialData[key].files // Keep existing files array
+                files: initialData[key].files || [] // Keep existing files array (will be populated later)
               };
-              console.log(`Merging field ${key} with draft array:`, value);
+              console.log(`Merging field ${key} with draft array:`, value, 'files will be loaded next');
             } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
               // Direct value structure: "some text" or 123 or true - convert to standard structure
               initialData[key] = {
                 value: value,
-                files: initialData[key].files // Keep existing files array
+                files: initialData[key].files || [] // Keep existing files array (will be populated later)
               };
-              console.log(`Merging field ${key} with direct value:`, value);
+              console.log(`Merging field ${key} with direct value:`, value, 'files will be loaded next');
             }
           } else if (key === 'additional_notes') {
             console.log('additional_notes field not found in initialData template');
@@ -899,7 +978,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
         
         // Load files from draft data (now included in the draft)
+        // This MUST happen after merging draft values to ensure files are loaded into the correct fields
+        console.log('DynamicForm: About to load files from draft, initialData keys:', Object.keys(initialData));
         const updatedFormData = await loadDraftFilesFromDraft(draftData, initialData);
+        console.log('DynamicForm: Files loaded, updatedFormData keys:', Object.keys(updatedFormData));
         
         // Load signature from draft files if exists
         const signatureFile = draftData.form_submission_files?.find((file: any) => 
@@ -951,7 +1033,19 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         }
         
         // Auto-fill date and time fields for draft data if empty
+        // IMPORTANT: Call this AFTER files are loaded to ensure files are preserved
         autoFillDateTimeFields(updatedFormData, result.template.form_fields || []);
+        
+        // Final check: Log all fields with files before setting formData
+        console.log('DynamicForm: Final check - Fields with files before setFormData:', 
+          Object.entries(updatedFormData)
+            .filter(([key, value]: [string, any]) => value?.files && value.files.length > 0)
+            .map(([key, value]: [string, any]) => ({
+              fieldKey: key,
+              fileCount: value.files.length,
+              files: value.files.map((f: any) => ({ name: f.name || f.file_name, url: f.url || f.file_url }))
+            }))
+        );
         
         // Update form data with loaded files
         console.log('DynamicForm: Setting form data to:', updatedFormData);
@@ -2066,6 +2160,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     }
   };
 
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    submit: handleSubmit,
+    saveDraft: handleSaveDraft,
+    isFormComplete: isFormComplete
+  }));
+
   const renderField = (field: FormField) => {
     try {
       // Handle both data structures: {value: "", files: []} and direct arrays
@@ -2122,6 +2223,21 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           isArray: Array.isArray(fieldData.value),
           formDataKey: formData[field.field_key],
           isReadOnly
+        });
+      }
+      
+      // Debug: Log file upload fields specifically
+      if (field.field_type === 'file_upload') {
+        console.log(`Rendering file upload field ${field.field_key}:`, {
+          rawFieldData,
+          fieldData,
+          hasFiles: !!(fieldData?.files),
+          fileCount: fieldData?.files?.length || 0,
+          files: fieldData?.files?.map((f: any) => ({
+            name: f.name || f.file_name,
+            url: f.url || f.file_url,
+            hasUrl: !!(f.url || f.file_url)
+          })) || []
         });
       }
 
@@ -2617,11 +2733,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
         )}
       </CardHeader>
       <CardContent className="p-0 flex flex-col h-[70vh]">
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+        <div className={`flex-1 overflow-y-auto p-6 space-y-6 ${hideFooterButtons ? (isMobile ? 'pb-32' : 'pb-16') : (isMobile ? 'pb-32' : 'pb-24')} scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100`}>
           {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
+          {/* Extra spacing at the end for mobile view to ensure last field is fully visible */}
+          <div className={isMobile ? 'h-24' : 'h-8'}></div>
         </div>
         
         {/* Sticky Footer */}
+        {!hideFooterButtons && (
         <div className={`flex p-6 pt-4 border-t bg-gray-50 sticky bottom-0 z-10 ${isMobile ? 'flex-col gap-3' : 'justify-end space-x-4'}`}>
           {isMobile ? (
             // Mobile view: Submit and Save Draft first, Cancel at bottom
@@ -2676,6 +2795,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             </>
           )}
         </div>
+        )}
       </CardContent>
 
       {/* Camera Capture Dialog */}
@@ -2695,4 +2815,4 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       )}
     </Card>
   );
-};
+});

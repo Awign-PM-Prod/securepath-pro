@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { gigWorkerService } from '@/services/gigWorkerService';
-import { DynamicForm } from '@/components/DynamicForm';
+import { DynamicForm, DynamicFormRef } from '@/components/DynamicForm';
 import { FormData } from '@/types/form';
 import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
 import { getGigWorkerVendorInfo } from '@/utils/vendorGigWorkerUtils';
@@ -107,6 +107,7 @@ export default function GigWorkerDashboard() {
   const [qcReviewData, setQcReviewData] = useState<any>(null);
   const [allQcReviewData, setAllQcReviewData] = useState<Record<string, any>>({});
   const [draftData, setDraftData] = useState<any>(null);
+  const formRef = useRef<DynamicFormRef>(null);
   const [isDraftResumeDialogOpen, setIsDraftResumeDialogOpen] = useState(false);
   const [pendingDraftCase, setPendingDraftCase] = useState<AllocatedCase | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -460,12 +461,15 @@ export default function GigWorkerDashboard() {
   };
 
   const handleDynamicFormSubmit = async (formData: FormData) => {
-    if (!selectedCase || !gigWorkerId) return;
+    // Use selectedSubmissionCase when in edit mode (for rework cases), otherwise selectedCase
+    const caseToSubmit = isEditMode && selectedSubmissionCase ? selectedSubmissionCase : selectedCase;
+    
+    if (!caseToSubmit || !gigWorkerId) return;
 
     setIsSubmitting(true);
     try {
       const result = await gigWorkerService.submitCase({
-        caseId: selectedCase.id,
+        caseId: caseToSubmit.id,
         gigWorkerId,
         formData: formData,
         notes: '', // Will be handled by the form
@@ -477,9 +481,12 @@ export default function GigWorkerDashboard() {
       if (result.success) {
         toast({
           title: 'Success',
-          description: 'Case submitted successfully!',
+          description: isEditMode ? 'Case resubmitted successfully!' : 'Case submitted successfully!',
         });
         setIsSubmissionDialogOpen(false);
+        setIsViewSubmissionDialogOpen(false);
+        setIsEditMode(false);
+        setDraftData(null);
         loadAllocatedCases();
       } else {
         const errorObj = new Error(result.error || 'Failed to submit case');
@@ -756,8 +763,15 @@ export default function GigWorkerDashboard() {
         
         const transformedSubmissionData = {
           submission_data: submissionData,
-          files: (submissionResult.submission as any).form_submission_files || []
+          form_submission_files: (submissionResult.submission as any).form_submission_files || [],
+          files: (submissionResult.submission as any).form_submission_files || [] // Keep both for compatibility
         };
+        
+        console.log('Transformed submission data for editing:', {
+          hasSubmissionData: !!transformedSubmissionData.submission_data,
+          filesCount: transformedSubmissionData.form_submission_files?.length || 0,
+          files: transformedSubmissionData.form_submission_files
+        });
         
         // Set the previous submission data as draft data for editing
         setDraftData(transformedSubmissionData);
@@ -1025,13 +1039,32 @@ export default function GigWorkerDashboard() {
   });
   const reworkCases = allocatedCases
     .filter(c => {
-      if (c.QC_Response !== 'Rework') return false;
+      // Include cases with QC_Response='Rework' OR status='qc_rework'
+      const isReworkCase = c.QC_Response === 'Rework' || c.status === 'qc_rework';
+      
+      // Debug logging for rework cases
+      if (isReworkCase) {
+        console.log('Rework case found:', {
+          case_number: c.case_number,
+          QC_Response: c.QC_Response,
+          status: c.status,
+          rework_at: c.rework_at,
+          allocated_at: c.allocated_at,
+          selectedMonth,
+          rework_at_in_month: isInSelectedMonth(c.rework_at),
+          allocated_at_in_month: isInSelectedMonth(c.allocated_at)
+        });
+      }
+      
+      if (!isReworkCase) return false;
       // For rework cases, show if:
       // 1. rework_at is in selected month, OR
-      // 2. rework_at is null/undefined but allocated_at is in selected month (newly allocated rework cases)
+      // 2. allocated_at is in selected month (for newly allocated rework cases, regardless of when originally reworked)
+      // 3. status is 'qc_rework' (show regardless of month filter to ensure visibility)
       // This ensures newly allocated rework cases appear in the rework tab
+      if (c.status === 'qc_rework') return true; // Always show qc_rework status cases
       if (isInSelectedMonth(c.rework_at)) return true;
-      if (!c.rework_at && isInSelectedMonth(c.allocated_at)) return true;
+      if (isInSelectedMonth(c.allocated_at)) return true;
       return false;
     })
     .sort((a, b) => {
@@ -2545,7 +2578,7 @@ export default function GigWorkerDashboard() {
               }
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-hidden">
+          <div className={`flex-1 overflow-hidden ${isEditMode ? (isMobile ? 'pb-32' : 'pb-24') : ''}`}>
             {selectedSubmissionCase && (
               <>
                 {/* QC Review Details for QC Rework Cases */}
@@ -2609,6 +2642,7 @@ export default function GigWorkerDashboard() {
                 {isEditMode ? (
                   // Edit Mode - Show DynamicForm
                   <DynamicForm
+                    ref={formRef}
                     contractTypeId={selectedSubmissionCase.contract_type}
                     caseId={selectedSubmissionCase.id}
                     gigWorkerId={gigWorkerId}
@@ -2623,6 +2657,7 @@ export default function GigWorkerDashboard() {
                     draftData={draftData}
                     isAutoSaving={isSaving}
                     lastAutoSaveTime={lastSaveTime}
+                    hideFooterButtons={true}
                     caseData={{
                       id: selectedSubmissionCase.id,
                       case_number: selectedSubmissionCase.case_number,
@@ -2646,26 +2681,55 @@ export default function GigWorkerDashboard() {
             )}
           </div>
           <DialogFooter className="flex-shrink-0">
-            <div className={`flex gap-2 ${isMobile ? 'flex-col' : 'flex-row'}`}>
-              {!isEditMode && selectedSubmissionCase?.QC_Response === 'Rework' && selectedSubmissionCase?.status === 'accepted' && (
+            <div className={`flex gap-2 w-full ${isMobile ? 'flex-col' : 'flex-row justify-end items-center'}`}>
+              {isEditMode && (
+                <>
+                  <Button 
+                    variant="outline"
+                    onClick={() => {
+                      setIsEditMode(false);
+                      setDraftData(null);
+                    }}
+                    disabled={isSubmitting}
+                    className={isMobile ? 'w-full' : ''}
+                  >
+                    Cancel
+                  </Button>
+                  {handleSaveDraft && (
+                    <Button 
+                      variant="secondary" 
+                      onClick={() => {
+                        if (formRef.current) {
+                          formRef.current.saveDraft();
+                        }
+                      }}
+                      disabled={isSubmitting || isSaving}
+                      className={isMobile ? 'w-full' : ''}
+                    >
+                      {isSaving ? 'Saving...' : 'Save as Draft'}
+                    </Button>
+                  )}
+                  <Button 
+                    onClick={() => {
+                      if (formRef.current) {
+                        formRef.current.submit();
+                      }
+                    }}
+                    disabled={isSubmitting || (formRef.current && !formRef.current.isFormComplete())}
+                    className={isMobile ? 'w-full' : ''}
+                  >
+                    {isSubmitting ? 'Submitting...' : 'Submit Form'}
+                  </Button>
+                </>
+              )}
+              {!isEditMode && (selectedSubmissionCase?.QC_Response === 'Rework' || selectedSubmissionCase?.status === 'qc_rework') && 
+               (selectedSubmissionCase?.status === 'accepted' || selectedSubmissionCase?.status === 'allocated' || selectedSubmissionCase?.status === 'qc_rework') && (
                 <Button 
                   onClick={() => handleStartEditing(selectedSubmissionCase)}
                   className={isMobile ? 'w-full' : ''}
                 >
                   <FileText className="h-4 w-4 mr-2" />
-                  Start Editing/Resubmit
-                </Button>
-              )}
-              {isEditMode && (
-                <Button 
-                  variant="outline"
-                  onClick={() => {
-                    setIsEditMode(false);
-                    setDraftData(null);
-                  }}
-                  className={isMobile ? 'w-full' : ''}
-                >
-                  Cancel Edit
+                  Edit & Resubmit
                 </Button>
               )}
               <Button variant="outline" onClick={() => {

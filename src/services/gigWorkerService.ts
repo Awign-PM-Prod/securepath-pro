@@ -572,7 +572,7 @@ export class GigWorkerService {
         `)
         .eq('current_assignee_id', gigWorkerId)
         .eq('current_assignee_type', 'gig')
-        .in('status', ['allocated', 'accepted', 'in_progress', 'submitted', 'qc_passed']);
+        .in('status', ['allocated', 'accepted', 'in_progress', 'submitted', 'qc_passed', 'qc_rework']);
 
       if (error) throw error;
 
@@ -717,11 +717,23 @@ export class GigWorkerService {
         }
 
         // Get allocated_at - use allocation log, or status_updated_at if status is allocated
+        // For rework cases, we need allocated_at to be set so they show in the rework tab
         let allocatedAt = null;
         if (caseItem.status === 'allocated') {
           allocatedAt = allocatedLog?.allocated_at || (caseItem as any).status_updated_at;
+        } else if (caseItem.status === 'qc_rework') {
+          // For qc_rework status, try to get allocated_at from log, or use status_updated_at
+          // This handles cases where qc_rework cases are allocated but status hasn't changed to 'allocated'
+          allocatedAt = allocatedLog?.allocated_at || (caseItem as any).status_updated_at;
         } else {
+          // For other statuses, still try to get allocated_at from log
+          // If not found and this is a rework case, use status_updated_at as fallback
           allocatedAt = allocatedLog?.allocated_at;
+          if (!allocatedAt && (caseItem.QC_Response === 'Rework' || caseItem.status === 'qc_rework')) {
+            // For rework cases, if no allocation log found, use status_updated_at
+            // This handles cases where allocation log might be missing
+            allocatedAt = (caseItem as any).status_updated_at;
+          }
         }
 
         // Get submitted_at - use actual_submitted_at or status_updated_at when status is submitted
@@ -744,13 +756,16 @@ export class GigWorkerService {
           submitted_at: submittedAt,
           qc_passed_at: qcPassedAt,
           // For rework_at, prefer rework review timestamp
+          // For qc_rework status, use status_updated_at as the rework time
           // Only use status_updated_at as fallback if case is NOT newly allocated (status is not 'allocated' or 'accepted')
           // This prevents using allocation time as rework time
           rework_at: reworkReview?.reviewed_at || reworkReview?.created_at || 
-            (caseItem.QC_Response === 'Rework' && 
-             caseItem.status !== 'allocated' && 
-             caseItem.status !== 'accepted' 
-             ? (caseItem as any).status_updated_at : null)
+            (caseItem.status === 'qc_rework' 
+             ? (caseItem as any).status_updated_at 
+             : (caseItem.QC_Response === 'Rework' && 
+                caseItem.status !== 'allocated' && 
+                caseItem.status !== 'accepted' 
+                ? (caseItem as any).status_updated_at : null))
         };
       }) || [];
 

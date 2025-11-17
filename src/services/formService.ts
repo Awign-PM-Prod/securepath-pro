@@ -792,7 +792,12 @@ export class FormService {
             file_name,
             file_size,
             mime_type,
-            uploaded_at
+            uploaded_at,
+            form_field:form_fields (
+              field_key,
+              field_title,
+              field_type
+            )
           )
         `)
         .eq('case_id', caseId)
