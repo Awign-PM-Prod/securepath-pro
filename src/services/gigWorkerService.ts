@@ -806,9 +806,24 @@ export class GigWorkerService {
 
   /**
    * Check for timeout cases and handle them
+   * Note: Direct gig workers don't have timeout - they can accept at any time
    */
   async checkAndHandleTimeouts(gigWorkerId: string): Promise<{ success: boolean; timeoutCount?: number; error?: string }> {
     try {
+      // Check if this is a direct gig worker - if so, skip timeout handling
+      const { data: gigWorker, error: gigWorkerError } = await supabase
+        .from('gig_partners')
+        .select('is_direct_gig')
+        .eq('id', gigWorkerId)
+        .single();
+
+      if (gigWorkerError) throw gigWorkerError;
+
+      // Direct gig workers don't have timeout - they can accept at any time
+      if (gigWorker?.is_direct_gig) {
+        return { success: true, timeoutCount: 0 };
+      }
+
       const now = new Date().toISOString();
       
       // Get cases that should have timed out

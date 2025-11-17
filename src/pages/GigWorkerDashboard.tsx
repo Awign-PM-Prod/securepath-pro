@@ -293,6 +293,8 @@ export default function GigWorkerDashboard() {
   const checkTimeouts = async () => {
     const now = new Date();
     const timeoutCases = allocatedCases.filter(caseItem => {
+      // Direct gig workers don't have timeout - they can accept at any time
+      if (caseItem.is_direct_gig) return false;
       if (caseItem.status !== 'allocated') return false;
       const deadline = new Date(caseItem.acceptance_deadline);
       return now > deadline;
@@ -924,7 +926,9 @@ export default function GigWorkerDashboard() {
     return `${hours}h ${remainingMinutes}m left`;
   };
 
-  const isExpired = (deadline: string) => {
+  const isExpired = (deadline: string, isDirectGig: boolean = false) => {
+    // Direct gig workers can accept at any time - no expiration
+    if (isDirectGig) return false;
     return new Date() > new Date(deadline);
   };
 
@@ -1065,7 +1069,11 @@ export default function GigWorkerDashboard() {
     onViewSubmission?: () => void;
     showEditDraft?: boolean;
   }) => {
-    const isExpired = (deadline: string) => new Date() > new Date(deadline);
+    const isExpired = (deadline: string, isDirectGig: boolean = false) => {
+      // Direct gig workers can accept at any time - no expiration
+      if (isDirectGig) return false;
+      return new Date() > new Date(deadline);
+    };
     const getTimeRemaining = (deadline: string) => {
       const now = new Date();
       const deadlineDate = new Date(deadline);
@@ -1155,11 +1163,11 @@ export default function GigWorkerDashboard() {
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
               <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                isExpired(caseItem.acceptance_deadline) 
+                isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig) 
                   ? 'bg-red-100 text-red-700' 
                   : 'bg-orange-100 text-orange-700'
               }`}>
-                {getTimeRemaining(caseItem.acceptance_deadline)}
+                {caseItem.is_direct_gig ? 'No time limit' : getTimeRemaining(caseItem.acceptance_deadline)}
               </span>
             </div>
           </div>
@@ -1170,7 +1178,7 @@ export default function GigWorkerDashboard() {
               <Button
                 size="sm"
                 onClick={onAccept}
-                disabled={isExpired(caseItem.acceptance_deadline)}
+                disabled={isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)}
                 className="flex-1 h-10 text-sm font-medium bg-green-600 hover:bg-green-700 disabled:bg-gray-300"
               >
                 <CheckCircle className="h-4 w-4 mr-1.5" />
@@ -1182,7 +1190,7 @@ export default function GigWorkerDashboard() {
                 size="sm"
                 variant="outline"
                 onClick={onReject}
-                disabled={isExpired(caseItem.acceptance_deadline)}
+                disabled={isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)}
                 className="flex-1 h-10 text-sm font-medium border-red-300 text-red-700 hover:bg-red-50 disabled:bg-gray-100"
               >
                 <XCircle className="h-4 w-4 mr-1.5" />
@@ -1566,8 +1574,8 @@ export default function GigWorkerDashboard() {
                               </TableCell>
                             )}
                             <TableCell>
-                              <div className={`text-sm ${isExpired(caseItem.acceptance_deadline) ? 'text-red-600' : 'text-orange-600'}`}>
-                                {getTimeRemaining(caseItem.acceptance_deadline)}
+                              <div className={`text-sm ${isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig) ? 'text-red-600' : 'text-orange-600'}`}>
+                                {caseItem.is_direct_gig ? 'No time limit' : getTimeRemaining(caseItem.acceptance_deadline)}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1578,7 +1586,7 @@ export default function GigWorkerDashboard() {
                                     setSelectedCase(caseItem);
                                     setIsAcceptDialogOpen(true);
                                   }}
-                                  disabled={isExpired(caseItem.acceptance_deadline)}
+                                  disabled={isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)}
                                 >
                                   <CheckCircle className="h-4 w-4 mr-1" />
                                   Accept
@@ -1590,7 +1598,7 @@ export default function GigWorkerDashboard() {
                                     setSelectedCase(caseItem);
                                     setIsRejectDialogOpen(true);
                                   }}
-                                  disabled={isExpired(caseItem.acceptance_deadline)}
+                                  disabled={isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)}
                                 >
                                   <XCircle className="h-4 w-4 mr-1" />
                                   Reject
