@@ -656,10 +656,19 @@ export class GigWorkerService {
         const firstFormSubmission = formSubmissions?.find(f => f.case_id === caseItem.id);
         
         // Find rework review (most recent rework)
-        const reworkReview = qcReviews?.find(q => 
+        // Filter all rework reviews for this case and get the most recent one
+        const reworkReviews = qcReviews?.filter(q => 
           q.case_id === caseItem.id && 
           q.result === 'rework'
-        );
+        ) || [];
+        // Sort by reviewed_at descending to get most recent, fallback to created_at
+        const reworkReview = reworkReviews.length > 0 
+          ? reworkReviews.sort((a, b) => {
+              const aDate = a.reviewed_at || a.created_at;
+              const bDate = b.reviewed_at || b.created_at;
+              return new Date(bDate).getTime() - new Date(aDate).getTime();
+            })[0]
+          : null;
         
         // Find qc_passed review
         const passedReview = qcReviews?.find(q => 
@@ -734,7 +743,14 @@ export class GigWorkerService {
           in_progress_at: firstFormSubmission?.created_at || ((caseItem.status === 'in_progress') ? (caseItem as any).status_updated_at : null),
           submitted_at: submittedAt,
           qc_passed_at: qcPassedAt,
-          rework_at: reworkReview?.reviewed_at || reworkReview?.created_at || (caseItem.QC_Response === 'Rework' ? (caseItem as any).status_updated_at : null)
+          // For rework_at, prefer rework review timestamp
+          // Only use status_updated_at as fallback if case is NOT newly allocated (status is not 'allocated' or 'accepted')
+          // This prevents using allocation time as rework time
+          rework_at: reworkReview?.reviewed_at || reworkReview?.created_at || 
+            (caseItem.QC_Response === 'Rework' && 
+             caseItem.status !== 'allocated' && 
+             caseItem.status !== 'accepted' 
+             ? (caseItem as any).status_updated_at : null)
         };
       }) || [];
 

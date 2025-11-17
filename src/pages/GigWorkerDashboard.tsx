@@ -1026,8 +1026,13 @@ export default function GigWorkerDashboard() {
   const reworkCases = allocatedCases
     .filter(c => {
       if (c.QC_Response !== 'Rework') return false;
-      // Filter by when case was marked for rework
-      return isInSelectedMonth(c.rework_at);
+      // For rework cases, show if:
+      // 1. rework_at is in selected month, OR
+      // 2. rework_at is null/undefined but allocated_at is in selected month (newly allocated rework cases)
+      // This ensures newly allocated rework cases appear in the rework tab
+      if (isInSelectedMonth(c.rework_at)) return true;
+      if (!c.rework_at && isInSelectedMonth(c.allocated_at)) return true;
+      return false;
     })
     .sort((a, b) => {
       // Sort by submitted_at field in descending order (most recent first)

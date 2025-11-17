@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Upload, X, FileText, Camera, Trash2 } from 'lucide-react';
 import { CameraCapture } from '@/components/CameraCapture';
 import { SignatureCanvas } from '@/components/SignatureCanvas';
+import { useToast } from '@/hooks/use-toast';
 
 interface DynamicFormProps {
   contractTypeId: string;
@@ -93,6 +94,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   }>>>({});
 
   const [hasFormData, setHasFormData] = useState(false);
+  const { toast } = useToast();
   
   // Track which fields were auto-filled (for read-only functionality)
   const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
@@ -1891,8 +1893,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           }
         } else {
           // For other field types, check the value
-          if (!fieldData?.value || 
-              (Array.isArray(fieldData.value) && fieldData.value.length === 0)) {
+          const value = fieldData?.value;
+          if (!value || 
+              (typeof value === 'string' && value.trim() === '') ||
+              (Array.isArray(value) && value.length === 0)) {
             newErrors[field.field_key] = `${field.field_title} is required`;
           }
         }
@@ -1923,56 +1927,115 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   };
 
   const isFormComplete = () => {
-    if (!template?.form_fields) return false;
+    if (!template?.form_fields) {
+      console.log('isFormComplete: No template or form_fields');
+      return false;
+    }
     
+    const incompleteFields: string[] = [];
     const allFieldsComplete = template.form_fields.every(field => {
       const fieldData = formData[field.field_key];
       
       if (field.validation_type === 'mandatory') {
         if (field.field_type === 'file_upload') {
           const files = fieldData?.files || [];
-          return files.length > 0;
+          const isComplete = files.length > 0;
+          if (!isComplete) incompleteFields.push(`${field.field_title} (file upload)`);
+          return isComplete;
         } else if (field.field_type === 'signature') {
           // Check if signature exists (either as URL or file)
           const hasSignature = (fieldData?.value && typeof fieldData.value === 'string' && fieldData.value.trim() !== '') ||
                                (fieldData?.files && fieldData.files.length > 0);
+          if (!hasSignature) incompleteFields.push(`${field.field_title} (signature)`);
           return hasSignature;
         } else {
           const value = fieldData?.value;
-          return value && (typeof value !== 'string' || value.trim() !== '');
+          const isComplete = value && (typeof value !== 'string' || value.trim() !== '');
+          if (!isComplete) incompleteFields.push(`${field.field_title} (value: ${JSON.stringify(value)})`);
+          return isComplete;
         }
       }
       return true;
     });
     
+    if (!allFieldsComplete) {
+      console.log('isFormComplete: Incomplete fields:', incompleteFields);
+    } else {
+      console.log('isFormComplete: All mandatory fields are complete');
+    }
+    
     return allFieldsComplete;
   };
 
   const handleSubmit = async () => {
-    if (validateForm()) {
-      // Get current location for form submission
-      let submissionLocation = null;
-      try {
-        submissionLocation = await getCurrentLocation();
-        console.log('Form submission location captured:', submissionLocation);
-      } catch (locationError) {
-        console.warn('Could not get location for form submission:', locationError);
-      }
+    console.log('=== Form Submit Button Clicked ===');
+    console.log('Form data:', formData);
+    console.log('Template:', template);
+    console.log('Loading state:', loading);
+    console.log('Is form complete:', isFormComplete());
+    
+    const isValid = validateForm();
+    console.log('Form validation result:', isValid);
+    console.log('Validation errors:', errors);
+    
+    if (!isValid) {
+      console.error('Form validation failed. Errors:', errors);
+      // Show error toast to user
+      toast({
+        title: 'Validation Error',
+        description: 'Please fill all mandatory fields before submitting.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (!isFormComplete()) {
+      console.error('Form is not complete according to isFormComplete()');
+      toast({
+        title: 'Form Incomplete',
+        description: 'Please fill all mandatory fields before submitting.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    console.log('Validation passed, proceeding with submission...');
+    
+    // Get current location for form submission
+    let submissionLocation = null;
+    try {
+      submissionLocation = await getCurrentLocation();
+      console.log('Form submission location captured:', submissionLocation);
+    } catch (locationError) {
+      console.warn('Could not get location for form submission:', locationError);
+      // Don't block submission if location fails
+    }
 
-      // Prepare form data with location information
-      const formDataWithLocation = {
-        ...formData,
-        _metadata: {
-          file_locations: fileLocations,
-          individual_file_locations: individualFileLocations,
-          submission_timestamp: new Date().toISOString(),
-          submission_location: submissionLocation
-        }
-      };
-      
-      console.log('Submitting form with individual file locations:', individualFileLocations);
-      console.log('Submitting form with submission location:', submissionLocation);
+    // Prepare form data with location information
+    const formDataWithLocation = {
+      ...formData,
+      _metadata: {
+        file_locations: fileLocations,
+        individual_file_locations: individualFileLocations,
+        submission_timestamp: new Date().toISOString(),
+        submission_location: submissionLocation
+      }
+    };
+    
+    console.log('Submitting form with individual file locations:', individualFileLocations);
+    console.log('Submitting form with submission location:', submissionLocation);
+    console.log('Calling onSubmit callback...');
+    
+    try {
       onSubmit(formDataWithLocation as any);
+      console.log('onSubmit callback executed successfully');
+    } catch (error) {
+      console.error('Error in onSubmit callback:', error);
+      toast({
+        title: 'Submission Error',
+        description: error instanceof Error ? error.message : 'Failed to submit form',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -2568,7 +2631,18 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                   {loading ? 'Saving...' : 'Save as Draft'}
                 </Button>
               )}
-              <Button onClick={handleSubmit} disabled={loading || !isFormComplete()} className="w-full">
+              <Button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Submit button clicked - Mobile');
+                  console.log('Button disabled state:', loading || !isFormComplete());
+                  console.log('Loading:', loading, 'isFormComplete:', isFormComplete());
+                  handleSubmit();
+                }} 
+                disabled={loading || !isFormComplete()} 
+                className="w-full"
+              >
                 {loading ? 'Submitting...' : 'Submit Form'}
               </Button>
               <Button variant="outline" onClick={onCancel} disabled={loading} className="w-full">
@@ -2586,7 +2660,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                   {loading ? 'Saving...' : 'Save as Draft'}
                 </Button>
               )}
-              <Button onClick={handleSubmit} disabled={loading || !isFormComplete()}>
+              <Button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Submit button clicked - Desktop');
+                  console.log('Button disabled state:', loading || !isFormComplete());
+                  console.log('Loading:', loading, 'isFormComplete:', isFormComplete());
+                  handleSubmit();
+                }} 
+                disabled={loading || !isFormComplete()}
+              >
                 {loading ? 'Submitting...' : 'Submit Form'}
               </Button>
             </>

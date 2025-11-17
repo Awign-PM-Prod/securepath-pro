@@ -155,12 +155,21 @@ serve(async (req) => {
     console.log('Variables - Name:', displayName, 'OTP:', otpCode);
 
     // Normalize phone number - AWIGN API expects just 10 digits (no country code)
-    let normalizedPhone = phone_number.trim();
-    // Remove +91 or 91 prefix if present
-    normalizedPhone = normalizedPhone.replace(/^\+?91/, '');
+    let normalizedPhone = phone_number.trim().replace(/\s+/g, ''); // Remove all spaces
+    
+    // Only remove +91 or 91 prefix if the number is 12+ digits (has country code)
+    // If it's already 10 digits, don't remove anything
+    if (normalizedPhone.length >= 12) {
+      // Has country code, remove it
+      normalizedPhone = normalizedPhone.replace(/^\+?91/, '');
+    } else if (normalizedPhone.length === 11 && normalizedPhone.startsWith('0')) {
+      // Handle numbers starting with 0 (like 09151529142)
+      normalizedPhone = normalizedPhone.substring(1);
+    }
+    
     // Validate it's a 10-digit Indian mobile number
     if (!/^[6-9]\d{9}$/.test(normalizedPhone)) {
-      console.error('Invalid phone number format:', normalizedPhone);
+      console.error('Invalid phone number format:', normalizedPhone, '(original:', phone_number, ')');
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid Indian mobile number format. Must be 10 digits starting with 6-9.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
