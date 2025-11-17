@@ -847,12 +847,12 @@ export default function CaseListWithAllocation({
 
   const handleSelectAllCases = useCallback((checked: boolean) => {
     if (checked) {
-      // Select all allocatable and allocated cases on current page
+      // Select all allocatable, allocated, and accepted cases on current page
       setSelectedCases(prev => {
         const newSelectedCases = new Set(prev);
         displayCases.forEach(caseItem => {
           if (((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) ||
-              (caseItem.status === 'allocated' && caseItem.current_assignee)) {
+              ((caseItem.status === 'allocated' || caseItem.status === 'accepted') && caseItem.current_assignee)) {
             newSelectedCases.add(caseItem.id);
           }
         });
@@ -869,7 +869,7 @@ export default function CaseListWithAllocation({
   const isAllCasesSelected = useMemo(() => {
     const selectableCasesOnPage = displayCases.filter(caseItem => 
       ((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) ||
-      (caseItem.status === 'allocated' && caseItem.current_assignee)
+      ((caseItem.status === 'allocated' || caseItem.status === 'accepted') && caseItem.current_assignee)
     );
     return selectableCasesOnPage.length > 0 && 
            selectableCasesOnPage.every(caseItem => selectedCases.has(caseItem.id));
@@ -878,7 +878,7 @@ export default function CaseListWithAllocation({
   const isSomeCasesSelected = useMemo(() => {
     const selectableCasesOnPage = displayCases.filter(caseItem => 
       ((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) ||
-      (caseItem.status === 'allocated' && caseItem.current_assignee)
+      ((caseItem.status === 'allocated' || caseItem.status === 'accepted') && caseItem.current_assignee)
     );
     return selectableCasesOnPage.some(caseItem => selectedCases.has(caseItem.id));
   }, [displayCases, selectedCases]);
@@ -1385,9 +1385,9 @@ export default function CaseListWithAllocation({
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-start gap-3">
-                          {/* Checkbox for new, pending_allocation, and allocated status cases */}
+                          {/* Checkbox for new, pending_allocation, allocated, and accepted status cases */}
                           {(((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) || 
-                           (caseItem.status === 'allocated' && caseItem.current_assignee)) && (
+                           ((caseItem.status === 'allocated' || caseItem.status === 'accepted') && caseItem.current_assignee)) && (
                             <Checkbox
                               checked={isCaseSelected(caseItem.id)}
                               onCheckedChange={(checked) => handleSelectCase(caseItem.id, checked as boolean)}
