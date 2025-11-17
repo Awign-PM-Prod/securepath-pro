@@ -351,6 +351,60 @@ export class PDFService {
       return;
     }
 
+    // First, collect all images from all submissions to determine the very last image
+    let allImagesAcrossSubmissions: Array<{ 
+      file: any; 
+      fieldTitle: string; 
+      imageIndex: number; 
+      totalImages: number; 
+      submissionIndex: number; 
+      fieldIndex: number;
+      submission: FormSubmissionData;
+    }> = [];
+    
+    for (let subIndex = 0; subIndex < submissions.length; subIndex++) {
+      const sub = submissions[subIndex];
+      if (sub.form_fields && sub.form_fields.length > 0) {
+        const sortedFields = [...sub.form_fields].sort((a, b) => 
+          (a.field_order || 0) - (b.field_order || 0)
+        );
+        const subFileUploadFields = sortedFields.filter(field => 
+          field.field_type === 'file_upload'
+        );
+        
+        for (let fieldIdx = 0; fieldIdx < subFileUploadFields.length; fieldIdx++) {
+          const field = subFileUploadFields[fieldIdx];
+          const fieldTitle = field.field_title || field.field_key;
+          const fieldFiles = sub.form_submission_files?.filter(file => 
+            file.form_field?.field_key === field.field_key
+          ) || [];
+
+          if (fieldFiles.length > 0) {
+            const imagesToProcess = fieldFiles.filter(file => {
+              const isImage = file.mime_type?.startsWith('image/') || 
+                              file.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+              return isImage && file.file_url;
+            });
+
+            for (let imageIdx = 0; imageIdx < imagesToProcess.length; imageIdx++) {
+              allImagesAcrossSubmissions.push({
+                file: imagesToProcess[imageIdx],
+                fieldTitle,
+                imageIndex: imageIdx,
+                totalImages: imagesToProcess.length,
+                submissionIndex: subIndex,
+                fieldIndex: fieldIdx,
+                submission: sub
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    const totalImagesCount = allImagesAcrossSubmissions.length;
+    let globalImageIndex = 0;
+
     // Process each submission
     for (let index = 0; index < submissions.length; index++) {
       let submission = submissions[index];
@@ -568,49 +622,6 @@ export class PDFService {
 
         // Process file upload fields after all text fields - one image per page
         if (fileUploadFields.length > 0) {
-          // First, collect all images from all submissions to determine the very last image
-          let allImagesAcrossSubmissions: Array<{ file: any; fieldTitle: string; imageIndex: number; totalImages: number; submissionIndex: number; fieldIndex: number }> = [];
-          
-          for (let subIndex = 0; subIndex < submissions.length; subIndex++) {
-            const sub = submissions[subIndex];
-            if (sub.form_fields && sub.form_fields.length > 0) {
-              const sortedFields = [...sub.form_fields].sort((a, b) => 
-                (a.field_order || 0) - (b.field_order || 0)
-              );
-              const subFileUploadFields = sortedFields.filter(field => 
-                field.field_type === 'file_upload'
-              );
-              
-              for (let fieldIdx = 0; fieldIdx < subFileUploadFields.length; fieldIdx++) {
-                const field = subFileUploadFields[fieldIdx];
-                const fieldTitle = field.field_title || field.field_key;
-                const fieldFiles = sub.form_submission_files?.filter(file => 
-                  file.form_field?.field_key === field.field_key
-                ) || [];
-
-                if (fieldFiles.length > 0) {
-                  const imagesToProcess = fieldFiles.filter(file => {
-                    const isImage = file.mime_type?.startsWith('image/') || 
-                                    file.file_url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                    return isImage && file.file_url;
-                  });
-
-                  for (let imageIdx = 0; imageIdx < imagesToProcess.length; imageIdx++) {
-                    allImagesAcrossSubmissions.push({
-                      file: imagesToProcess[imageIdx],
-                      fieldTitle,
-                      imageIndex: imageIdx,
-                      totalImages: imagesToProcess.length,
-                      submissionIndex: subIndex,
-                      fieldIndex: fieldIdx
-                    });
-                  }
-                }
-              }
-            }
-          }
-          
-          let currentImageIndex = 0;
           for (let fieldIndex = 0; fieldIndex < fileUploadFields.length; fieldIndex++) {
             const field = fileUploadFields[fieldIndex];
             const fieldTitle = field.field_title || field.field_key;
@@ -631,63 +642,81 @@ export class PDFService {
                 const file = imagesToProcess[imageIndex];
                 const imageUrl = file.file_url;
                 
-                    // Regular images don't get stamp (signature will be last with stamp)
-                    const isLastImage = false; // Never true for regular images now
+                // Check if this is the last image across all submissions
+                const isLastImage = globalImageIndex === totalImagesCount - 1;
                     
-                    // Create new page for each image
-                    doc.addPage();
-                    yPosition = margin + 15; // Start a bit below top for question
+                // Create new page for each image
+                doc.addPage();
+                yPosition = margin + 15; // Start a bit below top for question
                     
-                    // Show question title at top
-                    // If multiple images, add number: "Question - 1", "Question - 2", etc.
-                    // If single image, just show "Question"
-                    const questionText = imagesToProcess.length > 1 
-                      ? `${fieldTitle} - ${imageIndex + 1}`
-                      : fieldTitle;
+                // Show question title at top
+                // If multiple images, add number: "Question - 1", "Question - 2", etc.
+                // If single image, just show "Question"
+                const questionText = imagesToProcess.length > 1 
+                  ? `${fieldTitle} - ${imageIndex + 1}`
+                  : fieldTitle;
                     
-                    doc.setFontSize(14);
-                    doc.setFont('helvetica', 'bold');
-                    const questionWidth = doc.getTextWidth(questionText);
-                    const questionX = (pageWidth - questionWidth) / 2; // Center the question
-                    doc.text(questionText, questionX, yPosition);
-                    yPosition += 12;
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                const questionWidth = doc.getTextWidth(questionText);
+                const questionX = (pageWidth - questionWidth) / 2; // Center the question
+                doc.text(questionText, questionX, yPosition);
+                yPosition += 12;
                     
-                    try {
-                      // Fetch image with higher quality for full-page display
-                      const imageData = await this.fetchImageAsBase64(imageUrl, 1600, 1200, 0.75);
-                      if (imageData) {
-                        // Calculate dimensions to fit the page (with margins)
-                        const availableWidth = pageWidth - 2 * margin;
-                        const availableHeight = pageHeight - yPosition - margin - 10;
-                        
-                        // Calculate dimensions maintaining aspect ratio
-                        const { width, height } = this.calculateImageDimensions(
-                          imageData.width,
-                          imageData.height,
-                          availableWidth,
-                          availableHeight
-                        );
-                        
-                        // Center the image horizontally
-                        const imageX = (pageWidth - width) / 2;
-                        
-                        // Use JPEG format (from compressed base64)
-                        doc.addImage(imageData.base64, 'JPEG', imageX, yPosition, width, height);
-                      } else {
-                        // Fallback to URL if image can't be loaded
-                        doc.setFontSize(10);
-                        doc.setFont('helvetica', 'normal');
-                        doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
-                      }
-                    } catch (error) {
-                      // Fallback to URL on error
-                      console.error('Error embedding image:', error);
-                      doc.setFontSize(10);
-                      doc.setFont('helvetica', 'normal');
-                      doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
+                try {
+                  // Fetch image with higher quality for full-page display
+                  const imageData = await this.fetchImageAsBase64(imageUrl, 1600, 1200, 0.75);
+                  if (imageData) {
+                    // Calculate dimensions to fit the page (with margins)
+                    // Reserve space for stamp if this is the last image
+                    const stampSpace = isLastImage ? 50 : 10;
+                    const availableWidth = pageWidth - 2 * margin;
+                    const availableHeight = pageHeight - yPosition - margin - stampSpace;
+                    
+                    // Calculate dimensions maintaining aspect ratio
+                    const { width, height } = this.calculateImageDimensions(
+                      imageData.width,
+                      imageData.height,
+                      availableWidth,
+                      availableHeight
+                    );
+                    
+                    // Center the image horizontally
+                    const imageX = (pageWidth - width) / 2;
+                    
+                    // Use JPEG format (from compressed base64)
+                    doc.addImage(imageData.base64, 'JPEG', imageX, yPosition, width, height);
+                    
+                    // Add stamp and signature to the last image
+                    if (isLastImage) {
+                      const imageBottom = yPosition + height;
+                      await this.addStampAndSignature(doc, pageWidth, imageBottom, margin);
                     }
+                  } else {
+                    // Fallback to URL if image can't be loaded
+                    doc.setFontSize(10);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
+                    
+                    // Still add stamp if this is the last image
+                    if (isLastImage) {
+                      await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
+                    }
+                  }
+                } catch (error) {
+                  // Fallback to URL on error
+                  console.error('Error embedding image:', error);
+                  doc.setFontSize(10);
+                  doc.setFont('helvetica', 'normal');
+                  doc.text(`Image URL: ${imageUrl}`, margin, yPosition);
+                  
+                  // Still add stamp if this is the last image
+                  if (isLastImage) {
+                    await this.addStampAndSignature(doc, pageWidth, yPosition + 20, margin);
+                  }
+                }
                 
-                currentImageIndex++;
+                globalImageIndex++;
               }
               
               // Handle non-image files (if any)
@@ -727,6 +756,7 @@ export class PDFService {
 
   /**
    * Add stamp and signature text to PDF (helper method)
+   * Positions stamp on the left side of the page below the last image
    */
   private static async addStampAndSignature(doc: jsPDF, pageWidth: number, imageBottom: number, margin: number): Promise<void> {
     try {
@@ -738,7 +768,7 @@ export class PDFService {
       const stampData = await this.fetchImageAsBase64(stampUrl, 150, 75, 0.9);
       
       if (stampData) {
-        // Calculate stamp dimensions (reduced size: max 25mm width, maintain aspect ratio)
+        // Calculate stamp dimensions (max 25mm width, maintain aspect ratio)
         const maxStampWidth = 25;
         const maxStampHeight = 20;
         const { width, height } = this.calculateImageDimensions(
@@ -748,20 +778,20 @@ export class PDFService {
           maxStampHeight
         );
         
-        // Position stamp on the left side
+        // Position stamp on the left side of the page
         const stampX = margin;
         
         // Add stamp image
         doc.addImage(stampData.base64, 'PNG', stampX, stampY, width, height);
         
         // Add signature text below stamp, aligned to left
-        const signatureText = 'Signature of the Agency Supervisor';
+        const signatureText = 'Agency seal and signature';
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
         doc.text(signatureText, stampX, stampY + height + 8);
       } else {
         // If stamp not found, just add text on the left
-        const signatureText = 'Signature of the Agency Supervisor';
+        const signatureText = 'Agency seal and signature';
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
         doc.text(signatureText, margin, stampY);
@@ -769,7 +799,7 @@ export class PDFService {
     } catch (error) {
       console.error('Error adding stamp:', error);
       // Fallback: just add text on the left
-      const signatureText = 'Signature of the Agency Supervisor';
+      const signatureText = 'Agency seal and signature';
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
       doc.text(signatureText, margin, imageBottom + 20);

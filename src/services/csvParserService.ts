@@ -75,7 +75,18 @@ export class CSVParserService {
         this.getContractTypes()
       ]);
 
-      // Parse each row
+      // Create lookup maps for faster access (O(1) instead of O(n))
+      const clientMap = new Map<string, any>();
+      clients.forEach(client => {
+        clientMap.set(client.name.toLowerCase(), client);
+      });
+
+      const contractTypeMap = new Map<string, any>();
+      contractTypes.forEach(ct => {
+        contractTypeMap.set(ct.type_key, ct);
+      });
+
+      // Parse each row (synchronously - no async operations needed)
       for (let i = 0; i < dataRows.length; i++) {
         const row = dataRows[i];
         const values = this.parseCSVRow(row);
@@ -90,8 +101,8 @@ export class CSVParserService {
           rowData[header] = values[index];
         });
 
-        // Validate and convert row
-        const parsedRow = await this.parseRow(rowData, clients, contractTypes, i + 2);
+        // Validate and convert row (synchronous - no await needed)
+        const parsedRow = this.parseRow(rowData, clientMap, contractTypeMap, i + 2);
         if (parsedRow.success) {
           result.data.push(parsedRow.data!);
         } else {
@@ -144,24 +155,25 @@ export class CSVParserService {
   }
 
   /**
-   * Parse and validate a single row
+   * Parse and validate a single row (synchronous - no async operations)
    */
-  private static async parseRow(
+  private static parseRow(
     rowData: any, 
-    clients: any[], 
-    contractTypes: any[], 
+    clientMap: Map<string, any>, 
+    contractTypeMap: Map<string, any>, 
     rowNumber: number
-  ): Promise<{ success: boolean; data?: ParsedCaseData; errors: string[] }> {
+  ): { success: boolean; data?: ParsedCaseData; errors: string[] } {
     const errors: string[] = [];
 
-    // Find client by name
-    const client = clients.find(c => c.name.toLowerCase() === rowData.client_name?.toLowerCase());
+    // Find client by name using map (O(1) lookup)
+    const clientNameKey = rowData.client_name?.toLowerCase();
+    const client = clientNameKey ? clientMap.get(clientNameKey) : undefined;
     if (!client) {
       errors.push(`Client '${rowData.client_name}' not found`);
     }
 
-    // Validate contract type
-    const contractType = contractTypes.find(ct => ct.type_key === rowData.contract_type);
+    // Validate contract type using map (O(1) lookup)
+    const contractType = contractTypeMap.get(rowData.contract_type);
     if (!contractType) {
       errors.push(`Invalid contract type '${rowData.contract_type}'`);
     }
