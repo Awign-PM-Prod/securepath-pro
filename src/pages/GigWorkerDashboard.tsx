@@ -1080,8 +1080,10 @@ export default function GigWorkerDashboard() {
       // 1. rework_at is in selected month, OR
       // 2. allocated_at is in selected month (for newly allocated rework cases, regardless of when originally reworked)
       // 3. status is 'qc_rework' (show regardless of month filter to ensure visibility)
-      // This ensures newly allocated rework cases appear in the rework tab
+      // 4. status is 'in_progress' (show in-progress rework cases regardless of month filter)
+      // This ensures newly allocated rework cases and in-progress rework cases appear in the rework tab
       if (c.status === 'qc_rework') return true; // Always show qc_rework status cases
+      if (c.status === 'in_progress') return true; // Always show in_progress rework cases
       if (isInSelectedMonth(c.rework_at)) return true;
       if (isInSelectedMonth(c.allocated_at)) return true;
       return false;
@@ -2092,7 +2094,7 @@ export default function GigWorkerDashboard() {
                           <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
-                          {!shouldHidePayoutSection(reworkCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
+                          {reworkCases.some(c => !shouldHidePayoutSection(c)) && <TableHead>Payout</TableHead>}
                           <TableHead>Due Date</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Actions</TableHead>
@@ -2145,11 +2147,15 @@ export default function GigWorkerDashboard() {
                                 </div>
                               </div>
                             </TableCell>
-                            {!shouldHidePayoutSection(caseItem) && (
+                            {reworkCases.some(c => !shouldHidePayoutSection(c)) && (
                               <TableCell>
-                                <div className="font-medium">
-                                  ₹{caseItem.total_payout_inr}
-                                </div>
+                                {!shouldHidePayoutSection(caseItem) ? (
+                                  <div className="font-medium">
+                                    ₹{caseItem.total_payout_inr}
+                                  </div>
+                                ) : (
+                                  <div className="text-muted-foreground text-sm">-</div>
+                                )}
                               </TableCell>
                             )}
                             <TableCell>
@@ -2600,87 +2606,8 @@ export default function GigWorkerDashboard() {
           <div className={`flex-1 overflow-hidden ${isEditMode ? (isMobile ? 'pb-32' : 'pb-24') : ''}`}>
             {selectedSubmissionCase && (
               <>
-                {/* QC Review Details for QC Rework Cases */}
-                {qcReviewData && (
-                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <h4 className="font-semibold text-red-900 flex items-center gap-2 mb-3">
-                      <AlertCircle className="h-5 w-5" />
-                      QC Review - Rework Required
-                    </h4>
-                    <div className="space-y-3 text-sm">
-                      <div className="bg-red-100 rounded-lg p-3">
-                        <div className="font-medium text-red-800 mb-1">QC Decision: Rework Required</div>
-                        <div className="text-red-700">
-                          Reviewed by: QC Team (ID: {qcReviewData.reviewer_id})
-                        </div>
-                        <div className="text-red-700">
-                          Reviewed on: {new Date(qcReviewData.reviewed_at).toLocaleString()}
-                        </div>
-                      </div>
-                      
-                      {/* QC Remarks/Comments */}
-                      {qcReviewData.comments && (
-                        <div>
-                          <div className="font-medium text-gray-900 mb-2">QC Remarks:</div>
-                          <div className="bg-purple-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
-                            {qcReviewData.comments}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Reason Code */}
-                      {qcReviewData.reason_code && (
-                        <div>
-                          <div className="font-medium text-gray-900 mb-2">Reason Code:</div>
-                          <div className="bg-indigo-50 rounded-lg p-3 text-sm">
-                            {qcReviewData.reason_code.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Issues Found */}
-                      {qcReviewData.issues_found && qcReviewData.issues_found.length > 0 && (
-                        <div>
-                          <div className="font-medium text-gray-900 mb-2">Issues Found:</div>
-                          <div className="space-y-1">
-                            {qcReviewData.issues_found.map((issue: string, index: number) => (
-                              <div key={index} className="bg-yellow-50 rounded p-2 text-sm">
-                                • {issue.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Rework Instructions */}
-                      {qcReviewData.rework_instructions && (
-                        <div>
-                          <div className="font-medium text-gray-900 mb-2">Rework Instructions:</div>
-                          <div className="bg-blue-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
-                            {qcReviewData.rework_instructions}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {qcReviewData.rework_deadline && (
-                        <div>
-                          <div className="font-medium text-gray-900 mb-2">Original Rework Deadline:</div>
-                          <div className="bg-orange-50 rounded-lg p-3 text-sm">
-                            <div className="flex items-center gap-2">
-                              <Clock className="h-4 w-4 text-orange-600" />
-                              <span className="text-orange-800">
-                                {new Date(qcReviewData.rework_deadline).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                
                 {isEditMode ? (
-                  // Edit Mode - Show DynamicForm
+                  // Edit Mode - Show DynamicForm with QC Review Data in scrollable area
                   <DynamicForm
                     ref={formRef}
                     contractTypeId={selectedSubmissionCase.contract_type}
@@ -2698,6 +2625,7 @@ export default function GigWorkerDashboard() {
                     isAutoSaving={isSaving}
                     lastAutoSaveTime={lastSaveTime}
                     hideFooterButtons={true}
+                    qcReviewData={qcReviewData}
                     caseData={{
                       id: selectedSubmissionCase.id,
                       case_number: selectedSubmissionCase.case_number,
@@ -2714,8 +2642,8 @@ export default function GigWorkerDashboard() {
                     }}
                   />
                 ) : (
-                  // View Mode - Show submission details
-                  <DynamicFormSubmission caseId={selectedSubmissionCase.id} />
+                  // View Mode - Show submission details with QC Review Data in scrollable area
+                  <DynamicFormSubmission caseId={selectedSubmissionCase.id} qcReviewData={qcReviewData} />
                 )}
               </>
             )}
@@ -2763,7 +2691,7 @@ export default function GigWorkerDashboard() {
                 </>
               )}
               {!isEditMode && (selectedSubmissionCase?.QC_Response === 'Rework' || selectedSubmissionCase?.status === 'qc_rework') && 
-               (selectedSubmissionCase?.status === 'accepted' || selectedSubmissionCase?.status === 'allocated' || selectedSubmissionCase?.status === 'qc_rework') && (
+               (selectedSubmissionCase?.status === 'accepted' || selectedSubmissionCase?.status === 'allocated' || selectedSubmissionCase?.status === 'qc_rework' || selectedSubmissionCase?.status === 'in_progress') && (
                 <Button 
                   onClick={() => handleStartEditing(selectedSubmissionCase)}
                   className={isMobile ? 'w-full' : ''}

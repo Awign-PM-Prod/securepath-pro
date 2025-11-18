@@ -11,7 +11,8 @@ import {
   User,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
@@ -55,9 +56,10 @@ interface FormSubmission {
 interface DynamicFormSubmissionProps {
   caseId: string;
   onSubmissionsLoaded?: (submissions: FormSubmission[]) => void;
+  qcReviewData?: any; // QC review data for rework cases
 }
 
-export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: DynamicFormSubmissionProps) {
+export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded, qcReviewData }: DynamicFormSubmissionProps) {
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -652,6 +654,89 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded }: D
 
   return (
     <div className="max-h-[70vh] overflow-y-auto space-y-6 p-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+      {/* QC Review Details for Rework Cases */}
+      {qcReviewData && (
+        <Card className="bg-red-50 border-red-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-900">
+              <AlertCircle className="h-5 w-5" />
+              QC Review - Rework Required
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              <div className="bg-red-100 rounded-lg p-3">
+                <div className="font-medium text-red-800 mb-1">QC Decision: Rework Required</div>
+                <div className="text-red-700">
+                  Reviewed by: QC Team (ID: {qcReviewData.reviewer_id})
+                </div>
+                <div className="text-red-700">
+                  Reviewed on: {new Date(qcReviewData.reviewed_at).toLocaleString()}
+                </div>
+              </div>
+              
+              {/* QC Remarks/Comments */}
+              {qcReviewData.comments && (
+                <div>
+                  <div className="font-medium text-gray-900 mb-2">QC Remarks:</div>
+                  <div className="bg-purple-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
+                    {qcReviewData.comments}
+                  </div>
+                </div>
+              )}
+              
+              {/* Reason Code */}
+              {qcReviewData.reason_code && (
+                <div>
+                  <div className="font-medium text-gray-900 mb-2">Reason Code:</div>
+                  <div className="bg-indigo-50 rounded-lg p-3 text-sm">
+                    {qcReviewData.reason_code.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                  </div>
+                </div>
+              )}
+              
+              {/* Issues Found */}
+              {qcReviewData.issues_found && qcReviewData.issues_found.length > 0 && (
+                <div>
+                  <div className="font-medium text-gray-900 mb-2">Issues Found:</div>
+                  <div className="space-y-1">
+                    {qcReviewData.issues_found.map((issue: string, index: number) => (
+                      <div key={index} className="bg-yellow-50 rounded p-2 text-sm">
+                        • {issue.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Rework Instructions */}
+              {qcReviewData.rework_instructions && (
+                <div>
+                  <div className="font-medium text-gray-900 mb-2">Rework Instructions:</div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
+                    {qcReviewData.rework_instructions}
+                  </div>
+                </div>
+              )}
+              
+              {qcReviewData.rework_deadline && (
+                <div>
+                  <div className="font-medium text-gray-900 mb-2">Original Rework Deadline:</div>
+                  <div className="bg-orange-50 rounded-lg p-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-orange-600" />
+                      <span className="text-orange-800">
+                        {new Date(qcReviewData.rework_deadline).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      
       {submissions.map((submission) => (
         <Card key={submission.id}>
           <CardHeader>

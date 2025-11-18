@@ -11,7 +11,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Upload, X, FileText, Camera, Trash2 } from 'lucide-react';
+import { Upload, X, FileText, Camera, Trash2, AlertCircle, Clock } from 'lucide-react';
 import { CameraCapture } from '@/components/CameraCapture';
 import { SignatureCanvas } from '@/components/SignatureCanvas';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +33,7 @@ interface DynamicFormProps {
   lastAutoSaveTime?: Date | null;
   isNegative?: boolean; // Whether this is a negative case form
   hideFooterButtons?: boolean; // Whether to hide the footer buttons (Cancel, Save Draft, Submit)
+  qcReviewData?: any; // QC review data for rework cases
   caseData?: {
     id: string;
     case_number: string;
@@ -72,6 +73,7 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
   lastAutoSaveTime,
   isNegative = false,
   hideFooterButtons = false,
+  qcReviewData,
   caseData
 }, ref) => {
   const [template, setTemplate] = useState<FormTemplate | null>(null);
@@ -2734,6 +2736,85 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
       </CardHeader>
       <CardContent className="p-0 flex flex-col h-[70vh]">
         <div className={`flex-1 overflow-y-auto p-6 space-y-6 ${hideFooterButtons ? (isMobile ? 'pb-32' : 'pb-16') : (isMobile ? 'pb-32' : 'pb-24')} scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100`}>
+          {/* QC Review Details for Rework Cases */}
+          {qcReviewData && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <h4 className="font-semibold text-red-900 flex items-center gap-2 mb-3">
+                <AlertCircle className="h-5 w-5" />
+                QC Review - Rework Required
+              </h4>
+              <div className="space-y-3 text-sm">
+                <div className="bg-red-100 rounded-lg p-3">
+                  <div className="font-medium text-red-800 mb-1">QC Decision: Rework Required</div>
+                  <div className="text-red-700">
+                    Reviewed by: QC Team (ID: {qcReviewData.reviewer_id})
+                  </div>
+                  <div className="text-red-700">
+                    Reviewed on: {new Date(qcReviewData.reviewed_at).toLocaleString()}
+                  </div>
+                </div>
+                
+                {/* QC Remarks/Comments */}
+                {qcReviewData.comments && (
+                  <div>
+                    <div className="font-medium text-gray-900 mb-2">QC Remarks:</div>
+                    <div className="bg-purple-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
+                      {qcReviewData.comments}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Reason Code */}
+                {qcReviewData.reason_code && (
+                  <div>
+                    <div className="font-medium text-gray-900 mb-2">Reason Code:</div>
+                    <div className="bg-indigo-50 rounded-lg p-3 text-sm">
+                      {qcReviewData.reason_code.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Issues Found */}
+                {qcReviewData.issues_found && qcReviewData.issues_found.length > 0 && (
+                  <div>
+                    <div className="font-medium text-gray-900 mb-2">Issues Found:</div>
+                    <div className="space-y-1">
+                      {qcReviewData.issues_found.map((issue: string, index: number) => (
+                        <div key={index} className="bg-yellow-50 rounded p-2 text-sm">
+                          • {issue.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Rework Instructions */}
+                {qcReviewData.rework_instructions && (
+                  <div>
+                    <div className="font-medium text-gray-900 mb-2">Rework Instructions:</div>
+                    <div className="bg-blue-50 rounded-lg p-3 text-sm whitespace-pre-wrap">
+                      {qcReviewData.rework_instructions}
+                    </div>
+                  </div>
+                )}
+                
+                {qcReviewData.rework_deadline && (
+                  <div>
+                    <div className="font-medium text-gray-900 mb-2">Original Rework Deadline:</div>
+                    <div className="bg-orange-50 rounded-lg p-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-orange-600" />
+                        <span className="text-orange-800">
+                          {new Date(qcReviewData.rework_deadline).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          
           {template.form_fields?.sort((a, b) => a.field_order - b.field_order).map(renderField)}
           {/* Extra spacing at the end for mobile view to ensure last field is fully visible */}
           <div className={isMobile ? 'h-24' : 'h-8'}></div>

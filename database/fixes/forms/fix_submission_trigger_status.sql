@@ -25,7 +25,8 @@ CREATE OR REPLACE FUNCTION public.handle_form_submission_created()
 RETURNS TRIGGER AS $$
 BEGIN
   -- Create QC workflow entry
-  PERFORM public.create_qc_workflow(NEW.case_id, NEW.id);
+  -- Pass NULL for submission_id since form_submissions don't have corresponding records in submissions table
+  PERFORM public.create_qc_workflow(NEW.case_id, NULL);
   
   -- Update case status to submitted
   UPDATE public.cases 
@@ -46,11 +47,12 @@ BEGIN
   -- Only process if status changed from draft to final
   IF OLD.status = 'draft' AND NEW.status = 'final' THEN
     -- Create QC workflow entry if it doesn't exist
+    -- Pass NULL for submission_id since form_submissions don't have corresponding records in submissions table
     IF NOT EXISTS (
       SELECT 1 FROM public.qc_workflow 
       WHERE case_id = NEW.case_id AND is_active = true
     ) THEN
-      PERFORM public.create_qc_workflow(NEW.case_id, NEW.id);
+      PERFORM public.create_qc_workflow(NEW.case_id, NULL);
     END IF;
     
     -- Update case status to submitted
