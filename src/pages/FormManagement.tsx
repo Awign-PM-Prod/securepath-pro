@@ -30,6 +30,7 @@ export default function FormManagement() {
   const [selectedContractType, setSelectedContractType] = useState<string>('');
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [templateToPublish, setTemplateToPublish] = useState<FormTemplate | null>(null);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -111,6 +112,22 @@ export default function FormManagement() {
   };
 
   const handleSaveTemplate = async (templateData: any) => {
+    // Prevent multiple simultaneous saves
+    if (isSavingTemplate) {
+      return;
+    }
+
+    // Validate that template has at least one field
+    if (!templateData.fields || templateData.fields.length === 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please add at least one field to the template before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSavingTemplate(true);
     try {
       let result;
       
@@ -165,6 +182,8 @@ export default function FormManagement() {
         description: 'Failed to save form template',
         variant: 'destructive',
       });
+    } finally {
+      setIsSavingTemplate(false);
     }
   };
 
@@ -421,6 +440,7 @@ export default function FormManagement() {
             onSave={handleSaveTemplate}
             onCancel={handleCancelFormBuilder}
             initialTemplate={editingTemplate}
+            isSaving={isSavingTemplate}
           />
         </DialogContent>
       </Dialog>

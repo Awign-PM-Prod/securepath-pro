@@ -889,6 +889,24 @@ export class FormService {
 
       console.log('Creating template with data:', templateInsertData);
 
+      // Validate fields before creating template
+      if (!templateData.fields || templateData.fields.length === 0) {
+        throw new Error('Template must have at least one field');
+      }
+
+      // Validate field keys: check for duplicates and empty values
+      const fieldKeys = templateData.fields.map(f => f.field_key?.trim()).filter(Boolean);
+      const duplicateKeys = fieldKeys.filter((key, index) => fieldKeys.indexOf(key) !== index);
+      if (duplicateKeys.length > 0) {
+        throw new Error(`Duplicate field keys found: ${duplicateKeys.join(', ')}. Each field must have a unique key.`);
+      }
+
+      // Check for empty field keys
+      const emptyFieldKeys = templateData.fields.filter(f => !f.field_key || f.field_key.trim() === '');
+      if (emptyFieldKeys.length > 0) {
+        throw new Error('All fields must have a field key. Please fill in the field key for all fields.');
+      }
+
       const { data: template, error: templateError } = await supabase
         .from('form_templates')
         .insert(templateInsertData)
@@ -900,45 +918,127 @@ export class FormService {
         throw templateError;
       }
 
-      // Create fields
+      // Create fields in two passes:
+      // 1. First insert all fields without dependencies (depends_on_field_id = null)
+      // 2. Then update fields with dependencies using actual field IDs
+      
+      // Step 1: Insert fields without dependencies
       const fieldsToInsert = templateData.fields.map((field, index) => {
-        const processedField = {
+        const processedField: any = {
           template_id: template.id,
-          field_key: field.field_key,
+          field_key: field.field_key.trim(),
           field_title: field.field_title,
           field_type: field.field_type,
           validation_type: field.validation_type,
           field_order: field.field_order || index,
           field_config: field.field_config,
-          depends_on_field_id: field.depends_on_field_id && field.depends_on_field_id.trim() !== '' ? field.depends_on_field_id : null,
+          // Don't set depends_on_field_id yet - we'll update it after all fields are created
+          depends_on_field_id: null,
           depends_on_value: field.depends_on_value && field.depends_on_value.trim() !== '' ? field.depends_on_value : null,
           max_files: field.field_type === 'file_upload' ? field.field_config.maxFiles : undefined,
           allowed_file_types: field.field_type === 'file_upload' ? field.field_config.allowedTypes : undefined,
           max_file_size_mb: field.field_type === 'file_upload' ? field.field_config.maxSizeMB : undefined
         };
         
-        // Debug logging
-        console.log('Processing field:', {
-          field_key: field.field_key,
-          depends_on_field_id: field.depends_on_field_id,
-          processed_depends_on_field_id: processedField.depends_on_field_id,
-          depends_on_value: field.depends_on_value,
-          processed_depends_on_value: processedField.depends_on_value
-        });
-        
         return processedField;
       });
 
       // Debug: Log the complete data being inserted
-      console.log('Fields to insert:', JSON.stringify(fieldsToInsert, null, 2));
+      console.log('Fields to insert (without dependencies):', JSON.stringify(fieldsToInsert, null, 2));
       
-      const { error: fieldsError } = await supabase
+      const { data: insertedFields, error: fieldsError } = await supabase
         .from('form_fields')
-        .insert(fieldsToInsert);
+        .insert(fieldsToInsert)
+        .select('id, field_key');
 
       if (fieldsError) {
         console.error('Fields insertion error:', fieldsError);
+        // Rollback: Delete the template if field insertion fails
+        try {
+          await supabase
+            .from('form_templates')
+            .delete()
+            .eq('id', template.id);
+          console.log('Template rolled back due to field insertion failure');
+        } catch (rollbackError) {
+          console.error('Error rolling back template:', rollbackError);
+        }
         throw fieldsError;
+      }
+
+      // Step 2: Create a map of field_key to field_id for dependency resolution
+      const fieldKeyToIdMap = new Map<string, string>();
+      insertedFields?.forEach(field => {
+        fieldKeyToIdMap.set(field.field_key, field.id);
+      });
+
+      // Step 3: Update fields with dependencies
+      // Process fields that have depends_on_field_id set
+      const fieldsToUpdate = templateData.fields
+        .map((field, index) => {
+          // Check if this field has a dependency
+          if (!field.depends_on_field_id || field.depends_on_field_id.trim() === '') {
+            return null; // No dependency, skip
+          }
+
+          // Try to resolve depends_on_field_id - it could be:
+          // 1. A field_key (string) - need to convert to field_id
+          // 2. A field_id (UUID) - use directly
+          // 3. Invalid - set to null
+          let dependsOnFieldId: string | null = null;
+          
+          // Check if it's a UUID format
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (uuidRegex.test(field.depends_on_field_id.trim())) {
+            // It's a UUID - check if it exists in our inserted fields
+            const foundField = insertedFields?.find(f => f.id === field.depends_on_field_id.trim());
+            if (foundField) {
+              dependsOnFieldId = foundField.id;
+            } else {
+              console.warn(`Field ${field.field_key}: depends_on_field_id is a UUID but not found in inserted fields`);
+            }
+          } else {
+            // It's likely a field_key - convert to field_id
+            const fieldId = fieldKeyToIdMap.get(field.depends_on_field_id.trim());
+            if (fieldId) {
+              dependsOnFieldId = fieldId;
+            } else {
+              console.warn(`Field ${field.field_key}: depends_on_field_id "${field.depends_on_field_id}" (field_key) not found in template fields`);
+            }
+          }
+
+          if (!dependsOnFieldId) {
+            console.warn(`Field ${field.field_key}: Could not resolve depends_on_field_id, setting to null`);
+            return null;
+          }
+
+          const insertedField = insertedFields?.[index];
+          if (!insertedField) {
+            return null;
+          }
+
+          return {
+            fieldId: insertedField.id,
+            depends_on_field_id: dependsOnFieldId
+          };
+        })
+        .filter((update): update is { fieldId: string; depends_on_field_id: string } => update !== null);
+
+      // Update fields with their dependencies
+      if (fieldsToUpdate.length > 0) {
+        console.log('Updating fields with dependencies:', fieldsToUpdate);
+        for (const update of fieldsToUpdate) {
+          const { error: updateError } = await supabase
+            .from('form_fields')
+            .update({ depends_on_field_id: update.depends_on_field_id })
+            .eq('id', update.fieldId);
+
+          if (updateError) {
+            console.error(`Error updating field ${update.fieldId} with dependency:`, updateError);
+            // Don't throw here - the field was created, just without the dependency
+            // This is a non-critical error
+          }
+        }
       }
 
       return { success: true, templateId: template.id };

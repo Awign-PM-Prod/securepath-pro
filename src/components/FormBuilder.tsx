@@ -23,6 +23,7 @@ interface FormBuilderProps {
   onSave: (template: FormBuilderTemplate) => void;
   onCancel: () => void;
   initialTemplate?: FormBuilderTemplate;
+  isSaving?: boolean;
 }
 
 export const FormBuilder: React.FC<FormBuilderProps> = ({
@@ -30,7 +31,8 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
   contractTypes = [],
   onSave,
   onCancel,
-  initialTemplate
+  initialTemplate,
+  isSaving = false
 }) => {
   const [template, setTemplate] = useState<FormBuilderTemplate>({
     template_name: '',
@@ -492,11 +494,11 @@ export const FormBuilder: React.FC<FormBuilderProps> = ({
       </Card>
 
       <div className="flex justify-end space-x-4">
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={onCancel} disabled={isSaving}>
           Cancel
         </Button>
-        <Button onClick={() => onSave(template)}>
-          Save Template
+        <Button onClick={() => onSave(template)} disabled={isSaving}>
+          {isSaving ? 'Saving...' : 'Save Template'}
         </Button>
       </div>
 
