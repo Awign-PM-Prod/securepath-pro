@@ -63,7 +63,7 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
   const selectedRole = watch('role');
 
   const getAvailableRoles = (): { value: UserRole; label: string }[] => {
-    if (!user || !user.profile) return [];
+    if (!user) return [];
 
     const role = user.profile.role;
     const roles: { value: UserRole; label: string }[] = [];

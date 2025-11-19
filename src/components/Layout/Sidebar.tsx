@@ -30,7 +30,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const location = useLocation();
 
   const getMenuItems = () => {
-    if (!user || !user.profile) return [];
+    if (!user) return [];
 
     const role = user.profile.role;
     

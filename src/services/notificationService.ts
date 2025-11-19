@@ -33,61 +33,39 @@ class NotificationService {
   private vapidPublicKey: string | null = null;
   private registration: ServiceWorkerRegistration | null = null;
   private subscription: PushSubscription | null = null;
-  private vapidKeyPromise: Promise<void> | null = null;
 
   constructor() {
-    // Don't initialize VAPID key on construction - make it lazy
-    // This prevents blocking page load
+    this.initializeVapidKey();
   }
 
   private async initializeVapidKey() {
-    // If already initialized, return immediately
-    if (this.vapidPublicKey) {
-      return;
-    }
+    try {
+      console.log('Fetching VAPID public key from database...');
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'vapid_public_key')
+        .maybeSingle(); // Use maybeSingle instead of single to avoid errors if not found
 
-    // If initialization is in progress, return the existing promise
-    if (this.vapidKeyPromise) {
-      return this.vapidKeyPromise;
-    }
-
-    // Start initialization (non-blocking)
-    this.vapidKeyPromise = (async () => {
-      try {
-        // Use Promise.race with timeout for faster failure
-        const queryPromise = supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'vapid_public_key')
-          .maybeSingle();
-        
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('VAPID key fetch timeout')), 3000)
-        );
-
-        const result = await Promise.race([queryPromise, timeoutPromise]);
-
-        if (result.error) {
-          // Use a default VAPID key for development
-          this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
-          return;
-        }
-        
-        if (result.data?.value) {
-          this.vapidPublicKey = result.data.value;
-        } else {
-          this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
-        }
-      } catch (error) {
-        // Silently handle errors - don't let this block anything
+      if (error) {
+        console.warn('VAPID key not found in database, using default:', error.message);
+        // Use a default VAPID key for development
         this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
-      } finally {
-        // Clear promise so it can be retried if needed
-        this.vapidKeyPromise = null;
+        return;
       }
-    })();
-
-    return this.vapidKeyPromise;
+      
+      if (data?.value) {
+        this.vapidPublicKey = data.value;
+        console.log('VAPID public key loaded:', data.value.substring(0, 20) + '...');
+      } else {
+        console.warn('No VAPID public key found in database, using default');
+        this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
+      }
+    } catch (error) {
+      // Silently handle errors - don't let this block anything
+      console.warn('Error initializing VAPID key, using default:', error);
+      this.vapidPublicKey = 'BEl62iUYgUivxIkv69yViEuiBIa40HI0F8yWpg7jw_swcfOKvEdF7fYfB8Lx6uXrA3Z5kq8LQ3oYyU0K9vN2sE';
+    }
   }
 
   async requestPermission(): Promise<NotificationPermission> {
@@ -133,7 +111,7 @@ class NotificationService {
       return false;
     }
 
-    // Lazy load VAPID key only when needed
+    // Try to get VAPID key if not already loaded
     if (!this.vapidPublicKey) {
       await this.initializeVapidKey();
     }
