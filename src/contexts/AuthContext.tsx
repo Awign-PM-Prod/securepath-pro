@@ -248,11 +248,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             supabase.auth.refreshSession().catch(err => {
               console.error('Failed to refresh session:', err);
             });
-          } else {
-            // Session is valid - ensure user is loaded
-            // loadUserFromSession will handle retrying if needed
-            loadUserFromSession(session);
           }
+          // Don't reload user profile on every interval - only refresh session if needed
+          // Profile will be loaded on auth state changes
         } else {
           // No session - clear user if it exists
           if (mounted) {
