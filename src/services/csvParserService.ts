@@ -165,48 +165,106 @@ export class CSVParserService {
   ): { success: boolean; data?: ParsedCaseData; errors: string[] } {
     const errors: string[] = [];
 
-    // Find client by name using map (O(1) lookup)
-    const clientNameKey = rowData.client_name?.toLowerCase();
+    // Helper function to check if a field is blank (after trimming)
+    const isBlank = (value: any): boolean => {
+      if (value === null || value === undefined) return true;
+      const str = String(value).trim();
+      return str === '';
+    };
+
+    // Validate all mandatory fields (matching UI form validation)
+    // These fields must not be blank/empty
+    if (isBlank(rowData.client_case_id)) {
+      errors.push('Client Case ID is required');
+    }
+
+    if (isBlank(rowData.contract_type)) {
+      errors.push('Contract Type is required');
+    }
+
+    if (isBlank(rowData.candidate_name)) {
+      errors.push('Candidate Name is required');
+    }
+
+    if (isBlank(rowData.phone_primary)) {
+      errors.push('Primary Phone is required');
+    }
+
+    if (isBlank(rowData.client_name)) {
+      errors.push('Client Name is required');
+    }
+
+    if (isBlank(rowData.address_line)) {
+      errors.push('Address is required');
+    }
+
+    if (isBlank(rowData.city)) {
+      errors.push('City is required');
+    }
+
+    if (isBlank(rowData.state)) {
+      errors.push('State is required');
+    }
+
+    if (isBlank(rowData.pincode)) {
+      errors.push('Pincode is required');
+    }
+
+    if (isBlank(rowData.tat_hours)) {
+      errors.push('TAT Hours is required');
+    }
+
+    if (isBlank(rowData.priority)) {
+      errors.push('Priority is required');
+    }
+
+    // Find client by name using map (O(1) lookup) - only if client_name is not blank
+    const clientNameKey = rowData.client_name?.toLowerCase()?.trim();
     const client = clientNameKey ? clientMap.get(clientNameKey) : undefined;
-    if (!client) {
+    if (!client && !isBlank(rowData.client_name)) {
       errors.push(`Client '${rowData.client_name}' not found`);
     }
 
-    // Validate contract type using map (O(1) lookup)
+    // Validate contract type using map (O(1) lookup) - only if contract_type is not blank
     const contractType = contractTypeMap.get(rowData.contract_type);
-    if (!contractType) {
+    if (!contractType && !isBlank(rowData.contract_type)) {
       errors.push(`Invalid contract type '${rowData.contract_type}'`);
     }
 
-    // Validate priority
-    const validPriorities = ['low', 'medium', 'high'];
-    if (!validPriorities.includes(rowData.priority?.toLowerCase())) {
-      errors.push(`Invalid priority '${rowData.priority}'. Must be one of: ${validPriorities.join(', ')}`);
+    // Validate priority - only if priority is not blank
+    if (!isBlank(rowData.priority)) {
+      const validPriorities = ['low', 'medium', 'high'];
+      if (!validPriorities.includes(rowData.priority?.toLowerCase())) {
+        errors.push(`Invalid priority '${rowData.priority}'. Must be one of: ${validPriorities.join(', ')}`);
+      }
     }
 
-    // Validate phone number
-    const phoneRegex = /^[6-9]\d{9}$/;
-    if (!phoneRegex.test(rowData.phone_primary)) {
-      errors.push(`Invalid phone number '${rowData.phone_primary}'. Must be 10 digits starting with 6-9`);
+    // Validate phone number - only if phone_primary is not blank
+    if (!isBlank(rowData.phone_primary)) {
+      const phoneRegex = /^[6-9]\d{9}$/;
+      if (!phoneRegex.test(String(rowData.phone_primary).trim())) {
+        errors.push(`Invalid phone number '${rowData.phone_primary}'. Must be 10 digits starting with 6-9`);
+      }
     }
 
     // If business verification, company_name must be provided
     const isBusiness = typeof rowData.contract_type === 'string' && rowData.contract_type.toLowerCase().includes('business');
-    if (isBusiness && (!rowData.company_name || String(rowData.company_name).trim() === '')) {
-      errors.push('company_name is required for business verification rows');
+    if (isBusiness && isBlank(rowData.company_name)) {
+      errors.push('Company Name is required for business verification');
     }
 
-    // Validate pincode
-    const pincodeRegex = /^\d{6}$/;
-    if (!pincodeRegex.test(rowData.pincode)) {
-      errors.push(`Invalid pincode '${rowData.pincode}'. Must be 6 digits`);
+    // Validate pincode - only if pincode is not blank
+    if (!isBlank(rowData.pincode)) {
+      const pincodeRegex = /^\d{6}$/;
+      if (!pincodeRegex.test(String(rowData.pincode).trim())) {
+        errors.push(`Invalid pincode '${rowData.pincode}'. Must be 6 digits`);
+      }
     }
 
-    // Validate numeric fields
-    const numericFields = ['tat_hours'];
-    for (const field of numericFields) {
-      if (rowData[field] && isNaN(Number(rowData[field]))) {
-        errors.push(`Invalid ${field} '${rowData[field]}'. Must be a number`);
+    // Validate numeric fields - only if field is not blank
+    if (!isBlank(rowData.tat_hours)) {
+      if (isNaN(Number(rowData.tat_hours))) {
+        errors.push(`Invalid tat_hours '${rowData.tat_hours}'. Must be a number`);
       }
     }
 
@@ -214,24 +272,31 @@ export class CSVParserService {
       return { success: false, errors };
     }
 
-    // Create parsed data
+    // Helper function to trim string values
+    const trimValue = (value: any): string | undefined => {
+      if (value === null || value === undefined) return undefined;
+      const trimmed = String(value).trim();
+      return trimmed === '' ? undefined : trimmed;
+    };
+
+    // Create parsed data with trimmed values
     const parsedData: ParsedCaseData = {
       client_id: client!.id,
-      contract_type: rowData.contract_type,
-      candidate_name: rowData.candidate_name,
-      company_name: rowData.company_name || undefined,
-      phone_primary: rowData.phone_primary,
-      phone_secondary: rowData.phone_secondary || undefined,
-      address_line: rowData.address_line,
-      city: rowData.city,
-      state: rowData.state,
-      pincode: rowData.pincode,
-      country: rowData.country || 'India',
-      priority: rowData.priority.toLowerCase() as 'low' | 'medium' | 'high',
+      contract_type: String(rowData.contract_type).trim(),
+      candidate_name: String(rowData.candidate_name).trim(),
+      company_name: trimValue(rowData.company_name),
+      phone_primary: String(rowData.phone_primary).trim(),
+      phone_secondary: trimValue(rowData.phone_secondary),
+      address_line: String(rowData.address_line).trim(),
+      city: String(rowData.city).trim(),
+      state: String(rowData.state).trim(),
+      pincode: String(rowData.pincode).trim(),
+      country: trimValue(rowData.country) || 'India',
+      priority: String(rowData.priority).toLowerCase().trim() as 'low' | 'medium' | 'high',
       tat_hours: Number(rowData.tat_hours),
-      instructions: rowData.instructions || undefined,
-      client_case_id: rowData.client_case_id,
-      location_url: rowData.location_url || undefined
+      instructions: trimValue(rowData.instructions),
+      client_case_id: String(rowData.client_case_id).trim(),
+      location_url: trimValue(rowData.location_url)
     };
 
     return { success: true, data: parsedData, errors: [] };
