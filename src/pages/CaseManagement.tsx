@@ -10,6 +10,9 @@ import { caseService, Case } from '@/services/caseService';
 import { CaseUpdateService } from '@/services/caseUpdateService';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useCases, useCasesInvalidation } from '@/hooks/useCases';
+import { useClients } from '@/hooks/useClients';
+import { useContractTypes } from '@/hooks/useContractTypes';
 
 // Mock data - in real app, this would come from API
 const mockClients = [
@@ -138,16 +141,26 @@ export default function CaseManagement() {
   // Debug initial state
   console.log('CaseManagement component initialized with path:', location.pathname);
   console.log('Initial state:', initialState);
-  const [cases, setCases] = useState<Case[]>([]);
-  const [clients, setClients] = useState<Array<{ id: string; name: string; contact_person: string; email: string }>>([]);
-  const [contractTypes, setContractTypes] = useState<Array<{ type_key: string; display_name: string; description: string; is_active: boolean; sort_order: number }>>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // Use React Query hooks for data fetching with caching
+  const { data: cases = [], isLoading: isLoadingCases, error: casesError } = useCases();
+  const { data: clients = [], isLoading: isLoadingClients } = useClients();
+  const { data: contractTypes = [], isLoading: isLoadingContractTypes } = useContractTypes();
+  const invalidateCases = useCasesInvalidation();
+  
+  const isLoading = isLoadingCases || isLoadingClients || isLoadingContractTypes;
   const { toast } = useToast();
 
-  // Load cases and clients from database
+  // Show error toast if cases fail to load
   useEffect(() => {
-    loadData();
-  }, []);
+    if (casesError) {
+      toast({
+        title: 'Error',
+        description: 'Failed to load cases',
+        variant: 'destructive',
+      });
+    }
+  }, [casesError, toast]);
 
   // Load case data for edit mode on initial load
   useEffect(() => {
@@ -213,39 +226,10 @@ export default function CaseManagement() {
     }
   };
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [casesData, clientsData, contractTypesData] = await Promise.all([
-        caseService.getCases(),
-        caseService.getClients(),
-        loadContractTypes()
-      ]);
-      
-      // Filter cases created after November 2nd, 2025
-      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
-      
-      const filteredCases = casesData.filter(caseItem => {
-        const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= cutoffDate;
-      });
-      
-      console.log(`Filtered cases: ${filteredCases.length} out of ${casesData.length} total cases (showing cases created after November 2nd, 2025)`);
-      
-      setCases(filteredCases);
-      setClients(clientsData);
-      setContractTypes(contractTypesData);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load cases and clients',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
+  // Reload data function (invalidates cache and refetches)
+  const loadData = useCallback(() => {
+    invalidateCases();
+  }, [invalidateCases]);
 
   const loadContractTypes = async () => {
     try {
@@ -315,7 +299,7 @@ export default function CaseManagement() {
       try {
         const success = await caseService.deleteCase(caseId);
         if (success) {
-          setCases(prev => prev.filter(c => c.id !== caseId));
+          invalidateCases(); // Invalidate cache to refetch updated list
           toast({
             title: 'Case Deleted',
             description: 'The case has been successfully deleted.',
@@ -358,8 +342,8 @@ export default function CaseManagement() {
         instructions: caseData.instructions,
       });
 
-      // Reload cases to get updated data
-      await loadData();
+      // Invalidate cache to refetch updated data
+      invalidateCases();
       
       setEditingCase(null);
       navigate('/ops/cases');
@@ -418,7 +402,7 @@ export default function CaseManagement() {
       });
 
       if (newCase) {
-        setCases(prev => [newCase, ...prev]);
+        invalidateCases(); // Invalidate cache to refetch updated list
         navigate('/ops/cases');
         toast({
           title: 'Case Created',

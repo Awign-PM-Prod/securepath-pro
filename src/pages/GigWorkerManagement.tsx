@@ -31,6 +31,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import VendorAssociationBadge from '@/components/VendorAssociationBadge';
 import { otpService } from '@/services/otpService';
+import { useGigWorkers, useVendors, useGigWorkersInvalidation, useVendorsInvalidation } from '@/hooks/useGigWorkers';
 
 interface GigWorker {
   id: string;
@@ -80,9 +81,13 @@ interface Vendor {
 }
 
 export default function GigWorkerManagement() {
-  const [gigWorkers, setGigWorkers] = useState<GigWorker[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Use React Query hooks for data fetching with caching
+  const { data: gigWorkers = [], isLoading: isLoadingWorkers, error: workersError } = useGigWorkers();
+  const { data: vendors = [], isLoading: isLoadingVendors } = useVendors();
+  const invalidateGigWorkers = useGigWorkersInvalidation();
+  const invalidateVendors = useVendorsInvalidation();
+  
+  const isLoading = isLoadingWorkers || isLoadingVendors;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVendor, setSelectedVendor] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -95,6 +100,17 @@ export default function GigWorkerManagement() {
   const [isUploading, setIsUploading] = useState(false);
   const [bulkUploadErrors, setBulkUploadErrors] = useState<string[]>([]);
   const { toast } = useToast();
+
+  // Show error toast if workers fail to load
+  useEffect(() => {
+    if (workersError) {
+      toast({
+        title: 'Error',
+        description: 'Failed to load gig workers',
+        variant: 'destructive',
+      });
+    }
+  }, [workersError, toast]);
 
   // Form state for create/edit
   const [formData, setFormData] = useState({
@@ -118,30 +134,10 @@ export default function GigWorkerManagement() {
 
   const [newPincode, setNewPincode] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      const [workersData, vendorsData] = await Promise.all([
-        loadGigWorkers(),
-        loadVendors()
-      ]);
-      setGigWorkers(workersData);
-      setVendors(vendorsData);
-      console.log('Vendors state set to:', vendorsData);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load gig workers and vendors',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
+  // Reload data function (invalidates cache and refetches)
+  const loadData = () => {
+    invalidateGigWorkers();
+    invalidateVendors();
   };
 
   const loadGigWorkers = async (): Promise<GigWorker[]> => {

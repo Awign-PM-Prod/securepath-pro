@@ -22,6 +22,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import ClientForm from '@/components/ClientManagement/ClientForm';
+import { useClients, useClientsInvalidation } from '@/hooks/useClients';
 
 interface Client {
   id: string;
@@ -39,45 +40,32 @@ interface Client {
 }
 
 export default function ClientManagement() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Use React Query hooks for data fetching with caching
+  const { data: clients = [], isLoading, error: clientsError } = useClients();
+  const invalidateClients = useClientsInvalidation();
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const { toast } = useToast();
 
+  // Show error toast if clients fail to load
   useEffect(() => {
-    loadClients();
-  }, []);
-
-  const loadClients = async () => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setClients(data || []);
-    } catch (error) {
-      console.error('Failed to load clients:', error);
+    if (clientsError) {
       toast({
         title: 'Error',
         description: 'Failed to load clients',
         variant: 'destructive',
       });
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [clientsError, toast]);
 
   const handleCreateClient = () => {
     setIsFormOpen(true);
   };
 
   const handleFormSuccess = () => {
-    loadClients(); // Reload the clients list
+    invalidateClients(); // Invalidate cache to refetch updated list
   };
 
   const handleFormCancel = () => {
@@ -102,7 +90,7 @@ export default function ClientManagement() {
 
         if (error) throw error;
         
-        await loadClients();
+        invalidateClients(); // Invalidate cache to refetch updated list
         toast({
           title: 'Client Deleted',
           description: 'The client has been deactivated successfully',
