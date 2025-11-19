@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { useToast } from '@/hooks/use-toast';
@@ -142,9 +142,9 @@ export default function CaseListWithAllocation({
   isLoading = false 
 }: CaseListWithAllocationProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<Date | null>(null);
-  const [tatExpiryFilter, setTatExpiryFilter] = useState<Date | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]); // Multi-select: array of selected statuses
+  const [dateFilter, setDateFilter] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
+  const [tatExpiryFilter, setTatExpiryFilter] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [tierFilter, setTierFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -174,77 +174,12 @@ export default function CaseListWithAllocation({
   const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [sortBy, setSortBy] = useState<'due_at_asc' | 'due_at_desc' | 'none'>('none');
   const { toast } = useToast();
 
-  // Calculate QC stats when cases change - memoized for performance
-  const qcStats = useMemo(() => {
-    return {
-      all: cases.length,
-      approved: cases.filter(c => c.QC_Response === 'Approved').length,
-      rejected: cases.filter(c => c.QC_Response === 'Rejected').length,
-      rework: cases.filter(c => c.QC_Response === 'Rework').length
-    };
-  }, [cases]);
-
-  // Reset to page 1 when filters change
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab]);
-
-  // Check if any filter is active
-  const hasActiveFilters = useMemo(() => {
-    return (
-      searchTerm.trim() !== '' ||
-      statusFilter !== 'all' ||
-      dateFilter !== null ||
-      tatExpiryFilter !== null ||
-      clientFilter !== 'all' ||
-      tierFilter !== 'all' ||
-      qcResponseTab !== 'all'
-    );
-  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab]);
-
-  // Helper function to highlight matching text (handles multiple matches)
-  const highlightText = (text: string, searchTerm: string): React.ReactNode => {
-    if (!searchTerm || !text) return text;
-    
-    const textStr = text.toString();
-    const lowerText = textStr.toLowerCase();
-    const lowerSearch = searchTerm.toLowerCase();
-    
-    if (!lowerText.includes(lowerSearch)) return text;
-    
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let index = lowerText.indexOf(lowerSearch, lastIndex);
-    
-    while (index !== -1) {
-      // Add text before match
-      if (index > lastIndex) {
-        parts.push(textStr.substring(lastIndex, index));
-      }
-      
-      // Add highlighted match
-      parts.push(
-        <mark key={index} className="bg-yellow-200 text-yellow-900 px-0.5 rounded">
-          {textStr.substring(index, index + searchTerm.length)}
-        </mark>
-      );
-      
-      lastIndex = index + searchTerm.length;
-      index = lowerText.indexOf(lowerSearch, lastIndex);
-    }
-    
-    // Add remaining text after last match
-    if (lastIndex < textStr.length) {
-      parts.push(textStr.substring(lastIndex));
-    }
-    
-    return <>{parts}</>;
-  };
-
   // Helper function to check if a case matches the search term across all metadata
-  const caseMatchesSearch = (caseItem: Case, term: string): boolean => {
+  // Moved before filteredCasesForStats to avoid dependency issues
+  const caseMatchesSearch = useCallback((caseItem: Case, term: string): boolean => {
     if (!term) return true;
     
     const lowerTerm = term.toLowerCase();
@@ -297,45 +232,192 @@ export default function CaseListWithAllocation({
     return searchableFields.some(field => 
       field && field.toLowerCase().includes(lowerTerm)
     );
+  }, []);
+
+  // Calculate filtered cases without QC Response filter (for tab counts)
+  const filteredCasesForStats = useMemo(() => {
+    return cases.filter(caseItem => {
+      const matchesSearch = caseMatchesSearch(caseItem, searchTerm);
+      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(caseItem.status);
+      
+      const matchesDate = (() => {
+        if (!dateFilter || (!dateFilter.from && !dateFilter.to)) return true;
+        const caseDate = new Date(caseItem.created_at);
+        const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
+        
+        if (dateFilter.from && dateFilter.to) {
+          // Date range: both from and to are set
+          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
+          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
+          return caseDateOnly >= fromDateOnly && caseDateOnly <= toDateOnly;
+        } else if (dateFilter.from) {
+          // Only from date is set
+          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
+          return caseDateOnly >= fromDateOnly;
+        } else if (dateFilter.to) {
+          // Only to date is set
+          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
+          return caseDateOnly <= toDateOnly;
+        }
+        return true;
+      })();
+      
+      const matchesTatExpiry = (() => {
+        if (!tatExpiryFilter || (!tatExpiryFilter.from && !tatExpiryFilter.to)) return true;
+        const caseDueDate = new Date(caseItem.due_at);
+        const caseDueDateOnly = new Date(caseDueDate.getFullYear(), caseDueDate.getMonth(), caseDueDate.getDate());
+        
+        if (tatExpiryFilter.from && tatExpiryFilter.to) {
+          // Date range: both from and to are set
+          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
+          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
+          return caseDueDateOnly >= fromDateOnly && caseDueDateOnly <= toDateOnly;
+        } else if (tatExpiryFilter.from) {
+          // Only from date is set
+          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
+          return caseDueDateOnly >= fromDateOnly;
+        } else if (tatExpiryFilter.to) {
+          // Only to date is set
+          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
+          return caseDueDateOnly <= toDateOnly;
+        }
+        return true;
+      })();
+      
+      const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
+      const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
+      
+      return matchesSearch && matchesStatus && matchesDate && matchesTatExpiry && matchesClient && matchesTier;
+    });
+  }, [cases, searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, caseMatchesSearch]);
+
+  // Calculate QC stats based on filtered cases (excluding QC Response filter) - memoized for performance
+  const qcStats = useMemo(() => {
+    return {
+      all: filteredCasesForStats.length,
+      approved: filteredCasesForStats.filter(c => c.QC_Response === 'Approved').length,
+      rejected: filteredCasesForStats.filter(c => c.QC_Response === 'Rejected').length,
+      rework: filteredCasesForStats.filter(c => c.QC_Response === 'Rework').length
+    };
+  }, [filteredCasesForStats]);
+
+  // Reset to page 1 when filters or sort change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab, sortBy]);
+
+  // Check if any filter is active
+  const hasActiveFilters = useMemo(() => {
+    return (
+      searchTerm.trim() !== '' ||
+      statusFilter.length > 0 ||
+      (dateFilter && (dateFilter.from || dateFilter.to)) ||
+      (tatExpiryFilter && (tatExpiryFilter.from || tatExpiryFilter.to)) ||
+      clientFilter !== 'all' ||
+      tierFilter !== 'all' ||
+      qcResponseTab !== 'all' ||
+      sortBy !== 'none'
+    );
+  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab, sortBy]);
+
+  // Helper function to highlight matching text (handles multiple matches)
+  const highlightText = (text: string, searchTerm: string): React.ReactNode => {
+    if (!searchTerm || !text) return text;
+    
+    const textStr = text.toString();
+    const lowerText = textStr.toLowerCase();
+    const lowerSearch = searchTerm.toLowerCase();
+    
+    if (!lowerText.includes(lowerSearch)) return text;
+    
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let index = lowerText.indexOf(lowerSearch, lastIndex);
+    
+    while (index !== -1) {
+      // Add text before match
+      if (index > lastIndex) {
+        parts.push(textStr.substring(lastIndex, index));
+      }
+      
+      // Add highlighted match
+      parts.push(
+        <mark key={index} className="bg-yellow-200 text-yellow-900 px-0.5 rounded">
+          {textStr.substring(index, index + searchTerm.length)}
+        </mark>
+      );
+      
+      lastIndex = index + searchTerm.length;
+      index = lowerText.indexOf(lowerSearch, lastIndex);
+    }
+    
+    // Add remaining text after last match
+    if (lastIndex < textStr.length) {
+      parts.push(textStr.substring(lastIndex));
+    }
+    
+    return <>{parts}</>;
   };
+
 
   // Memoized filtered cases for better performance
   const filteredCases = useMemo(() => {
-    return cases.filter(caseItem => {
+    let filtered = cases.filter(caseItem => {
       // Search filter - now searches all metadata
       const matchesSearch = caseMatchesSearch(caseItem, searchTerm);
       
-      const matchesStatus = statusFilter === 'all' || caseItem.status === statusFilter;
+      // Multi-select status filter: if no statuses selected, show all; otherwise show only selected statuses
+      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(caseItem.status);
       
       // Filter by QC_Response tab
       const matchesQcResponse = qcResponseTab === 'all' || caseItem.QC_Response === qcResponseTab;
       
-      // Filter by creation date
+      // Filter by creation date range
       const matchesDate = (() => {
-        if (!dateFilter) return true;
+        if (!dateFilter || (!dateFilter.from && !dateFilter.to)) return true;
         
         const caseDate = new Date(caseItem.created_at);
-        const selectedDate = new Date(dateFilter);
-        
-        // Compare only the date part (year, month, day) ignoring time
         const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
-        const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
         
-        return caseDateOnly.getTime() === selectedDateOnly.getTime();
+        if (dateFilter.from && dateFilter.to) {
+          // Date range: both from and to are set
+          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
+          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
+          return caseDateOnly >= fromDateOnly && caseDateOnly <= toDateOnly;
+        } else if (dateFilter.from) {
+          // Only from date is set
+          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
+          return caseDateOnly >= fromDateOnly;
+        } else if (dateFilter.to) {
+          // Only to date is set
+          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
+          return caseDateOnly <= toDateOnly;
+        }
+        return true;
       })();
       
       // Filter by TAT expiry date
       const matchesTatExpiry = (() => {
-        if (!tatExpiryFilter) return true;
+        if (!tatExpiryFilter || (!tatExpiryFilter.from && !tatExpiryFilter.to)) return true;
         
         const caseDueDate = new Date(caseItem.due_at);
-        const selectedDate = new Date(tatExpiryFilter);
-        
-        // Compare only the date part (year, month, day) ignoring time
         const caseDueDateOnly = new Date(caseDueDate.getFullYear(), caseDueDate.getMonth(), caseDueDate.getDate());
-        const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
         
-        return caseDueDateOnly.getTime() === selectedDateOnly.getTime();
+        if (tatExpiryFilter.from && tatExpiryFilter.to) {
+          // Date range: both from and to are set
+          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
+          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
+          return caseDueDateOnly >= fromDateOnly && caseDueDateOnly <= toDateOnly;
+        } else if (tatExpiryFilter.from) {
+          // Only from date is set
+          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
+          return caseDueDateOnly >= fromDateOnly;
+        } else if (tatExpiryFilter.to) {
+          // Only to date is set
+          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
+          return caseDueDateOnly <= toDateOnly;
+        }
+        return true;
       })();
       
       // Filter by client
@@ -345,8 +427,28 @@ export default function CaseListWithAllocation({
       const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
       
       return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesTatExpiry && matchesClient && matchesTier;
-    }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [cases, searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab]);
+    });
+
+    // Apply sorting
+    if (sortBy === 'due_at_asc') {
+      filtered = [...filtered].sort((a, b) => {
+        const dateA = new Date(a.due_at).getTime();
+        const dateB = new Date(b.due_at).getTime();
+        return dateA - dateB;
+      });
+    } else if (sortBy === 'due_at_desc') {
+      filtered = [...filtered].sort((a, b) => {
+        const dateA = new Date(a.due_at).getTime();
+        const dateB = new Date(b.due_at).getTime();
+        return dateB - dateA;
+      });
+    } else {
+      // Default: sort by creation date (newest first)
+      filtered = [...filtered].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+
+    return filtered;
+  }, [cases, searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab, sortBy]);
 
   // Memoized derived data for better performance
   const allocatableCases = useMemo(() => 
@@ -401,13 +503,14 @@ export default function CaseListWithAllocation({
 
   // Clear all filters
   const clearAllFilters = () => {
-    setStatusFilter('all');
+    setStatusFilter([]);
     setClientFilter('all');
     setTierFilter('all');
-    setDateFilter(null);
-    setTatExpiryFilter(null);
+    setDateFilter(undefined);
+    setTatExpiryFilter(undefined);
     setSearchTerm('');
     setQcResponseTab('all');
+    setSortBy('none');
     setCurrentPage(1);
   };
 
@@ -1099,65 +1202,123 @@ export default function CaseListWithAllocation({
             </Tabs>
 
             {/* Search and Filter Controls */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <div className="flex-1 max-w-md">
-            <div className="relative">
+        <div className="space-y-4 mb-6">
+          {/* Row 1: Search Bar, Status Filter, Both Date Range Filters */}
+          <div className="flex gap-2 flex-wrap">
+            {/* Search Bar */}
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search all case metadata..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className={`pl-10 ${searchTerm ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                className={`pl-10 w-full ${searchTerm ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
               />
             </div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className={`w-40 ${statusFilter !== 'all' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}>
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            {/* Multi-Select Status Filter */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={`w-48 justify-start text-left font-normal ${statusFilter.length > 0 ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                >
+                  <Filter className="h-4 w-4 mr-2" />
+                  {statusFilter.length === 0 
+                    ? 'All Status' 
+                    : statusFilter.length === 1
+                    ? STATUS_LABELS[statusFilter[0] as keyof typeof STATUS_LABELS] || statusFilter[0]
+                    : `${statusFilter.length} Statuses`}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-3" align="start">
+                <div className="space-y-2">
+                  <div className="font-medium text-sm mb-2">Filter by Status</div>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {Object.entries(STATUS_LABELS).map(([value, label]) => {
+                      const isSelected = statusFilter.includes(value);
+                      return (
+                        <div key={value} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`status-${value}`}
+                            checked={isSelected}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setStatusFilter([...statusFilter, value]);
+                              } else {
+                                setStatusFilter(statusFilter.filter(s => s !== value));
+                              }
+                            }}
+                          />
+                          <label
+                            htmlFor={`status-${value}`}
+                            className="text-sm font-normal cursor-pointer flex-1"
+                          >
+                            {label}
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {statusFilter.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full mt-2"
+                      onClick={() => setStatusFilter([])}
+                    >
+                      Clear All
+                    </Button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
             
+            {/* Case Creation Date Range */}
             <div className="flex gap-1">
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className={`w-48 justify-start text-left font-normal ${dateFilter ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                    className={`w-56 justify-start text-left font-normal ${dateFilter && (dateFilter.from || dateFilter.to) ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
                   >
                     <CalendarIcon className="h-4 w-4 mr-2" />
-                    {dateFilter ? format(dateFilter, "PPP") : "Case Creation Date"}
+                    {dateFilter?.from && dateFilter?.to
+                      ? `${format(dateFilter.from, "MMM dd, yyyy")} - ${format(dateFilter.to, "MMM dd, yyyy")}`
+                      : dateFilter?.from
+                      ? `From ${format(dateFilter.from, "MMM dd, yyyy")}`
+                      : dateFilter?.to
+                      ? `Until ${format(dateFilter.to, "MMM dd, yyyy")}`
+                      : "Case Creation Date Range"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
-                    mode="single"
-                    selected={dateFilter || undefined}
-                    onSelect={(date) => setDateFilter(date || null)}
+                    mode="range"
+                    selected={dateFilter ? { from: dateFilter.from, to: dateFilter.to } : undefined}
+                    onSelect={(range) => {
+                      if (range) {
+                        setDateFilter({ from: range.from, to: range.to });
+                      } else {
+                        setDateFilter(undefined);
+                      }
+                    }}
                     disabled={(date) => {
                       const today = new Date();
                       const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
                       const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
                       return dateOnly > todayDateOnly;
                     }}
+                    numberOfMonths={2}
                     initialFocus
                   />
                 </PopoverContent>
               </Popover>
-              {dateFilter && (
+              {dateFilter && (dateFilter.from || dateFilter.to) && (
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => setDateFilter(null)}
+                  onClick={() => setDateFilter(undefined)}
                   className="w-10 h-10"
                 >
                   <XCircle className="h-4 w-4" />
@@ -1165,38 +1326,55 @@ export default function CaseListWithAllocation({
               )}
             </div>
             
+            {/* TAT Due Date Range */}
             <div className="flex gap-1">
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className={`w-48 justify-start text-left font-normal ${tatExpiryFilter ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                    className={`w-56 justify-start text-left font-normal ${tatExpiryFilter && (tatExpiryFilter.from || tatExpiryFilter.to) ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
                   >
                     <CalendarIcon className="h-4 w-4 mr-2" />
-                    {tatExpiryFilter ? format(tatExpiryFilter, "PPP") : "TAT Expiry Date"}
+                    {tatExpiryFilter?.from && tatExpiryFilter?.to
+                      ? `${format(tatExpiryFilter.from, "MMM dd, yyyy")} - ${format(tatExpiryFilter.to, "MMM dd, yyyy")}`
+                      : tatExpiryFilter?.from
+                      ? `From ${format(tatExpiryFilter.from, "MMM dd, yyyy")}`
+                      : tatExpiryFilter?.to
+                      ? `Until ${format(tatExpiryFilter.to, "MMM dd, yyyy")}`
+                      : "TAT Due Date Range"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
-                    mode="single"
-                    selected={tatExpiryFilter || undefined}
-                    onSelect={(date) => setTatExpiryFilter(date || null)}
+                    mode="range"
+                    selected={tatExpiryFilter ? { from: tatExpiryFilter.from, to: tatExpiryFilter.to } : undefined}
+                    onSelect={(range) => {
+                      if (range) {
+                        setTatExpiryFilter({ from: range.from, to: range.to });
+                      } else {
+                        setTatExpiryFilter(undefined);
+                      }
+                    }}
+                    numberOfMonths={2}
                     initialFocus
                   />
                 </PopoverContent>
               </Popover>
-              {tatExpiryFilter && (
+              {tatExpiryFilter && (tatExpiryFilter.from || tatExpiryFilter.to) && (
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => setTatExpiryFilter(null)}
+                  onClick={() => setTatExpiryFilter(undefined)}
                   className="w-10 h-10"
                 >
                   <XCircle className="h-4 w-4" />
                 </Button>
               )}
             </div>
-            
+          </div>
+
+          {/* Row 2: Client Filter, Tier Filter, Sorting Filter */}
+          <div className="flex gap-2 flex-wrap">
             <Select value={clientFilter} onValueChange={setClientFilter}>
               <SelectTrigger className={`w-48 ${clientFilter !== 'all' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}>
                 <Building className="h-4 w-4 mr-2" />
@@ -1225,6 +1403,20 @@ export default function CaseListWithAllocation({
                 <SelectItem value="tier_1">Tier 1</SelectItem>
                 <SelectItem value="tier_2">Tier 2</SelectItem>
                 <SelectItem value="tier_3">Tier 3</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as 'due_at_asc' | 'due_at_desc' | 'none')}>
+              <SelectTrigger className={`w-48 ${sortBy !== 'none' ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}>
+                {sortBy === 'none' && <ArrowUpDown className="h-4 w-4 mr-2" />}
+                {sortBy === 'due_at_asc' && <ArrowUp className="h-4 w-4 mr-2" />}
+                {sortBy === 'due_at_desc' && <ArrowDown className="h-4 w-4 mr-2" />}
+                <SelectValue placeholder="Sort by TAT" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Default (Newest First)</SelectItem>
+                <SelectItem value="due_at_asc">TAT Due Date (Ascending)</SelectItem>
+                <SelectItem value="due_at_desc">TAT Due Date (Descending)</SelectItem>
               </SelectContent>
             </Select>
           </div>
