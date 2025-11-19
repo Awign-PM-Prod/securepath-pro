@@ -137,6 +137,7 @@ export default function CaseManagement() {
   const [viewMode, setViewMode] = useState<ViewMode>(initialState.viewMode);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialState.selectedCaseId);
   const [editingCase, setEditingCase] = useState<Case | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Debug initial state
   console.log('CaseManagement component initialized with path:', location.pathname);
@@ -148,7 +149,7 @@ export default function CaseManagement() {
   const { data: contractTypes = [], isLoading: isLoadingContractTypes } = useContractTypes();
   const invalidateCases = useCasesInvalidation();
   
-  const isLoading = isLoadingCases || isLoadingClients || isLoadingContractTypes;
+  const isLoading = isLoadingCases || isLoadingClients || isLoadingContractTypes || isSubmitting;
   const { toast } = useToast();
 
   // Show error toast if cases fail to load
@@ -295,7 +296,7 @@ export default function CaseManagement() {
 
   const handleDeleteCase = async (caseId: string) => {
     if (window.confirm('Are you sure you want to delete this case?')) {
-      setIsLoading(true);
+      setIsSubmitting(true);
       try {
         const success = await caseService.deleteCase(caseId);
         if (success) {
@@ -311,7 +312,7 @@ export default function CaseManagement() {
         const { getErrorToast } = await import('@/utils/errorMessages');
         toast(getErrorToast(error));
       } finally {
-        setIsLoading(false);
+        setIsSubmitting(false);
       }
     }
   };
@@ -319,7 +320,7 @@ export default function CaseManagement() {
   const handleUpdateCase = async (caseData: CaseFormData) => {
     if (!editingCase) return;
     
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
       await CaseUpdateService.updateCase(editingCase.id, {
         client_case_id: caseData.client_case_id,
@@ -357,12 +358,12 @@ export default function CaseManagement() {
       const { getErrorToast } = await import('@/utils/errorMessages');
       toast(getErrorToast(error));
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   const handleSubmitCase = async (caseData: CaseFormData) => {
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
       // Create or get location first
       const locationId = await caseService.createOrGetLocation({
@@ -416,7 +417,7 @@ export default function CaseManagement() {
       const { getErrorToast } = await import('@/utils/errorMessages');
       toast(getErrorToast(error));
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
