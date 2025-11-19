@@ -46,7 +46,7 @@ export default function Login() {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (user && !showOTP) {
+    if (user && user.profile && !showOTP) {
       const redirectPath = getRoleRedirectPath(user.profile.role);
       navigate(redirectPath, { replace: true });
     }

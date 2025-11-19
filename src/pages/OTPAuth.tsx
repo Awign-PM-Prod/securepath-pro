@@ -56,7 +56,7 @@ export default function OTPAuth() {
       return;
     }
     
-    if (!authLoading && user) {
+    if (!authLoading && user && user.profile) {
       const redirectPath = getRoleRedirectPath(user.profile.role);
       console.log('🔄 Redirecting authenticated user to:', redirectPath);
       navigate(redirectPath, { replace: true });

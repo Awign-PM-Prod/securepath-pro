@@ -14,6 +14,11 @@ export function useRequireAuth(allowedRoles?: UserRole[]) {
         return;
       }
 
+      // Wait for profile to load before checking roles
+      if (!user.profile) {
+        return;
+      }
+
       if (allowedRoles && !allowedRoles.includes(user.profile.role)) {
         navigate('/unauthorized', { replace: true });
         return;

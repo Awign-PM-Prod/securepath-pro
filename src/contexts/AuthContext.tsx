@@ -57,28 +57,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       
       if (session?.user) {
-        // Retry profile fetch up to 3 times with exponential backoff
+        // Fetch profile with shorter timeout and fewer retries for faster initial load
         let profile: UserProfile | null = null;
-        let lastError: any = null;
         
-        for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          // Use shorter timeout (2 seconds) for faster failure
+          profile = await Promise.race([
+            fetchUserProfile(session.user.id),
+            new Promise<UserProfile | null>((_, reject) => 
+              setTimeout(() => reject(new Error('Profile fetch timeout')), 2000)
+            )
+          ]);
+        } catch (error) {
+          // On first failure, try once more with a shorter delay
           try {
+            await new Promise(resolve => setTimeout(resolve, 300));
             profile = await Promise.race([
               fetchUserProfile(session.user.id),
               new Promise<UserProfile | null>((_, reject) => 
-                setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+                setTimeout(() => reject(new Error('Profile fetch timeout')), 2000)
               )
             ]);
-            
-            if (profile) {
-              break; // Success, exit retry loop
-            }
-          } catch (error) {
-            lastError = error;
-            // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
-            if (attempt < 2) {
-              await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
-            }
+          } catch (retryError) {
+            // If retry also fails, continue without profile - don't block UI
+            // Profile will be loaded in background
           }
         }
         
@@ -90,12 +92,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               profile
             });
           } else {
-            // Only set user to null if session is also invalid
-            // If session is valid but profile fetch failed, keep the session
-            // This prevents unnecessary logouts due to temporary network issues
-            console.warn('Profile fetch failed after retries, but session is valid. Keeping session.');
-            // Don't set user to null - keep the session alive
-            // The profile will be retried on next auth state change
+            // Set user with basic info even if profile fetch fails
+            // This allows UI to render while profile loads in background
+            setUser({
+              id: session.user.id,
+              email: session.user.email!,
+              profile: null as any // Will be updated when profile loads
+            });
+            
+            // Continue fetching profile in background (non-blocking)
+            fetchUserProfile(session.user.id).then(loadedProfile => {
+              if (mounted && loadedProfile) {
+                setUser({
+                  id: session.user.id,
+                  email: session.user.email!,
+                  profile: loadedProfile
+                });
+              }
+            }).catch(() => {
+              // Silently fail - profile will be retried on next auth state change
+            });
           }
         }
       } else {
@@ -127,69 +143,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const bufferTime = 5 * 60 * 1000; // 5 minutes
           const isExpired = expiresAt && (expiresAt - bufferTime) < Date.now();
           
-          if (isExpired) {
-            // Try to refresh with longer timeout and retry logic
-            let refreshedSession: Session | null = null;
-            let refreshError: any = null;
-            
-            // Retry refresh up to 2 times
-            for (let attempt = 0; attempt < 2; attempt++) {
-              try {
-                const refreshPromise = supabase.auth.refreshSession();
-                const timeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('Refresh timeout')), 10000) // Increased to 10 seconds
-                );
-                
-                const result = await Promise.race([refreshPromise, timeoutPromise]) as any;
-                
-                if (result?.data?.session) {
-                  refreshedSession = result.data.session;
-                  break; // Success
-                } else if (result?.error) {
-                  refreshError = result.error;
-                }
-              } catch (err) {
-                refreshError = err;
-                // Wait before retrying
-                if (attempt < 1) {
-                  await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-              }
-            }
-              
-            if (refreshError || !refreshedSession) {
-              // Only clear session if refresh truly failed (not just timeout)
-              // If it's a network issue, keep the existing session
-              console.warn('Session refresh failed, but keeping existing session:', refreshError);
-              // Don't clear session - let Supabase auto-refresh handle it
-              // Load user from existing session
-              loadUserFromSession(session).finally(() => {
-                if (mounted) {
-                  setLoading(false);
-                  hasInitialized = true;
-                }
-              });
-              return;
-            }
-              
-            // Load user from refreshed session (non-blocking)
-            loadUserFromSession(refreshedSession).finally(() => {
-              if (mounted) {
-                setLoading(false);
-                hasInitialized = true;
-              }
-            });
-            return; // Exit early, loading will be set in finally
-          } else {
-            // Session is valid, load user (non-blocking)
-            loadUserFromSession(session).finally(() => {
-              if (mounted) {
-                setLoading(false);
-                hasInitialized = true;
-              }
-            });
-            return; // Exit early, loading will be set in finally
+          // Set loading to false immediately to unblock UI
+          // Profile will load in background
+          if (mounted) {
+            setLoading(false);
+            hasInitialized = true;
           }
+          
+          if (isExpired) {
+            // Try to refresh in background (non-blocking)
+            supabase.auth.refreshSession().then(({ data, error }) => {
+              if (!mounted) return;
+              
+              if (data?.session) {
+                loadUserFromSession(data.session);
+              } else if (error) {
+                // Keep existing session if refresh fails
+                loadUserFromSession(session);
+              }
+            }).catch(() => {
+              // Keep existing session on error
+              if (mounted) {
+                loadUserFromSession(session);
+              }
+            });
+          } else {
+            // Session is valid, load user in background (non-blocking)
+            loadUserFromSession(session);
+          }
+          return; // Exit early
         } else {
           // No session, set loading to false immediately
           if (mounted) {
@@ -215,18 +197,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         if (!mounted) return;
 
-        console.log('🔄 Auth state change:', event, session ? `user: ${session.user.id}` : 'no session');
-        
         // Ignore INITIAL_SESSION events until we've loaded from getSession()
         // This prevents the listener from clearing the session before we restore it
         if (event === 'INITIAL_SESSION') {
           if (!hasInitialized) {
-            console.log('⏳ Skipping INITIAL_SESSION - waiting for manual initialization');
+            // Skip INITIAL_SESSION until manual initialization completes
             return;
           }
           // Only process INITIAL_SESSION if we've already initialized
           if (session) {
-            console.log('✅ Processing INITIAL_SESSION with session');
             await loadUserFromSession(session);
           }
           return;
@@ -350,7 +329,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const canManageRole = (targetRole: UserRole) => {
-    if (!user) return false;
+    if (!user || !user.profile) return false;
     
     const currentRole = user.profile.role;
     

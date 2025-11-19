@@ -1600,9 +1600,11 @@ export default function CaseListWithAllocation({
                                 {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchTerm)}
                               </Badge>
                             </div>
-                            <p className="text-sm text-muted-foreground mb-2">
-                              {highlightText(caseItem.client_case_id, searchTerm)} • {getContractTypeBadge(caseItem.contract_type, searchTerm)}
-                            </p>
+                            <div className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
+                              <span>{highlightText(caseItem.client_case_id, searchTerm)}</span>
+                              <span>•</span>
+                              {getContractTypeBadge(caseItem.contract_type, searchTerm)}
+                            </div>
                             <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchTerm)}</h4>
                           </div>
                         </div>

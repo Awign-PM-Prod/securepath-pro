@@ -114,11 +114,8 @@ export default function CaseManagement() {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Initialize state based on current URL
-  const getInitialState = () => {
-    const path = location.pathname;
-    console.log('Initializing state for path:', path);
-    
+  // Initialize state based on current URL - use function initializer to only run once
+  const getInitialState = (path: string) => {
     if (path === '/ops/cases') {
       return { viewMode: 'list' as ViewMode, selectedCaseId: null };
     } else if (path === '/ops/cases/create') {
@@ -133,14 +130,10 @@ export default function CaseManagement() {
     return { viewMode: 'list' as ViewMode, selectedCaseId: null };
   };
 
-  const initialState = getInitialState();
-  const [viewMode, setViewMode] = useState<ViewMode>(initialState.viewMode);
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialState.selectedCaseId);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => getInitialState(location.pathname).viewMode);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(() => getInitialState(location.pathname).selectedCaseId);
   const [editingCase, setEditingCase] = useState<Case | null>(null);
-  
-  // Debug initial state
-  console.log('CaseManagement component initialized with path:', location.pathname);
-  console.log('Initial state:', initialState);
+  const [isOperationLoading, setIsOperationLoading] = useState(false);
   
   // Use React Query hooks for data fetching with caching
   const { data: cases = [], isLoading: isLoadingCases, error: casesError } = useCases();
@@ -148,7 +141,7 @@ export default function CaseManagement() {
   const { data: contractTypes = [], isLoading: isLoadingContractTypes } = useContractTypes();
   const invalidateCases = useCasesInvalidation();
   
-  const isLoading = isLoadingCases || isLoadingClients || isLoadingContractTypes;
+  const isLoading = isLoadingCases || isLoadingClients || isLoadingContractTypes || isOperationLoading;
   const { toast } = useToast();
 
   // Show error toast if cases fail to load
@@ -165,59 +158,41 @@ export default function CaseManagement() {
   // Load case data for edit mode on initial load
   useEffect(() => {
     if (viewMode === 'edit' && selectedCaseId && !editingCase) {
-      console.log('Loading case data for edit mode on initial load');
       loadCaseForEdit(selectedCaseId);
     }
   }, [viewMode, selectedCaseId, editingCase]);
 
-  // Handle URL-based navigation
+  // Handle URL-based navigation - only depend on pathname to prevent loops
   useEffect(() => {
     const path = location.pathname;
-    console.log('URL navigation effect triggered for path:', path);
-    console.log('Current viewMode:', viewMode);
-    console.log('Current selectedCaseId:', selectedCaseId);
+    const newState = getInitialState(path);
     
-    // Don't change navigation if we're already in the correct state
-    if (path === '/ops/cases' && viewMode === 'list') {
-      console.log('Already in list mode, skipping navigation');
-      return;
-    }
+    // Use functional updates to avoid dependency on current state values
+    setViewMode(prevMode => {
+      if (prevMode !== newState.viewMode) {
+        return newState.viewMode;
+      }
+      return prevMode;
+    });
     
-    if (path === '/ops/cases') {
-      console.log('Setting list mode');
-      setViewMode('list');
-      setSelectedCaseId(null);
-      setEditingCase(null);
-    } else if (path === '/ops/cases/create') {
-      console.log('Setting create mode');
-      setViewMode('create');
-      setSelectedCaseId(null);
-      setEditingCase(null);
-    } else if (path.startsWith('/ops/cases/') && path.endsWith('/edit')) {
-      const urlCaseId = path.split('/')[3];
-      console.log('Edit mode detected, caseId:', urlCaseId);
-      if (viewMode !== 'edit' || selectedCaseId !== urlCaseId) {
-        setViewMode('edit');
-        setSelectedCaseId(urlCaseId);
-        if (urlCaseId) {
-          loadCaseForEdit(urlCaseId);
-        }
+    setSelectedCaseId(prevId => {
+      if (prevId !== newState.selectedCaseId) {
+        return newState.selectedCaseId;
       }
-    } else if (path.startsWith('/ops/cases/') && !path.endsWith('/edit')) {
-      const urlCaseId = path.split('/')[3];
-      console.log('Detail mode detected, caseId:', urlCaseId);
-      if (viewMode !== 'detail' || selectedCaseId !== urlCaseId) {
-        setViewMode('detail');
-        setSelectedCaseId(urlCaseId);
-      }
+      return prevId;
+    });
+    
+    // Reset editing case when switching modes
+    if (newState.viewMode === 'edit' && newState.selectedCaseId) {
+      setEditingCase(null); // Reset editing case when switching to edit mode
+    } else if (newState.viewMode !== 'edit') {
+      setEditingCase(null);
     }
-  }, [location.pathname, viewMode, selectedCaseId]);
+  }, [location.pathname]); // Only depend on pathname
 
   const loadCaseForEdit = async (caseId: string) => {
-    console.log('Loading case for edit:', caseId);
     try {
       const caseData = await CaseUpdateService.getCaseForEdit(caseId);
-      console.log('Case data loaded:', caseData);
       setEditingCase(caseData);
     } catch (error) {
       console.error('Failed to load case for edit:', error);
@@ -295,7 +270,7 @@ export default function CaseManagement() {
 
   const handleDeleteCase = async (caseId: string) => {
     if (window.confirm('Are you sure you want to delete this case?')) {
-      setIsLoading(true);
+      setIsOperationLoading(true);
       try {
         const success = await caseService.deleteCase(caseId);
         if (success) {
@@ -311,7 +286,7 @@ export default function CaseManagement() {
         const { getErrorToast } = await import('@/utils/errorMessages');
         toast(getErrorToast(error));
       } finally {
-        setIsLoading(false);
+        setIsOperationLoading(false);
       }
     }
   };
@@ -319,7 +294,7 @@ export default function CaseManagement() {
   const handleUpdateCase = async (caseData: CaseFormData) => {
     if (!editingCase) return;
     
-    setIsLoading(true);
+    setIsOperationLoading(true);
     try {
       await CaseUpdateService.updateCase(editingCase.id, {
         client_case_id: caseData.client_case_id,
@@ -357,12 +332,12 @@ export default function CaseManagement() {
       const { getErrorToast } = await import('@/utils/errorMessages');
       toast(getErrorToast(error));
     } finally {
-      setIsLoading(false);
+      setIsOperationLoading(false);
     }
   };
 
   const handleSubmitCase = async (caseData: CaseFormData) => {
-    setIsLoading(true);
+    setIsOperationLoading(true);
     try {
       // Create or get location first
       const locationId = await caseService.createOrGetLocation({
@@ -416,7 +391,7 @@ export default function CaseManagement() {
       const { getErrorToast } = await import('@/utils/errorMessages');
       toast(getErrorToast(error));
     } finally {
-      setIsLoading(false);
+      setIsOperationLoading(false);
     }
   };
 
@@ -431,10 +406,6 @@ export default function CaseManagement() {
 
 
   if (viewMode === 'create' || viewMode === 'edit') {
-    console.log('Rendering CaseForm in edit mode:', viewMode === 'edit');
-    console.log('editingCase:', editingCase);
-    console.log('selectedCaseId:', selectedCaseId);
-    
     // Show loading state when editing and case data is not loaded yet
     if (viewMode === 'edit' && !editingCase) {
       return (

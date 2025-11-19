@@ -14,7 +14,7 @@ const Index = () => {
 
   useEffect(() => {
     console.log('Index useEffect', { user, loading });
-    if (!loading && user) {
+    if (!loading && user && user.profile) {
       // Redirect authenticated users to their dashboard
       const roleRedirectMap = {
         super_admin: '/admin',

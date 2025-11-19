@@ -23,6 +23,15 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return <Navigate to="/" replace />;
   }
 
+  // Wait for profile to load before checking roles
+  if (!user.profile) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
   if (allowedRoles && !allowedRoles.includes(user.profile.role)) {
     return <Navigate to="/unauthorized" replace />;
   }
