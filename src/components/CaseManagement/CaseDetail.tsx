@@ -163,6 +163,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadType, setDownloadType] = useState<'csv' | 'pdf' | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
   const isOverdue = (dueAt: string) => {
     return new Date(dueAt) < new Date();
@@ -231,7 +232,17 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
   };
 
   const handlePDFDownload = async () => {
+    // Show loading immediately when button is clicked
+    setIsDownloading(true);
+    setIsGeneratingSummary(true);
+    setDownloadType('pdf');
+    setDownloadProgress(0);
+
     if (formSubmissions.length === 0) {
+      setIsDownloading(false);
+      setIsGeneratingSummary(false);
+      setDownloadType(null);
+      setDownloadProgress(0);
       toast.error('No form submissions available to download');
       return;
     }
@@ -252,13 +263,11 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
     });
 
     try {
-      setIsDownloading(true);
-      setDownloadType('pdf');
-      setDownloadProgress(10);
 
-      setDownloadProgress(40);
+      // Extract form data for AI summary (excluding images and signatures)
+      const formDataForSummary = PDFService.extractFormDataForSummary(formSubmissions);
       
-      // Prepare case data for auto-fill in negative case PDFs
+      // Prepare case data in parallel (doesn't depend on summary)
       const caseDataForPDF: CaseDataForPDF = {
         case_number: caseData.case_number,
         client_case_id: caseData.client_case_id,
@@ -275,12 +284,51 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
         company_name: caseData.company_name
       };
       
+      // Animate progress while waiting for Gemini API (0% to 85%)
+      let progressInterval: NodeJS.Timeout | null = null;
+      let currentProgress = 0;
+      const startProgressAnimation = () => {
+        progressInterval = setInterval(() => {
+          if (currentProgress < 85) {
+            currentProgress += Math.random() * 3 + 1; // Increment by 1-4% randomly
+            if (currentProgress > 85) currentProgress = 85;
+            setDownloadProgress(Math.floor(currentProgress));
+          }
+        }, 200); // Update every 200ms
+      };
+      
+      startProgressAnimation();
+      
+      // Generate AI summary using Gemini
+      const { geminiService } = await import('@/services/geminiService');
+      const summaryResult = await geminiService.generateReportSummary(formDataForSummary);
+      
+      // Stop progress animation
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+      
+      if (!summaryResult.success || !summaryResult.response) {
+        setIsDownloading(false);
+        setIsGeneratingSummary(false);
+        setDownloadType(null);
+        setDownloadProgress(0);
+        toast.error(`Failed to generate AI summary: ${summaryResult.error || 'Unknown error'}`);
+        return;
+      }
+
+      const aiSummary = summaryResult.response;
+      setIsGeneratingSummary(false);
+      setDownloadProgress(90);
+      
+      // Generate PDF (this is the actual heavy operation)
       await PDFService.convertFormSubmissionsToPDF(
         formSubmissions, 
         caseData.case_number, 
         caseData.contract_type,
         caseData.is_positive,
-        caseDataForPDF
+        caseDataForPDF,
+        aiSummary
       );
       
       setDownloadProgress(100);
@@ -288,15 +336,17 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
 
       setTimeout(() => {
         setIsDownloading(false);
+        setIsGeneratingSummary(false);
         setDownloadType(null);
         setDownloadProgress(0);
       }, 500);
     } catch (error) {
       console.error('Error generating PDF:', error);
       setIsDownloading(false);
+      setIsGeneratingSummary(false);
       setDownloadType(null);
       setDownloadProgress(0);
-      toast.error('Failed to generate PDF file');
+      toast.error(`Failed to generate PDF file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -384,7 +434,9 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div className="flex-1">
                   <div className="text-sm font-medium mb-1">
-                    Downloading {downloadType?.toUpperCase()} for {caseData.case_number}...
+                    {isGeneratingSummary 
+                      ? 'Generating Report Summary...' 
+                      : `Downloading ${downloadType?.toUpperCase()} for ${caseData.case_number}...`}
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 

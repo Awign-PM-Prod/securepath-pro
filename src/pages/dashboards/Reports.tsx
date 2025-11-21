@@ -128,6 +128,7 @@ export default function Reports() {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadType, setDownloadType] = useState<'csv' | 'pdf' | null>(null);
   const [downloadingCase, setDownloadingCase] = useState<string | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const { toast } = useToast();
 
   // Filter states
@@ -1118,45 +1119,51 @@ export default function Reports() {
   };
 
   const handleDownloadPDF = async (caseItem: Case) => {
-    // Use exact same process as CaseDetail's handlePDFDownload
-    // First fetch submissions (same as DynamicFormSubmission does)
-    const submissions = await fetchFormSubmissions(caseItem.id);
-    
-    // Debug: Log the submissions data structure
-    console.log('Reports: Submissions data structure:', {
-      count: submissions.length,
-      firstSubmission: submissions[0] ? {
-        id: submissions[0].id,
-        hasFormFields: !!submissions[0].form_fields,
-        formFieldsCount: submissions[0].form_fields?.length || 0,
-        hasSubmissionData: !!submissions[0].submission_data,
-        submissionDataKeys: Object.keys(submissions[0].submission_data || {}),
-        hasFormTemplate: !!submissions[0].form_template,
-        formTemplate: submissions[0].form_template,
-        hasFormSubmissionFiles: !!submissions[0].form_submission_files,
-        formSubmissionFilesCount: submissions[0].form_submission_files?.length || 0,
-        fullStructure: submissions[0]
-      } : null
-    });
-    
-    if (submissions.length === 0) {
-      toast({
-        title: 'No Data',
-        description: 'No form submissions available to download',
-        variant: 'destructive',
-      });
-      return;
-    }
+    // Show loading immediately when button is clicked
+    setIsDownloading(true);
+    setIsGeneratingSummary(true);
+    setDownloadType('pdf');
+    setDownloadProgress(0);
 
-    // Exact same logic as CaseDetail's handlePDFDownload
     try {
-      setIsDownloading(true);
-      setDownloadType('pdf');
-      setDownloadProgress(10);
-
-      setDownloadProgress(40);
+      // Use exact same process as CaseDetail's handlePDFDownload
+      // First fetch submissions (same as DynamicFormSubmission does)
+      const submissions = await fetchFormSubmissions(caseItem.id);
       
-      // Prepare case data for auto-fill in negative case PDFs
+      // Debug: Log the submissions data structure
+      console.log('Reports: Submissions data structure:', {
+        count: submissions.length,
+        firstSubmission: submissions[0] ? {
+          id: submissions[0].id,
+          hasFormFields: !!submissions[0].form_fields,
+          formFieldsCount: submissions[0].form_fields?.length || 0,
+          hasSubmissionData: !!submissions[0].submission_data,
+          submissionDataKeys: Object.keys(submissions[0].submission_data || {}),
+          hasFormTemplate: !!submissions[0].form_template,
+          formTemplate: submissions[0].form_template,
+          hasFormSubmissionFiles: !!submissions[0].form_submission_files,
+          formSubmissionFilesCount: submissions[0].form_submission_files?.length || 0,
+          fullStructure: submissions[0]
+        } : null
+      });
+      
+      if (submissions.length === 0) {
+        setIsDownloading(false);
+        setIsGeneratingSummary(false);
+        setDownloadType(null);
+        setDownloadProgress(0);
+        toast({
+          title: 'No Data',
+          description: 'No form submissions available to download',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Extract form data for AI summary (excluding images and signatures)
+      const formDataForSummary = PDFService.extractFormDataForSummary(submissions);
+      
+      // Prepare case data in parallel (doesn't depend on summary)
       const caseDataForPDF: CaseDataForPDF = {
         case_number: caseItem.case_number,
         client_case_id: caseItem.client_case_id,
@@ -1173,12 +1180,55 @@ export default function Reports() {
         company_name: caseItem.company_name
       };
       
+      // Animate progress while waiting for Gemini API (0% to 85%)
+      let progressInterval: NodeJS.Timeout | null = null;
+      let currentProgress = 0;
+      const startProgressAnimation = () => {
+        progressInterval = setInterval(() => {
+          if (currentProgress < 85) {
+            currentProgress += Math.random() * 3 + 1; // Increment by 1-4% randomly
+            if (currentProgress > 85) currentProgress = 85;
+            setDownloadProgress(Math.floor(currentProgress));
+          }
+        }, 200); // Update every 200ms
+      };
+      
+      startProgressAnimation();
+      
+      // Generate AI summary using Gemini
+      const { geminiService } = await import('@/services/geminiService');
+      const summaryResult = await geminiService.generateReportSummary(formDataForSummary);
+      
+      // Stop progress animation
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+      
+      if (!summaryResult.success || !summaryResult.response) {
+        setIsDownloading(false);
+        setIsGeneratingSummary(false);
+        setDownloadType(null);
+        setDownloadProgress(0);
+        toast({
+          title: 'Error',
+          description: `Failed to generate AI summary: ${summaryResult.error || 'Unknown error'}`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const aiSummary = summaryResult.response;
+      setIsGeneratingSummary(false);
+      setDownloadProgress(90);
+      
+      // Generate PDF (this is the actual heavy operation)
       await PDFService.convertFormSubmissionsToPDF(
         submissions, 
         caseItem.case_number, 
         caseItem.contract_type,
         caseItem.is_positive,
-        caseDataForPDF
+        caseDataForPDF,
+        aiSummary
       );
       
       setDownloadProgress(100);
@@ -1189,17 +1239,19 @@ export default function Reports() {
 
       setTimeout(() => {
         setIsDownloading(false);
+        setIsGeneratingSummary(false);
         setDownloadType(null);
         setDownloadProgress(0);
       }, 500);
     } catch (error) {
       console.error('Error generating PDF:', error);
       setIsDownloading(false);
+      setIsGeneratingSummary(false);
       setDownloadType(null);
       setDownloadProgress(0);
       toast({
         title: 'Error',
-        description: 'Failed to generate PDF file',
+        description: `Failed to generate PDF file: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: 'destructive',
       });
     }
@@ -1233,7 +1285,9 @@ export default function Reports() {
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div className="flex-1">
                   <div className="text-sm font-medium mb-1">
-                    Downloading {downloadingCase ? cases.find(c => c.id === downloadingCase)?.case_number : 'file'}...
+                    {isGeneratingSummary 
+                      ? 'Generating Report Summary...' 
+                      : `Downloading ${downloadingCase ? cases.find(c => c.id === downloadingCase)?.case_number : 'file'}...`}
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 

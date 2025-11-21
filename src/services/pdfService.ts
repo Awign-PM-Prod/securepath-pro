@@ -303,7 +303,8 @@ export class PDFService {
     caseNumber: string,
     contractType?: string,
     isPositive?: boolean,
-    caseData?: CaseDataForPDF
+    caseData?: CaseDataForPDF,
+    aiSummary?: string
   ): Promise<jsPDF> {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -620,6 +621,47 @@ export class PDFService {
           }
         }
 
+        // Add AI Summary row before images (only for the first submission and if summary exists)
+        if (index === 0 && aiSummary) {
+          checkPageBreak(rowHeight * 3);
+          
+          // Format summary text - split into lines if it contains newlines
+          const summaryLines = aiSummary.split('\n').filter(line => line.trim().length > 0);
+          const formattedSummary = summaryLines.length > 0 ? summaryLines.join('\n') : aiSummary;
+          
+          // Estimate height needed for summary text
+          const summaryAnswerLines = doc.splitTextToSize(formattedSummary, answerColWidth - 10);
+          const summaryRowHeight = Math.max(summaryAnswerLines.length * lineHeight + 8, rowHeight);
+          
+          // Alternate row background (use same pattern as other rows)
+          const summaryRowIndex = textFields.length;
+          if (summaryRowIndex % 2 === 0) {
+            doc.setFillColor(250, 250, 250);
+            doc.rect(questionColX, yPosition - 4, questionColWidth, summaryRowHeight, 'F');
+            doc.rect(answerColX, yPosition - 4, answerColWidth, summaryRowHeight, 'F');
+          }
+          
+          // Question text - "Summary"
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'bold');
+          const summaryQuestionLines = doc.splitTextToSize('Summary', questionColWidth - 10);
+          doc.text(summaryQuestionLines, questionColX + 3, yPosition);
+          
+          // Answer text - AI generated summary
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'normal');
+          doc.text(summaryAnswerLines, answerColX + 3, yPosition);
+          
+          // Row borders
+          doc.setDrawColor(200, 200, 200);
+          doc.setLineWidth(0.2);
+          doc.rect(questionColX, yPosition - 4, questionColWidth, summaryRowHeight);
+          doc.rect(answerColX, yPosition - 4, answerColWidth, summaryRowHeight);
+          doc.line(answerColX, yPosition - 4, answerColX, yPosition - 4 + summaryRowHeight);
+          
+          yPosition += summaryRowHeight;
+        }
+
         // Process file upload fields after all text fields - one image per page
         if (fileUploadFields.length > 0) {
           for (let fieldIndex = 0; fieldIndex < fileUploadFields.length; fieldIndex++) {
@@ -907,6 +949,58 @@ export class PDFService {
   }
 
   /**
+   * Extract form data excluding images and signatures for AI summary generation
+   * @param submissions - Form submission data
+   * @returns JSON object with questions and answers (excluding images/signatures)
+   */
+  static extractFormDataForSummary(submissions: FormSubmissionData[]): { questions_and_answers: Array<{ question: string; answer: string }> } {
+    const questionsAndAnswers: Array<{ question: string; answer: string }> = [];
+
+    for (const submission of submissions) {
+      if (!submission.form_fields || !submission.submission_data) continue;
+
+      // Sort fields by order
+      const sortedFields = [...submission.form_fields].sort((a, b) => 
+        (a.field_order || 0) - (b.field_order || 0)
+      );
+
+      for (const field of sortedFields) {
+        // Skip file_upload and signature fields
+        if (field.field_type === 'file_upload' || field.field_type === 'signature') {
+          continue;
+        }
+
+        const fieldTitle = field.field_title || field.field_key;
+        const answer = submission.submission_data[field.field_key];
+
+        // Format the answer based on field type
+        let formattedAnswer = '';
+        if (answer === null || answer === undefined || answer === '') {
+          formattedAnswer = 'Not provided';
+        } else if (Array.isArray(answer)) {
+          formattedAnswer = answer.map(item => {
+            if (typeof item === 'object' && item !== null && 'label' in item) {
+              return item.label;
+            }
+            return String(item);
+          }).join(', ');
+        } else if (typeof answer === 'boolean') {
+          formattedAnswer = answer ? 'Yes' : 'No';
+        } else {
+          formattedAnswer = String(answer);
+        }
+
+        questionsAndAnswers.push({
+          question: fieldTitle,
+          answer: formattedAnswer
+        });
+      }
+    }
+
+    return { questions_and_answers: questionsAndAnswers };
+  }
+
+  /**
    * Convert form submission data to PDF format (downloads automatically)
    */
   static async convertFormSubmissionsToPDF(
@@ -914,9 +1008,10 @@ export class PDFService {
     caseNumber: string,
     contractType?: string,
     isPositive?: boolean,
-    caseData?: CaseDataForPDF
+    caseData?: CaseDataForPDF,
+    aiSummary?: string
   ): Promise<void> {
-    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive, caseData);
+    const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive, caseData, aiSummary);
     // Download the PDF
     const filename = this.generatePDFFilename(caseData);
     doc.save(filename);
