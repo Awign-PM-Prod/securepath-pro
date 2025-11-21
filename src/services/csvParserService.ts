@@ -24,11 +24,18 @@ export interface ParsedCaseData {
   location_url?: string;
 }
 
+export interface InvalidRow {
+  rowNumber: number;
+  rowData: Record<string, string>;
+  errors: string[];
+}
+
 export interface ParsingResult {
   success: boolean;
   data: ParsedCaseData[];
   errors: string[];
   warnings: string[];
+  invalidRows: InvalidRow[];
 }
 
 export class CSVParserService {
@@ -40,7 +47,8 @@ export class CSVParserService {
       success: true,
       data: [],
       errors: [],
-      warnings: []
+      warnings: [],
+      invalidRows: []
     };
 
     try {
@@ -92,6 +100,15 @@ export class CSVParserService {
         const values = this.parseCSVRow(row);
         
         if (values.length !== headers.length) {
+          const rowData: Record<string, string> = {};
+          headers.forEach((header, index) => {
+            rowData[header] = values[index] || '';
+          });
+          result.invalidRows.push({
+            rowNumber: i + 2,
+            rowData,
+            errors: [`Column count mismatch (expected ${headers.length}, got ${values.length})`]
+          });
           result.errors.push(`Row ${i + 2}: Column count mismatch`);
           continue;
         }
@@ -106,6 +123,16 @@ export class CSVParserService {
         if (parsedRow.success) {
           result.data.push(parsedRow.data!);
         } else {
+          // Store invalid row with original data and errors
+          const invalidRowData: Record<string, string> = {};
+          headers.forEach((header) => {
+            invalidRowData[header] = String(rowData[header] || '');
+          });
+          result.invalidRows.push({
+            rowNumber: i + 2,
+            rowData: invalidRowData,
+            errors: parsedRow.errors
+          });
           result.errors.push(...parsedRow.errors.map(e => `Row ${i + 2}: ${e}`));
         }
       }

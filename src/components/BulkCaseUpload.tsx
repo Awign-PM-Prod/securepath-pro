@@ -82,19 +82,26 @@ export default function BulkCaseUpload({ onSuccess, onClose }: BulkCaseUploadPro
     try {
       const result = await CSVParserService.parseCSV(csvContent);
       setParsingResult(result);
-      setStep('create');
       setProgress(50);
 
-      if (!result.success) {
+      if (result.invalidRows.length > 0) {
+        // Stay on parse step to show invalid cases, but allow proceeding with valid ones
         toast({
-          title: 'Parsing Failed',
-          description: `Found ${result.errors.length} errors in the CSV file.`,
+          title: 'Parsing Completed with Errors',
+          description: `Found ${result.invalidRows.length} invalid case(s) and ${result.data.length} valid case(s). Please review invalid cases before proceeding.`,
           variant: 'destructive',
         });
-      } else {
+      } else if (result.data.length > 0) {
+        setStep('create');
         toast({
           title: 'CSV Parsed Successfully',
           description: `Found ${result.data.length} valid cases to create.`,
+        });
+      } else {
+        toast({
+          title: 'No Valid Cases',
+          description: 'No valid cases found in the CSV file.',
+          variant: 'destructive',
         });
       }
     } catch (error) {
@@ -143,6 +150,59 @@ export default function BulkCaseUpload({ onSuccess, onClose }: BulkCaseUploadPro
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // Download invalid cases CSV
+  const handleDownloadInvalidCases = () => {
+    if (!parsingResult || parsingResult.invalidRows.length === 0) return;
+
+    // Get headers from the first invalid row
+    const headers = Object.keys(parsingResult.invalidRows[0].rowData);
+    
+    // Add error_reasons column
+    const csvHeaders = [...headers, 'error_reasons'];
+    
+    // Create CSV rows
+    const csvRows = [
+      csvHeaders.join(','),
+      ...parsingResult.invalidRows.map(invalidRow => {
+        const rowValues = headers.map(header => {
+          const value = invalidRow.rowData[header] || '';
+          // Escape commas and quotes in values
+          if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return value;
+        });
+        // Add error reasons (combine all errors with semicolon)
+        const errorReasons = invalidRow.errors.join('; ');
+        const escapedErrors = errorReasons.includes(',') || errorReasons.includes('"') || errorReasons.includes('\n')
+          ? `"${errorReasons.replace(/"/g, '""')}"`
+          : errorReasons;
+        rowValues.push(escapedErrors);
+        return rowValues.join(',');
+      })
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `invalid_cases_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    toast({
+      title: 'Invalid Cases Downloaded',
+      description: `Downloaded ${parsingResult.invalidRows.length} invalid case(s) with error reasons.`,
+    });
   };
 
   // Reset component
@@ -267,34 +327,128 @@ export default function BulkCaseUpload({ onSuccess, onClose }: BulkCaseUploadPro
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Button
-                onClick={handleParseCSV}
-                disabled={isProcessing}
-                className="flex items-center gap-2"
-              >
-                {isProcessing ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Parsing...
-                  </>
-                ) : (
-                  <>
-                    <FileText className="h-4 w-4" />
-                    Parse CSV
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" onClick={() => setStep('upload')}>
-                Back to Upload
-              </Button>
-            </div>
+            {!parsingResult ? (
+              <>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleParseCSV}
+                    disabled={isProcessing}
+                    className="flex items-center gap-2"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Parsing...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Parse CSV
+                      </>
+                    )}
+                  </Button>
+                  <Button variant="outline" onClick={() => setStep('upload')}>
+                    Back to Upload
+                  </Button>
+                </div>
 
-            {isProcessing && (
-              <div className="space-y-2">
-                <Progress value={progress} className="w-full" />
-                <p className="text-sm text-gray-600">Parsing CSV file...</p>
-              </div>
+                {isProcessing && (
+                  <div className="space-y-2">
+                    <Progress value={progress} className="w-full" />
+                    <p className="text-sm text-gray-600">Parsing CSV file...</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Parsing results summary */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span className="text-sm">Valid cases: {parsingResult.data.length}</span>
+                  </div>
+                  {parsingResult.invalidRows.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <XCircle className="h-4 w-4 text-red-500" />
+                      <span className="text-sm">Invalid cases: {parsingResult.invalidRows.length}</span>
+                    </div>
+                  )}
+                  {parsingResult.warnings.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-yellow-500" />
+                      <span className="text-sm">Warnings: {parsingResult.warnings.length}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Invalid cases - show all */}
+                {parsingResult.invalidRows.length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium">Invalid Cases ({parsingResult.invalidRows.length}):</p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDownloadInvalidCases}
+                            className="flex items-center gap-2"
+                          >
+                            <Download className="h-4 w-4" />
+                            Download Invalid Cases CSV
+                          </Button>
+                        </div>
+                        <div className="max-h-96 overflow-y-auto space-y-2">
+                          {parsingResult.invalidRows.map((invalidRow, index) => (
+                            <div key={index} className="border-l-4 border-red-500 pl-3 py-2 bg-red-50 rounded">
+                              <p className="font-medium text-sm">Row {invalidRow.rowNumber}:</p>
+                              <ul className="list-disc list-inside text-sm mt-1 space-y-1">
+                                {invalidRow.errors.map((error, errorIndex) => (
+                                  <li key={errorIndex} className="text-red-700">{error}</li>
+                                ))}
+                              </ul>
+                              <div className="mt-2 text-xs text-gray-600">
+                                <p className="font-medium">Case Data:</p>
+                                <div className="mt-1 space-y-0.5">
+                                  {Object.entries(invalidRow.rowData).slice(0, 5).map(([key, value]) => (
+                                    <p key={key}><span className="font-medium">{key}:</span> {value || '(empty)'}</p>
+                                  ))}
+                                  {Object.keys(invalidRow.rowData).length > 5 && (
+                                    <p className="text-gray-500">... and {Object.keys(invalidRow.rowData).length - 5} more fields</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  {parsingResult.data.length > 0 && (
+                    <Button
+                      onClick={() => setStep('create')}
+                      className="flex items-center gap-2"
+                      variant={parsingResult.invalidRows.length > 0 ? "outline" : "default"}
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                      {parsingResult.invalidRows.length > 0 
+                        ? `Proceed with ${parsingResult.data.length} Valid Cases (${parsingResult.invalidRows.length} invalid will be skipped)`
+                        : `Proceed to Create ${parsingResult.data.length} Cases`
+                      }
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={handleReset}>
+                    Start Over
+                  </Button>
+                  <Button variant="outline" onClick={() => setStep('upload')}>
+                    Back to Upload
+                  </Button>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -330,20 +484,35 @@ export default function BulkCaseUpload({ onSuccess, onClose }: BulkCaseUploadPro
               )}
             </div>
 
-            {/* Errors */}
-            {parsingResult.errors.length > 0 && (
+            {/* Invalid cases - show all if any remain (shouldn't happen if shown in parse step) */}
+            {parsingResult.invalidRows.length > 0 && (
               <Alert variant="destructive">
                 <AlertDescription>
-                  <div className="space-y-1">
-                    <p className="font-medium">Errors found:</p>
-                    <ul className="list-disc list-inside text-sm">
-                      {parsingResult.errors.slice(0, 5).map((error, index) => (
-                        <li key={index}>{error}</li>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">Invalid Cases ({parsingResult.invalidRows.length}):</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleDownloadInvalidCases}
+                        className="flex items-center gap-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download Invalid Cases CSV
+                      </Button>
+                    </div>
+                    <div className="max-h-96 overflow-y-auto space-y-2">
+                      {parsingResult.invalidRows.map((invalidRow, index) => (
+                        <div key={index} className="border-l-4 border-red-500 pl-3 py-2 bg-red-50 rounded">
+                          <p className="font-medium text-sm">Row {invalidRow.rowNumber}:</p>
+                          <ul className="list-disc list-inside text-sm mt-1 space-y-1">
+                            {invalidRow.errors.map((error, errorIndex) => (
+                              <li key={errorIndex} className="text-red-700">{error}</li>
+                            ))}
+                          </ul>
+                        </div>
                       ))}
-                      {parsingResult.errors.length > 5 && (
-                        <li>... and {parsingResult.errors.length - 5} more errors</li>
-                      )}
-                    </ul>
+                    </div>
                   </div>
                 </AlertDescription>
               </Alert>
@@ -353,7 +522,7 @@ export default function BulkCaseUpload({ onSuccess, onClose }: BulkCaseUploadPro
             <div className="flex gap-2">
               <Button
                 onClick={handleCreateCases}
-                disabled={isProcessing || parsingResult.errors.length > 0}
+                disabled={isProcessing || parsingResult.data.length === 0}
                 className="flex items-center gap-2"
               >
                 {isProcessing ? (
@@ -430,15 +599,14 @@ export default function BulkCaseUpload({ onSuccess, onClose }: BulkCaseUploadPro
               <Alert variant="destructive">
                 <AlertDescription>
                   <div className="space-y-1">
-                    <p className="font-medium">Errors:</p>
-                    <ul className="list-disc list-inside text-sm">
-                      {creationResult.errors.slice(0, 5).map((error, index) => (
-                        <li key={index}>{error}</li>
-                      ))}
-                      {creationResult.errors.length > 5 && (
-                        <li>... and {creationResult.errors.length - 5} more errors</li>
-                      )}
-                    </ul>
+                    <p className="font-medium">Errors ({creationResult.errors.length}):</p>
+                    <div className="max-h-96 overflow-y-auto">
+                      <ul className="list-disc list-inside text-sm">
+                        {creationResult.errors.map((error, index) => (
+                          <li key={index}>{error}</li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
                 </AlertDescription>
               </Alert>
