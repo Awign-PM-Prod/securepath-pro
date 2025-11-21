@@ -295,18 +295,18 @@ export default function CaseManagement() {
   };
 
   const handleDeleteCase = async (caseId: string) => {
-    if (window.confirm('Are you sure you want to delete this case?')) {
+    if (window.confirm('Are you sure you want to deactivate this case? The case will be hidden from all views but not permanently deleted.')) {
       setIsSubmitting(true);
       try {
         const success = await caseService.deleteCase(caseId);
         if (success) {
           invalidateCases(); // Invalidate cache to refetch updated list
           toast({
-            title: 'Case Deleted',
-            description: 'The case has been successfully deleted.',
+            title: 'Case Deactivated',
+            description: 'The case has been successfully deactivated and will no longer appear in the list.',
           });
         } else {
-          throw new Error('Failed to delete case');
+          throw new Error('Failed to deactivate case');
         }
       } catch (error) {
         const { getErrorToast } = await import('@/utils/errorMessages');

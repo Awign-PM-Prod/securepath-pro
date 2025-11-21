@@ -21,6 +21,7 @@ export class DashboardStatsService {
       const { count: totalCases } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
         .gte('created_at', cutoffDateISOString);
 
       // Get active clients count (clients with cases or active contracts)
@@ -33,6 +34,7 @@ export class DashboardStatsService {
       const { count: pendingCases } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
         .in('status', ['new', 'pending_allocation'])
         .gte('created_at', cutoffDateISOString);
 
@@ -40,6 +42,7 @@ export class DashboardStatsService {
       const { count: completedCases } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
         .in('status', ['qc_passed', 'reported', 'payment_complete'])
         .gte('created_at', cutoffDateISOString);
 
@@ -69,6 +72,7 @@ export class DashboardStatsService {
       const { count } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
         .eq('status', status);
 
       return count || 0;
@@ -86,6 +90,7 @@ export class DashboardStatsService {
       const { count } = await supabase
         .from('cases')
         .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
         .in('status', statuses);
 
       return count || 0;

@@ -195,6 +195,7 @@ export default function Reports() {
           locations(id, address_line, city, state, pincode, pincode_tier, lat, lng, location_url)
         `)
         .in('status', ['submitted', 'qc_passed'])
+        .eq('is_active', true)
         .gte('created_at', cutoffDateISOString)
         .order('status_updated_at', { ascending: false });
 

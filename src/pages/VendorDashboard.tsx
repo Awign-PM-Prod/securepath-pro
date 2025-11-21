@@ -287,7 +287,8 @@ const VendorDashboard: React.FC = () => {
           locations(id, address_line, city, state, pincode)
         `)
         .eq('current_vendor_id', vendorId)
-        .eq('status', 'allocated' as any);
+        .eq('status', 'allocated' as any)
+        .eq('is_active', true);
 
       // Fetch acceptance deadlines from allocation_logs for allocated cases
       const allocatedCaseIds = allocatedData?.map(c => c.id) || [];
@@ -342,7 +343,8 @@ const VendorDashboard: React.FC = () => {
           locations(id, address_line, city, state, pincode)
         `)
         .eq('current_vendor_id', vendorId)
-        .eq('status', 'accepted');
+        .eq('status', 'accepted')
+        .eq('is_active', true);
 
       if (acceptedError) {
         console.error('Error fetching accepted cases:', acceptedError);
@@ -658,6 +660,7 @@ const VendorDashboard: React.FC = () => {
         .from('cases')
         .select('QC_Response, status')
         .eq('id', selectedCase)
+        .eq('is_active', true)
         .single();
 
       let isReworkCase = false;
@@ -765,6 +768,7 @@ const VendorDashboard: React.FC = () => {
       .from('cases')
       .select('id, case_number, status, current_assignee_id, current_assignee_type, current_vendor_id')
       .eq('id', viewingCase.id)
+      .eq('is_active', true)
       .single();
     
     console.log('Case data (vendor query):', caseData);
@@ -918,6 +922,7 @@ const VendorDashboard: React.FC = () => {
           current_vendor_id
         `)
         .eq('current_vendor_id', vendorId)
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -973,6 +978,7 @@ const VendorDashboard: React.FC = () => {
         `)
         .eq('current_vendor_id', vendorId)
         .eq('QC_Response', 'Rework')
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -990,6 +996,7 @@ const VendorDashboard: React.FC = () => {
               locations(id, address_line, city, state, pincode)
             `)
             .eq('current_vendor_id', vendorId)
+            .eq('is_active', true)
             .in('status', ['qc_passed', 'qc_rejected', 'qc_rework'])
             .order('created_at', { ascending: false });
 
@@ -1292,6 +1299,7 @@ const VendorDashboard: React.FC = () => {
         .from('cases')
         .select('current_assignee_id, status')
         .eq('id', caseId)
+        .eq('is_active', true)
         .single();
 
       if (fetchError) {

@@ -81,6 +81,7 @@ export class AllocationService {
             )
           `)
           .eq('id', caseId)
+          .eq('is_active', true)
           .single();
 
         if (caseError || !caseData) {

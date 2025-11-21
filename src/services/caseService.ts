@@ -149,6 +149,7 @@ export class CaseService {
             location_url
           )
         `)
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
       if (casesError) throw casesError;
@@ -925,51 +926,27 @@ export class CaseService {
   }
 
   /**
-   * Delete a case
+   * Delete a case (soft delete - sets is_active to false)
    */
   async deleteCase(id: string): Promise<boolean> {
     try {
-      console.log('Attempting to delete case with ID:', id);
+      console.log('Attempting to deactivate case with ID:', id);
       
-      // Delete dependent rows first to satisfy FK constraints
-      // 1) Delete form_submissions for this case (form_submission_files will cascade)
-      const { error: formSubsErr } = await supabase
-        .from('form_submissions')
-        .delete()
-        .eq('case_id', id);
-      if (formSubsErr) {
-        console.error('Failed to delete form_submissions for case:', id, formSubsErr);
-        return false;
-      }
-
-      // 2) Best-effort delete from submissions table if exists
-      try {
-        const { error: subsErr } = await (supabase as any)
-          .from('submissions')
-          .delete()
-          .eq('case_id', id);
-        if (subsErr) {
-          console.warn('Warning deleting from submissions (ignored):', subsErr);
-        }
-      } catch (e) {
-        console.warn('Submissions table not present or delete failed (ignored):', e);
-      }
-
-      // 3) Delete the case itself
-      const { error: deleteError } = await supabase
+      // Soft delete: Set is_active to false instead of deleting
+      const { error: updateError } = await supabase
         .from('cases')
-        .delete()
+        .update({ is_active: false })
         .eq('id', id);
 
-      if (deleteError) {
-        console.error('Error deleting case:', deleteError);
+      if (updateError) {
+        console.error('Error deactivating case:', updateError);
         return false;
       }
 
-      console.log('Case deleted successfully');
+      console.log('Case deactivated successfully');
       return true;
     } catch (error) {
-      console.error('Failed to delete case:', error);
+      console.error('Failed to deactivate case:', error);
       return false;
     }
   }

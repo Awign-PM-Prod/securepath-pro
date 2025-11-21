@@ -572,6 +572,7 @@ export class GigWorkerService {
         `)
         .eq('current_assignee_id', gigWorkerId)
         .eq('current_assignee_type', 'gig')
+        .eq('is_active', true)
         .in('status', ['allocated', 'accepted', 'in_progress', 'submitted', 'qc_passed', 'qc_rework']);
 
       if (error) throw error;
