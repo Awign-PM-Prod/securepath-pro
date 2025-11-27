@@ -599,6 +599,125 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
     return false;
   };
 
+  // Helper function to apply auto-fill mappings to form data
+  const applyAutoFillMappings = (
+    formData: FormData,
+    caseData: any,
+    gigWorkerName: string | null,
+    isNegative: boolean,
+    contractTypeId: string | undefined
+  ): { updatedData: FormData; filledFields: Set<string> } => {
+    const updatedData = { ...formData };
+    const filledFields = new Set<string>();
+    
+    if (!caseData) {
+      return { updatedData, filledFields };
+    }
+    
+    console.log('Applying auto-fill mappings:', caseData, 'isNegative:', isNegative);
+    
+    // Check if it's a business contract for company name auto-fill
+    const contractTypeIdLower = contractTypeId?.toLowerCase() || '';
+    const isBusinessContract = contractTypeIdLower.includes('business');
+    
+    // Define the mapping of case data to form fields
+    const autoFillMappings: Record<string, string | undefined> = {
+      // Case ID (always) - use client_case_id if available, otherwise fallback to case_number
+      'case_id': caseData.client_case_id || caseData.case_number,
+      'lead_id': caseData.client_case_id || caseData.case_number,
+      'applicant_id': caseData.client_case_id || caseData.case_number,
+      
+      // Applicant name (always)
+      'applicant_name': caseData.candidate_name,
+      
+      // Contact Number (always - various field name variations)
+      'contact_number': caseData.phone_primary,
+      'contact_no': caseData.phone_primary,
+      'phone': caseData.phone_primary,
+      'phone_number': caseData.phone_primary,
+      'phone_primary': caseData.phone_primary,
+      'mobile': caseData.phone_primary,
+      'mobile_number': caseData.phone_primary,
+      'contact_phone': caseData.phone_primary,
+      
+      // City (always)
+      'city': caseData.location?.city,
+      
+      // Address (always - for both positive and negative cases)
+      'address': caseData.location?.address_line,
+      'address_line': caseData.location?.address_line,
+      
+      // Pincode (always)
+      'pincode': caseData.location?.pincode,
+      'pin_code': caseData.location?.pincode,
+    };
+
+    // For positive cases, add additional address variations and fi_type
+    if (!isNegative) {
+      autoFillMappings['current_office_address'] = caseData.location?.address_line;
+      autoFillMappings['current_residential_address'] = caseData.location?.address_line;
+      autoFillMappings['fi_type'] = caseData.fi_type;
+    }
+
+    // Company name - only for business contracts (both positive and negative)
+    if (isBusinessContract) {
+      autoFillMappings['company_name'] = caseData.company_name;
+      autoFillMappings['business_name'] = caseData.company_name;
+      autoFillMappings['company'] = caseData.company_name;
+    }
+
+    // Auto-fill "report check" field based on case type
+    if (isNegative) {
+      // For negative cases, set to "Negative"
+      autoFillMappings['report_check'] = 'Negative';
+      autoFillMappings['reportcheck'] = 'Negative';
+      autoFillMappings['report check'] = 'Negative';
+    } else {
+      // For positive cases, set to "Positive"
+      autoFillMappings['report_check'] = 'Positive';
+      autoFillMappings['reportcheck'] = 'Positive';
+      autoFillMappings['report check'] = 'Positive';
+    }
+
+    // Auto-fill executive name fields with gig worker's name
+    if (gigWorkerName) {
+      autoFillMappings['executive_name'] = gigWorkerName;
+      autoFillMappings['executive name'] = gigWorkerName;
+      autoFillMappings['field_executive_name'] = gigWorkerName;
+      autoFillMappings['field executive name'] = gigWorkerName;
+      autoFillMappings['verified_by_name'] = gigWorkerName;
+      autoFillMappings['verified by name'] = gigWorkerName;
+      autoFillMappings['verified_by'] = gigWorkerName;
+      autoFillMappings['verified by'] = gigWorkerName;
+      autoFillMappings['verifier_name'] = gigWorkerName;
+      autoFillMappings['verifier name'] = gigWorkerName;
+    }
+
+    // Apply auto-fill mappings (only fill if field exists and value is not empty)
+    Object.entries(autoFillMappings).forEach(([fieldKey, value]) => {
+      if (updatedData[fieldKey] && value) {
+        // Only auto-fill if the field is empty or missing value
+        const currentValue = updatedData[fieldKey]?.value;
+        if (!currentValue || currentValue === '' || currentValue === null || currentValue === undefined) {
+          console.log(`Auto-filling field ${fieldKey} with value:`, value);
+          updatedData[fieldKey] = {
+            ...updatedData[fieldKey],
+            value: value
+          };
+          filledFields.add(fieldKey);
+        } else {
+          console.log(`Field ${fieldKey} already has value, skipping auto-fill:`, currentValue);
+        }
+      } else if (updatedData[fieldKey]) {
+        console.log(`Field ${fieldKey} exists but no value to fill:`, value);
+      } else {
+        console.log(`Field ${fieldKey} not found in form template`);
+      }
+    });
+    
+    return { updatedData, filledFields };
+  };
+
   const loadFormTemplate = async () => {
     setLoadingTemplate(true);
     setDraftLoaded(false);
@@ -654,108 +773,15 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
       // For negative cases, only auto-fill: Applicant name, Company name (business only), Contact Number, City, Pincode, Case ID
       // For positive cases, auto-fill all fields
       if (caseData) {
-        console.log('DynamicForm: Auto-filling case data:', caseData, 'isNegative:', isNegative);
-        
-        // Check if it's a business contract for company name auto-fill
-        const contractTypeIdLower = contractTypeId?.toLowerCase() || '';
-        const isBusinessContract = contractTypeIdLower.includes('business');
-        
-        // Define the mapping of case data to form fields
-        // For negative cases, use restricted list; for positive cases, use full list
-        const autoFillMappings: Record<string, string | undefined> = {
-          // Case ID (always) - use client_case_id if available, otherwise fallback to case_number
-          'case_id': caseData.client_case_id || caseData.case_number,
-          'lead_id': caseData.client_case_id || caseData.case_number,
-          'applicant_id': caseData.client_case_id || caseData.case_number,
-          
-          // Applicant name (always)
-          'applicant_name': caseData.candidate_name,
-          
-          // Contact Number (always - various field name variations)
-          'contact_number': caseData.phone_primary,
-          'contact_no': caseData.phone_primary,
-          'phone': caseData.phone_primary,
-          'phone_number': caseData.phone_primary,
-          'phone_primary': caseData.phone_primary,
-          'mobile': caseData.phone_primary,
-          'mobile_number': caseData.phone_primary,
-          'contact_phone': caseData.phone_primary,
-          
-          // City (always)
-          'city': caseData.location?.city,
-          
-          // Address (always - for both positive and negative cases)
-          'address': caseData.location?.address_line,
-          'address_line': caseData.location?.address_line,
-          
-          // Pincode (always)
-          'pincode': caseData.location?.pincode,
-          'pin_code': caseData.location?.pincode,
-        };
-
-        // For positive cases, add additional address variations and fi_type
-        if (!isNegative) {
-          autoFillMappings['current_office_address'] = caseData.location?.address_line;
-          autoFillMappings['current_residential_address'] = caseData.location?.address_line;
-          autoFillMappings['fi_type'] = caseData.fi_type;
-        }
-
-        // Company name - only for business contracts (both positive and negative)
-        if (isBusinessContract) {
-          autoFillMappings['company_name'] = caseData.company_name;
-          autoFillMappings['business_name'] = caseData.company_name;
-          autoFillMappings['company'] = caseData.company_name;
-        }
-
-        // Auto-fill "report check" field based on case type
-        if (isNegative) {
-          // For negative cases, set to "Negative"
-          autoFillMappings['report_check'] = 'Negative';
-          autoFillMappings['reportcheck'] = 'Negative';
-          autoFillMappings['report check'] = 'Negative';
-        } else {
-          // For positive cases, set to "Positive"
-          autoFillMappings['report_check'] = 'Positive';
-          autoFillMappings['reportcheck'] = 'Positive';
-          autoFillMappings['report check'] = 'Positive';
-        }
-
-        // Auto-fill executive name fields with gig worker's name
-        if (gigWorkerName) {
-          autoFillMappings['executive_name'] = gigWorkerName;
-          autoFillMappings['executive name'] = gigWorkerName;
-          autoFillMappings['field_executive_name'] = gigWorkerName;
-          autoFillMappings['field executive name'] = gigWorkerName;
-          autoFillMappings['verified_by_name'] = gigWorkerName;
-          autoFillMappings['verified by name'] = gigWorkerName;
-          autoFillMappings['verified_by'] = gigWorkerName;
-          autoFillMappings['verified by'] = gigWorkerName;
-          autoFillMappings['verifier_name'] = gigWorkerName;
-          autoFillMappings['verifier name'] = gigWorkerName;
-        }
-
-        // Track which fields are being auto-filled
-        const filledFields = new Set<string>();
-        
-        // Apply auto-fill mappings
-        Object.entries(autoFillMappings).forEach(([fieldKey, value]) => {
-          if (initialData[fieldKey] && value) {
-            console.log(`Auto-filling field ${fieldKey} with value:`, value);
-            initialData[fieldKey] = {
-              ...initialData[fieldKey],
-              value: value
-            };
-            filledFields.add(fieldKey);
-          } else if (initialData[fieldKey]) {
-            console.log(`Field ${fieldKey} exists but no value to fill:`, value);
-          } else {
-            console.log(`Field ${fieldKey} not found in form template`);
-          }
-        });
-        
-        // Store auto-filled fields for read-only functionality
+        const { updatedData, filledFields } = applyAutoFillMappings(
+          initialData,
+          caseData,
+          gigWorkerName,
+          isNegative,
+          contractTypeId
+        );
+        initialData = updatedData;
         setAutoFilledFields(filledFields);
-        
         console.log('Final initial data after auto-fill:', initialData);
       }
 
@@ -1037,6 +1063,27 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
         // Auto-fill date and time fields for draft data if empty
         // IMPORTANT: Call this AFTER files are loaded to ensure files are preserved
         autoFillDateTimeFields(updatedFormData, result.template.form_fields || []);
+        
+        // Re-apply auto-fill mappings after draft merge to ensure auto-filled fields are always populated
+        // This is especially important for fields like field_executive_name that may not be in the draft
+        if (caseData) {
+          console.log('Re-applying auto-fill mappings after draft merge to ensure all fields are populated');
+          const { updatedData, filledFields } = applyAutoFillMappings(
+            updatedFormData,
+            caseData,
+            gigWorkerName,
+            isNegative,
+            contractTypeId
+          );
+          // Merge the filled fields with existing auto-filled fields
+          setAutoFilledFields(prev => {
+            const merged = new Set(prev);
+            filledFields.forEach(field => merged.add(field));
+            return merged;
+          });
+          // Update form data with re-applied auto-fill
+          Object.assign(updatedFormData, updatedData);
+        }
         
         // Final check: Log all fields with files before setting formData
         console.log('DynamicForm: Final check - Fields with files before setFormData:', 
