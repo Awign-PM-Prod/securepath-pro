@@ -904,7 +904,8 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
             </div>
           </div>
           <DynamicFormSubmission 
-            caseId={caseData.id} 
+            caseId={caseData.id}
+            caseStatus={caseData.status}
             onSubmissionsLoaded={(submissions: any[]) => setFormSubmissions(submissions as FormSubmissionData[])}
           />
         </TabsContent>

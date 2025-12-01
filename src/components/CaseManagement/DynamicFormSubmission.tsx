@@ -12,10 +12,17 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Clock
+  Clock,
+  Edit,
+  Save,
+  X
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { DynamicForm } from '@/components/DynamicForm';
+import { formService } from '@/services/formService';
+import { toast } from 'sonner';
 
 interface FormSubmission {
   id: string;
@@ -55,14 +62,25 @@ interface FormSubmission {
 
 interface DynamicFormSubmissionProps {
   caseId: string;
+  caseStatus?: string; // Case status to check if editing is allowed
   onSubmissionsLoaded?: (submissions: FormSubmission[]) => void;
   qcReviewData?: any; // QC review data for rework cases
 }
 
-export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded, qcReviewData }: DynamicFormSubmissionProps) {
+export default function DynamicFormSubmission({ caseId, caseStatus, onSubmissionsLoaded, qcReviewData }: DynamicFormSubmissionProps) {
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingSubmission, setEditingSubmission] = useState<FormSubmission | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const { user, hasRole } = useAuth();
+
+  // Check if user can edit (ops_team or super_admin)
+  const canEdit = hasRole('ops_team') || hasRole('super_admin');
+  
+  // Check if editing is allowed for this case status
+  const canEditThisCase = canEdit && (caseStatus === 'submitted' || caseStatus === 'qc_passed');
 
   // Helper function to parse timestamp from filename
   const parseTimestampFromFilename = (filename: string) => {
@@ -740,15 +758,31 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded, qcR
       {submissions.map((submission) => (
         <Card key={submission.id}>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              {submission.form_template?.template_name || 'Form Submission'}
-              {submission.status === 'draft' && (
-                <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
-                  Draft
-                </Badge>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                {submission.form_template?.template_name || 'Form Submission'}
+                {submission.status === 'draft' && (
+                  <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+                    Draft
+                  </Badge>
+                )}
+              </CardTitle>
+              {canEditThisCase && !isEditMode && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingSubmission(submission);
+                    setIsEditMode(true);
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <Edit className="h-4 w-4" />
+                  Edit Response
+                </Button>
               )}
-            </CardTitle>
+            </div>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
@@ -790,9 +824,25 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded, qcR
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-6">
-              {/* Render all form fields, including file upload fields and signature fields */}
-              {submission.form_fields
+            {isEditMode && editingSubmission?.id === submission.id ? (
+              <EditFormView
+                submission={submission}
+                caseId={caseId}
+                onCancel={() => {
+                  setIsEditMode(false);
+                  setEditingSubmission(null);
+                }}
+                onSave={async () => {
+                  setIsEditMode(false);
+                  setEditingSubmission(null);
+                  // Refresh submissions after save
+                  await fetchFormSubmissions();
+                }}
+              />
+            ) : (
+              <div className="space-y-6">
+                {/* Render all form fields, including file upload fields and signature fields */}
+                {submission.form_fields
                 ?.sort((a, b) => (a.field_order || 0) - (b.field_order || 0))
                 ?.map((fieldInfo) => {
                 const fieldKey = fieldInfo.field_key;
@@ -824,10 +874,166 @@ export default function DynamicFormSubmission({ caseId, onSubmissionsLoaded, qcR
                   </div>
                 );
               })}
-            </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       ))}
+    </div>
+  );
+}
+
+// Edit Form View Component
+interface EditFormViewProps {
+  submission: FormSubmission;
+  caseId: string;
+  onCancel: () => void;
+  onSave: () => void;
+}
+
+function EditFormView({ submission, caseId, onCancel, onSave }: EditFormViewProps) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [formData, setFormData] = useState<any>(null);
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [contractTypeKey, setContractTypeKey] = useState<string | null>(null);
+  const [isNegative, setIsNegative] = useState(false);
+
+  useEffect(() => {
+    // Load submission data for editing
+    const loadSubmissionData = async () => {
+      try {
+        // Get case data to find contract type
+        const { data: caseData, error: caseError } = await supabase
+          .from('cases')
+          .select('contract_type, is_positive')
+          .eq('id', caseId)
+          .single();
+
+        if (caseError) throw caseError;
+
+        // Use contract type key directly (DynamicForm expects the key, not ID)
+        setContractTypeKey(caseData.contract_type);
+        setIsNegative(caseData.is_positive === false);
+
+        // Transform submission data to form data format
+        // DynamicForm expects submission_data to have values directly or in {value: ...} format
+        let submissionData = submission.submission_data;
+        if (typeof submissionData === 'string') {
+          try {
+            submissionData = JSON.parse(submissionData);
+          } catch (e) {
+            console.error('Error parsing submission data:', e);
+            submissionData = {};
+          }
+        }
+
+        // Transform to form data format that DynamicForm expects
+        // DynamicForm can handle both direct values and {value: ...} format
+        // We'll use direct values for simplicity, and files will be loaded separately
+        const transformedFormData: Record<string, any> = {};
+        
+        // Process each field - use direct values (DynamicForm will handle the conversion)
+        Object.entries(submissionData).forEach(([key, value]) => {
+          if (key === '_metadata') {
+            // Preserve metadata
+            transformedFormData[key] = value;
+          } else {
+            // For most fields, use direct value (DynamicForm handles conversion)
+            transformedFormData[key] = value;
+          }
+        });
+
+        setFormData(transformedFormData);
+        setTemplateId(submission.template_id);
+      } catch (error) {
+        console.error('Error loading submission data:', error);
+        toast.error('Failed to load form data for editing');
+      }
+    };
+
+    loadSubmissionData();
+  }, [submission, caseId]);
+
+  const handleSubmit = async (formDataToSubmit: any) => {
+    if (!templateId || !contractTypeKey) {
+      toast.error('Missing template or contract type information');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Get current user ID (for ops editing, we'll use the original gig_partner_id)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Use the original gig_partner_id from submission
+      const gigWorkerId = submission.gig_partner_id;
+
+      // Submit the form (this will update the existing submission)
+      const result = await formService.submitForm(
+        caseId,
+        templateId,
+        gigWorkerId,
+        formDataToSubmit,
+        false // Not a draft
+      );
+
+      if (result.success) {
+        toast.success('Form response updated successfully');
+        onSave();
+      } else {
+        throw new Error(result.error || 'Failed to update form');
+      }
+    } catch (error) {
+      console.error('Error saving form:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save form');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!formData || !contractTypeKey) {
+    return (
+      <div className="text-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <p className="text-muted-foreground">Loading form for editing...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between mb-4 pb-4 border-b">
+        <h3 className="text-lg font-semibold">Edit Form Response</h3>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
+            <X className="h-4 w-4 mr-2" />
+            Cancel
+          </Button>
+        </div>
+      </div>
+      <DynamicForm
+        contractTypeId={contractTypeKey}
+        caseId={caseId}
+        gigWorkerId={submission.gig_partner_id}
+        onSubmit={handleSubmit}
+        onCancel={onCancel}
+        loading={isSaving}
+        draftData={{
+          submission_data: formData,
+          form_submission_files: submission.form_submission_files || [],
+          files: submission.form_submission_files || []
+        }}
+        isNegative={isNegative}
+        hideFooterButtons={false}
+      />
     </div>
   );
 }
