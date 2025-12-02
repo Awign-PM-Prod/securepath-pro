@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell, Filter, X } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell, Filter, X, Loader2 } from 'lucide-react';
 import { format, differenceInMinutes, addHours, startOfMonth, endOfMonth, isSameMonth, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -93,6 +93,7 @@ export default function GigWorkerDashboard() {
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [isSubmissionDialogOpen, setIsSubmissionDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAcceptingCase, setIsAcceptingCase] = useState(false);
   const [submissionData, setSubmissionData] = useState<CaseSubmission>({
     caseId: '',
     answers: {},
@@ -251,10 +252,9 @@ export default function GigWorkerDashboard() {
 
   // Helper function to determine if payout section should be completely hidden
   const shouldHidePayoutSection = (caseItem: AllocatedCase) => {
-    // Hide entire payout section if:
-    // 1. Direct gig worker, OR
-    // 2. Vendor-associated gig worker with allocated case
-    return caseItem.is_direct_gig || shouldHidePayout(caseItem);
+    // Show payout for direct gig workers (not associated with vendor)
+    // Hide payout only for vendor-associated gig workers with allocated case
+    return !caseItem.is_direct_gig && shouldHidePayout(caseItem);
   };
 
   const loadAllocatedCases = async () => {
@@ -363,9 +363,26 @@ export default function GigWorkerDashboard() {
 
 
   const handleAcceptCase = async () => {
-    if (!selectedCase || !gigWorkerId) return;
+    if (!selectedCase) {
+      toast({
+        title: 'Error',
+        description: 'No case selected',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!gigWorkerId) {
+      toast({
+        title: 'Error',
+        description: 'Gig worker profile not loaded. Please refresh the page.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     try {
+      setIsAcceptingCase(true);
       const result = await gigWorkerService.acceptCase({
         caseId: selectedCase.id,
         gigWorkerId: gigWorkerId
@@ -386,6 +403,8 @@ export default function GigWorkerDashboard() {
       console.error('Error accepting case:', error);
       const { getErrorToast } = await import('@/utils/errorMessages');
       toast(getErrorToast(error));
+    } finally {
+      setIsAcceptingCase(false);
     }
   };
 
@@ -2366,11 +2385,27 @@ export default function GigWorkerDashboard() {
             </div>
           )}
           <DialogFooter className={isMobile ? 'flex-col gap-2' : ''}>
-            <Button variant="outline" onClick={() => setIsAcceptDialogOpen(false)} className={isMobile ? 'w-full' : ''}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsAcceptDialogOpen(false)} 
+              className={isMobile ? 'w-full' : ''}
+              disabled={isAcceptingCase}
+            >
               Cancel
             </Button>
-            <Button onClick={handleAcceptCase} className={isMobile ? 'w-full' : ''}>
-              Accept Case
+            <Button 
+              onClick={handleAcceptCase} 
+              className={isMobile ? 'w-full' : ''}
+              disabled={isAcceptingCase}
+            >
+              {isAcceptingCase ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Accepting...
+                </>
+              ) : (
+                'Accept Case'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
