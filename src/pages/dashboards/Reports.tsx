@@ -1180,7 +1180,7 @@ export default function Reports() {
         company_name: caseItem.company_name
       };
       
-      // Animate progress while waiting for Gemini API (0% to 85%)
+      // Animate progress while waiting for OpenAI API (0% to 85%)
       let progressInterval: NodeJS.Timeout | null = null;
       let currentProgress = 0;
       const startProgressAnimation = () => {
@@ -1195,9 +1195,9 @@ export default function Reports() {
       
       startProgressAnimation();
       
-      // Generate AI summary using Gemini
-      const { geminiService } = await import('@/services/geminiService');
-      const summaryResult = await geminiService.generateReportSummary(formDataForSummary);
+      // Generate AI summary using OpenAI
+      const { openAIService } = await import('@/services/openAIService');
+      const summaryResult = await openAIService.generateReportSummary(formDataForSummary);
       
       // Stop progress animation
       if (progressInterval) {
