@@ -137,6 +137,8 @@ export default function CaseManagement() {
   const [viewMode, setViewMode] = useState<ViewMode>(initialState.viewMode);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialState.selectedCaseId);
   const [editingCase, setEditingCase] = useState<Case | null>(null);
+  const [detailCase, setDetailCase] = useState<Case | null>(null);
+  const [isLoadingDetailCase, setIsLoadingDetailCase] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Debug initial state
@@ -277,10 +279,34 @@ export default function CaseManagement() {
     }
   };
 
-  const selectedCase = useMemo(() => 
-    selectedCaseId ? cases.find(c => c.id === selectedCaseId) : null, 
-    [selectedCaseId, cases]
-  );
+  // Fetch case details when in detail view
+  useEffect(() => {
+    const loadCaseDetail = async () => {
+      if (viewMode === 'detail' && selectedCaseId) {
+        setIsLoadingDetailCase(true);
+        try {
+          const caseDetail = await caseService.getCaseById(selectedCaseId);
+          setDetailCase(caseDetail);
+        } catch (error) {
+          console.error('Failed to load case detail:', error);
+          setDetailCase(null);
+        } finally {
+          setIsLoadingDetailCase(false);
+        }
+      } else {
+        setDetailCase(null);
+      }
+    };
+
+    loadCaseDetail();
+  }, [viewMode, selectedCaseId]);
+
+  const selectedCase = useMemo(() => {
+    if (viewMode === 'detail' && detailCase) {
+      return detailCase;
+    }
+    return selectedCaseId ? cases.find(c => c.id === selectedCaseId) : null;
+  }, [viewMode, selectedCaseId, cases, detailCase]);
 
   const handleCreateCase = () => {
     navigate('/ops/cases/create');
@@ -497,7 +523,38 @@ export default function CaseManagement() {
     );
   }
 
-  if (viewMode === 'detail' && selectedCase) {
+  if (viewMode === 'detail') {
+    if (isLoadingDetailCase) {
+      return (
+        <div className="container mx-auto py-6">
+          <Card>
+            <CardContent className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+                <p>Loading case details...</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    if (!selectedCase) {
+      return (
+        <div className="container mx-auto py-6">
+          <Card>
+            <CardContent className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <p className="text-lg font-medium mb-2">Case Not Found</p>
+                <p className="text-muted-foreground mb-4">The case you're looking for doesn't exist or has been removed.</p>
+                <Button onClick={() => navigate('/ops/cases')}>Back to Cases</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="container mx-auto py-6">
         <CaseDetail
@@ -505,14 +562,14 @@ export default function CaseManagement() {
             ...selectedCase,
             client: {
               ...selectedCase.client,
-              phone: '+91 98765 43210',
-              contact_person: 'HR Manager',
+              phone: selectedCase.client.phone || '+91 98765 43210',
+              contact_person: selectedCase.client.contact_person || 'HR Manager',
             },
             location: {
               ...selectedCase.location,
               country: 'India',
-              lat: 19.0760,
-              lng: 72.8777,
+              lat: selectedCase.location.lat || 19.0760,
+              lng: selectedCase.location.lng || 72.8777,
             },
             notes: 'Please ensure thorough verification of all documents.',
             attachments: [],

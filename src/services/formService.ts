@@ -309,20 +309,58 @@ export class FormService {
       let submission;
       const currentTime = new Date().toISOString();
       
+      // Update case status first - trigger will sync form_submissions.status
+      // Get current case status
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select('status')
+        .eq('id', caseId)
+        .single();
+
+      if (caseError) throw caseError;
+
+      // Update case status based on draft/final
+      // Only update if not already submitted (once submitted, don't go back)
+      if (caseData.status !== 'submitted') {
+        let newCaseStatus: string;
+        if (isDraft) {
+          // If saving draft, set case status to 'in_progress' (trigger will set form_submissions.status to 'draft')
+          newCaseStatus = 'in_progress';
+        } else {
+          // If submitting final, set case status to 'submitted' (trigger will set form_submissions.status to 'final')
+          newCaseStatus = 'submitted';
+        }
+
+        const updateData: any = {
+          status: newCaseStatus,
+          status_updated_at: currentTime
+        };
+        
+        // Set submitted_at when status becomes 'submitted'
+        if (newCaseStatus === 'submitted') {
+          updateData.submitted_at = currentTime;
+        }
+        
+        const { error: caseUpdateError } = await supabase
+          .from('cases')
+          .update(updateData)
+          .eq('id', caseId);
+
+        if (caseUpdateError) throw caseUpdateError;
+      }
+
       if (existingSubmission) {
-        // Update existing submission
-        // If changing from draft to final, update submitted_at to current time
+        // Update existing submission - status will be set by trigger based on case status
         const updateData: any = {
           template_id: templateId,
           gig_partner_id: gigWorkerId,
           submission_data: submissionData,
-          status: isDraft ? 'draft' : 'final',
           updated_at: currentTime
         };
         
         // If submitting (not draft), update submitted_at to current time
-        // Only update if it wasn't already set (i.e., was previously a draft)
-        if (!isDraft && (!existingSubmission.submitted_at || existingSubmission.status === 'draft')) {
+        // Only update if it wasn't already set
+        if (!isDraft && !existingSubmission.submitted_at) {
           updateData.submitted_at = currentTime;
         }
         
@@ -336,13 +374,12 @@ export class FormService {
         if (updateError) throw updateError;
         submission = updatedSubmission;
       } else {
-        // Create new submission
+        // Create new submission - status will be set by trigger based on case status
         const insertData: any = {
           case_id: caseId,
           template_id: templateId,
           gig_partner_id: gigWorkerId,
-          submission_data: submissionData,
-          status: isDraft ? 'draft' : 'final'
+          submission_data: submissionData
         };
         
         // Only set submitted_at if it's a final submission (not a draft)
@@ -437,21 +474,6 @@ export class FormService {
               console.log('Auto-save: No files to upload');
             }
 
-      // If saving as draft, update case status to in_progress
-      if (isDraft) {
-        const { error: caseUpdateError } = await supabase
-          .from('cases')
-          .update({
-            status: 'in_progress',
-            status_updated_at: new Date().toISOString()
-          })
-          .eq('id', caseId);
-
-        if (caseUpdateError) {
-          console.warn('Failed to update case status to in_progress:', caseUpdateError);
-        }
-      }
-
       return { success: true, submissionId: submission.id };
     } catch (error) {
       console.error('Error submitting form:', error);
@@ -467,6 +489,8 @@ export class FormService {
    */
   async getDraftSubmission(caseId: string): Promise<{ success: boolean; draft?: any; error?: string }> {
     try {
+      // Get draft submission - status can be NULL (before in_progress) or 'draft' (when in_progress)
+      // Don't get 'final' submissions
       const { data: draft, error } = await supabase
         .from('form_submissions')
         .select(`
@@ -488,7 +512,7 @@ export class FormService {
           )
         `)
         .eq('case_id', caseId)
-        .eq('status', 'draft')
+        .or('status.is.null,status.eq.draft')
         .maybeSingle();
 
       if (error) throw error;

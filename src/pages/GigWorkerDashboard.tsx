@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell, Filter, X, Loader2 } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell, Filter, X, Loader2, ArrowLeft } from 'lucide-react';
 import { format, differenceInMinutes, addHours, startOfMonth, endOfMonth, isSameMonth, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -126,6 +125,7 @@ export default function GigWorkerDashboard() {
   const [pendingCaseForForm, setPendingCaseForForm] = useState<AllocatedCase | null>(null);
   const [isNegativeForm, setIsNegativeForm] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
   
@@ -1025,118 +1025,95 @@ export default function GigWorkerDashboard() {
     return months;
   };
 
-  const pendingCases = allocatedCases.filter(c => {
-    if (c.status !== 'allocated') return false;
-    // Filter by when case was allocated (entered allocated status)
-    return isInSelectedMonth(c.allocated_at);
-  });
-  
   // Helper function to check if case has form responses
   const hasFormResponse = (caseItem: AllocatedCase) => {
     return (caseItem.form_submissions && caseItem.form_submissions.length > 0) ||
            (caseItem.submissions && caseItem.submissions.length > 0);
   };
+
+  // Memoize filtered cases to avoid initialization order issues
+  const pendingCases = useMemo(() => {
+    return allocatedCases.filter(c => {
+      if (c.status !== 'allocated') return false;
+      // Filter by when case was allocated (entered allocated status)
+      return isInSelectedMonth(c.allocated_at);
+    });
+  }, [allocatedCases, selectedMonth]);
   
   // Accepted tab: show only accepted cases with NO form response yet (and not rework)
-  const acceptedCases = allocatedCases.filter(c => {
-    if (c.status !== 'accepted' || c.QC_Response === 'Rework' || hasFormResponse(c)) return false;
-    // Filter by when case was accepted (entered accepted status)
-    return isInSelectedMonth(c.accepted_at);
-  });
-
-  // Debug logging for accepted cases
-  console.log('Accepted cases filter debug:', {
-    totalCases: allocatedCases.length,
-    acceptedCases: acceptedCases.length,
-    casesWithoutFormResponse: allocatedCases.filter(c => !hasFormResponse(c)).length,
-    acceptedCasesDetails: acceptedCases.map(c => ({
-      case_number: c.case_number,
-      status: c.status,
-      hasFormResponse: hasFormResponse(c),
-      QC_Response: c.QC_Response
-    }))
-  });
+  const acceptedCases = useMemo(() => {
+    return allocatedCases.filter(c => {
+      if (c.status !== 'accepted' || c.QC_Response === 'Rework' || hasFormResponse(c)) return false;
+      // Filter by when case was accepted (entered accepted status)
+      return isInSelectedMonth(c.accepted_at);
+    });
+  }, [allocatedCases, selectedMonth]);
   
   // In Progress tab: include normal in_progress OR accepted-with-response (and not rework)
-  const inProgressCases = allocatedCases.filter(c => {
-    if ((c.status !== 'in_progress' && !(c.status === 'accepted' && hasFormResponse(c))) || c.QC_Response === 'Rework') return false;
-    // Filter by when case entered in_progress (first draft saved)
-    return isInSelectedMonth(c.in_progress_at);
-  });
+  const inProgressCases = useMemo(() => {
+    return allocatedCases.filter(c => {
+      if ((c.status !== 'in_progress' && !(c.status === 'accepted' && hasFormResponse(c))) || c.QC_Response === 'Rework') return false;
+      // Filter by when case entered in_progress (first draft saved)
+      return isInSelectedMonth(c.in_progress_at);
+    });
+  }, [allocatedCases, selectedMonth]);
 
-  // Debug logging for in-progress cases
-  console.log('In-progress cases filter debug:', {
-    totalInProgressStatus: allocatedCases.filter(c => c.status === 'in_progress').length,
-    inProgressCases: inProgressCases.length,
-    inProgressCasesDetails: inProgressCases.map(c => ({
-      case_number: c.case_number,
-      status: c.status,
-      hasFormResponse: hasFormResponse(c),
-      QC_Response: c.QC_Response
-    }))
-  });
-  const reworkCases = allocatedCases
-    .filter(c => {
-      // Include cases with QC_Response='Rework' OR status='qc_rework'
-      const isReworkCase = c.QC_Response === 'Rework' || c.status === 'qc_rework';
-      
-      // Debug logging for rework cases
-      if (isReworkCase) {
-        console.log('Rework case found:', {
-          case_number: c.case_number,
-          QC_Response: c.QC_Response,
-          status: c.status,
-          rework_at: c.rework_at,
-          allocated_at: c.allocated_at,
-          selectedMonth,
-          rework_at_in_month: isInSelectedMonth(c.rework_at),
-          allocated_at_in_month: isInSelectedMonth(c.allocated_at)
-        });
-      }
-      
-      if (!isReworkCase) return false;
-      // For rework cases, show if:
-      // 1. rework_at is in selected month, OR
-      // 2. allocated_at is in selected month (for newly allocated rework cases, regardless of when originally reworked)
-      // 3. status is 'qc_rework' (show regardless of month filter to ensure visibility)
-      // 4. status is 'in_progress' (show in-progress rework cases regardless of month filter)
-      // This ensures newly allocated rework cases and in-progress rework cases appear in the rework tab
-      if (c.status === 'qc_rework') return true; // Always show qc_rework status cases
-      if (c.status === 'in_progress') return true; // Always show in_progress rework cases
-      if (isInSelectedMonth(c.rework_at)) return true;
-      if (isInSelectedMonth(c.allocated_at)) return true;
-      return false;
-    })
-    .sort((a, b) => {
-      // Sort by submitted_at field in descending order (most recent first)
-      const aSubmittedAt = a.actual_submitted_at || a.due_at;
-      const bSubmittedAt = b.actual_submitted_at || b.due_at;
-      return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
-    });
-  const approvedCases = allocatedCases
-    .filter(c => {
-      if (c.status !== 'qc_passed') return false;
-      // Filter by when case was approved (qc_passed)
-      return isInSelectedMonth(c.qc_passed_at);
-    })
-    .sort((a, b) => {
-      // Sort by submitted_at field in descending order (most recent first)
-      const aSubmittedAt = a.actual_submitted_at || a.due_at;
-      const bSubmittedAt = b.actual_submitted_at || b.due_at;
-      return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
-    });
-  const submittedCases = allocatedCases
-    .filter(c => {
-      if (c.status !== 'submitted') return false;
-      // Filter by when case was submitted (entered submitted status)
-      return isInSelectedMonth(c.submitted_at || c.actual_submitted_at);
-    })
-    .sort((a, b) => {
-      // Sort by submitted_at field in descending order (most recent first)
-      const aSubmittedAt = a.actual_submitted_at || a.due_at;
-      const bSubmittedAt = b.actual_submitted_at || b.due_at;
-      return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
-    });
+  const reworkCases = useMemo(() => {
+    return allocatedCases
+      .filter(c => {
+        // Include cases with QC_Response='Rework' OR status='qc_rework'
+        const isReworkCase = c.QC_Response === 'Rework' || c.status === 'qc_rework';
+        
+        if (!isReworkCase) return false;
+        // For rework cases, show if:
+        // 1. rework_at is in selected month, OR
+        // 2. allocated_at is in selected month (for newly allocated rework cases, regardless of when originally reworked)
+        // 3. status is 'qc_rework' (show regardless of month filter to ensure visibility)
+        // 4. status is 'in_progress' (show in-progress rework cases regardless of month filter)
+        // This ensures newly allocated rework cases and in-progress rework cases appear in the rework tab
+        if (c.status === 'qc_rework') return true; // Always show qc_rework status cases
+        if (c.status === 'in_progress') return true; // Always show in_progress rework cases
+        if (isInSelectedMonth(c.rework_at)) return true;
+        if (isInSelectedMonth(c.allocated_at)) return true;
+        return false;
+      })
+      .sort((a, b) => {
+        // Sort by submitted_at field in descending order (most recent first)
+        const aSubmittedAt = a.actual_submitted_at || a.due_at;
+        const bSubmittedAt = b.actual_submitted_at || b.due_at;
+        return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
+      });
+  }, [allocatedCases, selectedMonth]);
+
+  const approvedCases = useMemo(() => {
+    return allocatedCases
+      .filter(c => {
+        if (c.status !== 'qc_passed') return false;
+        // Filter by when case was approved (qc_passed)
+        return isInSelectedMonth(c.qc_passed_at);
+      })
+      .sort((a, b) => {
+        // Sort by submitted_at field in descending order (most recent first)
+        const aSubmittedAt = a.actual_submitted_at || a.due_at;
+        const bSubmittedAt = b.actual_submitted_at || b.due_at;
+        return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
+      });
+  }, [allocatedCases, selectedMonth]);
+
+  const submittedCases = useMemo(() => {
+    return allocatedCases
+      .filter(c => {
+        if (c.status !== 'submitted') return false;
+        // Filter by when case was submitted (entered submitted status)
+        return isInSelectedMonth(c.submitted_at || c.actual_submitted_at);
+      })
+      .sort((a, b) => {
+        // Sort by submitted_at field in descending order (most recent first)
+        const aSubmittedAt = a.actual_submitted_at || a.due_at;
+        const bSubmittedAt = b.actual_submitted_at || b.due_at;
+        return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
+      });
+  }, [allocatedCases, selectedMonth]);
 
   // Mobile-friendly case card component
   const MobileCaseCard = ({ caseItem, onAccept, onReject, onSubmit, onViewSubmission, showEditDraft = false }: {
@@ -1182,9 +1159,6 @@ export default function GigWorkerDashboard() {
                   </Badge>
                 )}
               </CardTitle>
-              <CardDescription className="text-sm text-blue-700 font-medium mt-1">
-                Client: {caseItem.clients?.name}
-              </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-1.5">
               {getStatusBadge(caseItem.status, caseItem.id)}
@@ -1236,13 +1210,13 @@ export default function GigWorkerDashboard() {
             </div>
           </div>
 
-          {/* Time */}
+          {/* Client and Time */}
           <div className="flex items-center justify-end bg-blue-50 rounded-lg p-3">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
               <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig) 
-                  ? 'bg-red-100 text-red-700' 
+                isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)
+                  ? 'bg-red-100 text-red-700'
                   : 'bg-orange-100 text-orange-700'
               }`}>
                 {caseItem.is_direct_gig ? 'No time limit' : getTimeRemaining(caseItem.acceptance_deadline)}
@@ -1483,77 +1457,99 @@ export default function GigWorkerDashboard() {
             )}
           </div>
 
-          <Tabs defaultValue="pending" className="w-full">
-            <TabsList className={`grid w-full ${isMobile ? 'grid-cols-6 gap-1 h-12' : 'grid-cols-6'} ${isMobile ? 'overflow-x-auto' : ''}`}>
-              <TabsTrigger 
-                value="pending" 
-                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+          {/* Category Cards View */}
+          {!selectedCategory && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-blue-500"
+                onClick={() => setSelectedCategory('pending')}
               >
-                <span className={isMobile ? 'text-xs font-medium' : ''}>
-                  {isMobile ? 'Pending' : 'Pending'}
-                </span>
-                <span className={isMobile ? 'text-xs font-bold text-blue-600' : ''}>
-                  ({pendingCases.length})
-                </span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="accepted" 
-                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-blue-600 mb-2">{pendingCases.length}</div>
+                  <div className="text-sm font-medium text-gray-700">Pending</div>
+                </CardContent>
+              </Card>
+              
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-green-500"
+                onClick={() => setSelectedCategory('accepted')}
               >
-                <span className={isMobile ? 'text-xs font-medium' : ''}>
-                  {isMobile ? 'Accepted' : 'Accepted'}
-                </span>
-                <span className={isMobile ? 'text-xs font-bold text-green-600' : ''}>
-                  ({acceptedCases.length})
-                </span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="in_progress" 
-                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-green-600 mb-2">{acceptedCases.length}</div>
+                  <div className="text-sm font-medium text-gray-700">Accepted</div>
+                </CardContent>
+              </Card>
+              
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-orange-500"
+                onClick={() => setSelectedCategory('in_progress')}
               >
-                <span className={isMobile ? 'text-xs font-medium' : ''}>
-                  {isMobile ? 'Progress' : 'In Progress'}
-                </span>
-                <span className={isMobile ? 'text-xs font-bold text-orange-600' : ''}>
-                  ({inProgressCases.length})
-                </span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="rework" 
-                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-orange-600 mb-2">{inProgressCases.length}</div>
+                  <div className="text-sm font-medium text-gray-700">In Progress</div>
+                </CardContent>
+              </Card>
+              
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-red-500"
+                onClick={() => setSelectedCategory('rework')}
               >
-                <span className={isMobile ? 'text-xs font-medium' : ''}>
-                  {isMobile ? 'Rework' : 'Rework'}
-                </span>
-                <span className={isMobile ? 'text-xs font-bold text-red-600' : ''}>
-                  ({reworkCases.length})
-                </span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="approved" 
-                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-red-600 mb-2">{reworkCases.length}</div>
+                  <div className="text-sm font-medium text-gray-700">Rework</div>
+                </CardContent>
+              </Card>
+              
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-green-500"
+                onClick={() => setSelectedCategory('approved')}
               >
-                <span className={isMobile ? 'text-xs font-medium' : ''}>
-                  {isMobile ? 'Approved' : 'Approved'}
-                </span>
-                <span className={isMobile ? 'text-xs font-bold text-green-600' : ''}>
-                  ({approvedCases.length})
-                </span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="submitted" 
-                className={isMobile ? 'text-xs px-2 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-green-600 mb-2">{approvedCases.length}</div>
+                  <div className="text-sm font-medium text-gray-700">Approved</div>
+                </CardContent>
+              </Card>
+              
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-purple-500"
+                onClick={() => setSelectedCategory('submitted')}
               >
-                <span className={isMobile ? 'text-xs font-medium' : ''}>
-                  {isMobile ? 'Submitted' : 'Submitted'}
-                </span>
-                <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
-                  ({submittedCases.length})
-                </span>
-              </TabsTrigger>
-            </TabsList>
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-purple-600 mb-2">{submittedCases.length}</div>
+                  <div className="text-sm font-medium text-gray-700">Submitted</div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-            <TabsContent value="pending" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          {/* Cases View for Selected Category */}
+          {selectedCategory && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedCategory(null)}
+                    className="flex items-center gap-2"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Back
+                  </Button>
+                  <h2 className="text-xl font-semibold">
+                    {selectedCategory === 'pending' && 'Pending Cases'}
+                    {selectedCategory === 'accepted' && 'Accepted Cases'}
+                    {selectedCategory === 'in_progress' && 'In Progress Cases'}
+                    {selectedCategory === 'rework' && 'Rework Cases'}
+                    {selectedCategory === 'approved' && 'Approved Cases'}
+                    {selectedCategory === 'submitted' && 'Submitted Cases'}
+                  </h2>
+                </div>
+              </div>
+
+              {/* Pending Cases */}
+              {selectedCategory === 'pending' && (
+                <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {pendingCases.length === 0 ? (
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
@@ -1587,7 +1583,6 @@ export default function GigWorkerDashboard() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Case Number</TableHead>
-                          <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
                           {!shouldHidePayoutSection(pendingCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
@@ -1613,7 +1608,6 @@ export default function GigWorkerDashboard() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell>{caseItem.clients?.name}</TableCell>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{caseItem.candidate_name}</div>
@@ -1690,9 +1684,12 @@ export default function GigWorkerDashboard() {
                   )}
                 </>
               )}
-            </TabsContent>
+                </div>
+              )}
 
-            <TabsContent value="accepted" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+              {/* Accepted Cases */}
+              {selectedCategory === 'accepted' && (
+                <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {acceptedCases.length === 0 ? (
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
@@ -1719,7 +1716,6 @@ export default function GigWorkerDashboard() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Case Number</TableHead>
-                          <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
                           {!shouldHidePayoutSection(acceptedCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
@@ -1733,7 +1729,6 @@ export default function GigWorkerDashboard() {
                             <TableCell className="font-medium">
                               {caseItem.case_number}
                             </TableCell>
-                            <TableCell>{caseItem.clients?.name}</TableCell>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{caseItem.candidate_name}</div>
@@ -1792,9 +1787,12 @@ export default function GigWorkerDashboard() {
                   )}
                 </>
               )}
-            </TabsContent>
+                </div>
+              )}
 
-            <TabsContent value="in_progress" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+              {/* In Progress Cases */}
+              {selectedCategory === 'in_progress' && (
+                <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {inProgressCases.length === 0 ? (
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
@@ -1823,7 +1821,6 @@ export default function GigWorkerDashboard() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Case Number</TableHead>
-                          <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
                           {!shouldHidePayoutSection(inProgressCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
@@ -1849,7 +1846,6 @@ export default function GigWorkerDashboard() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell>{caseItem.clients?.name || 'N/A'}</TableCell>
                             <TableCell>
                               <div className="space-y-1">
                                 <div className="font-medium">{caseItem.candidate_name}</div>
@@ -1940,9 +1936,12 @@ export default function GigWorkerDashboard() {
                   )}
                 </>
               )}
-            </TabsContent>
+                </div>
+              )}
 
-            <TabsContent value="submitted" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+              {/* Submitted Cases */}
+              {selectedCategory === 'submitted' && (
+                <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {submittedCases.length === 0 ? (
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
@@ -1972,7 +1971,6 @@ export default function GigWorkerDashboard() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Case Number</TableHead>
-                          <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
                           {!shouldHidePayoutSection(submittedCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
@@ -1999,7 +1997,6 @@ export default function GigWorkerDashboard() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell>{caseItem.clients?.name}</TableCell>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{caseItem.candidate_name}</div>
@@ -2078,9 +2075,12 @@ export default function GigWorkerDashboard() {
                   )}
                 </>
               )}
-            </TabsContent>
+                </div>
+              )}
 
-            <TabsContent value="rework" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+              {/* Rework Cases */}
+              {selectedCategory === 'rework' && (
+                <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {reworkCases.length === 0 ? (
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
@@ -2110,7 +2110,6 @@ export default function GigWorkerDashboard() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Case Number</TableHead>
-                          <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
                           {reworkCases.some(c => !shouldHidePayoutSection(c)) && <TableHead>Payout</TableHead>}
@@ -2135,7 +2134,6 @@ export default function GigWorkerDashboard() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell>{caseItem.clients?.name}</TableCell>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{caseItem.candidate_name}</div>
@@ -2205,9 +2203,12 @@ export default function GigWorkerDashboard() {
                   )}
                 </>
               )}
-            </TabsContent>
+                </div>
+              )}
 
-            <TabsContent value="approved" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+              {/* Approved Cases */}
+              {selectedCategory === 'approved' && (
+                <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
               {approvedCases.length === 0 ? (
                 <Alert className={isMobile ? 'mx-2' : ''}>
                   <AlertCircle className="h-4 w-4" />
@@ -2237,7 +2238,6 @@ export default function GigWorkerDashboard() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Case Number</TableHead>
-                          <TableHead>Client</TableHead>
                           <TableHead>Candidate</TableHead>
                           <TableHead>Location</TableHead>
                           {!shouldHidePayoutSection(approvedCases[0] || {} as AllocatedCase) && <TableHead>Payout</TableHead>}
@@ -2259,7 +2259,6 @@ export default function GigWorkerDashboard() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell>{caseItem.clients?.name}</TableCell>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{caseItem.candidate_name}</div>
@@ -2331,8 +2330,10 @@ export default function GigWorkerDashboard() {
                   )}
                 </>
               )}
-            </TabsContent>
-          </Tabs>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -2350,10 +2351,6 @@ export default function GigWorkerDashboard() {
               <div className={`grid gap-4 text-sm ${isMobile ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 <div>
                   <span className="font-medium">Case Number:</span> {selectedCase.case_number}
-                </div>
-                <div className="bg-blue-50 p-3 rounded-lg border-l-4 border-blue-500">
-                  <span className="font-semibold text-blue-900">Client:</span> 
-                  <span className="ml-2 text-blue-800 font-medium text-lg">{selectedCase.clients?.name}</span>
                 </div>
                 <div>
                   <span className="font-medium">Candidate:</span> {selectedCase.candidate_name}

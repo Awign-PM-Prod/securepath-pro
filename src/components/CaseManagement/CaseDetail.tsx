@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -76,6 +77,9 @@ interface CaseDetailProps {
     due_at: string;
     created_at: string;
     updated_at: string;
+    allocated_at?: string;
+    accepted_at?: string;
+    submitted_at?: string;
     base_rate_inr?: number;
     bonus_inr?: number;
     penalty_inr?: number;
@@ -164,6 +168,22 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadType, setDownloadType] = useState<'csv' | 'pdf' | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [formSubmissionImages, setFormSubmissionImages] = useState<Array<{
+    id: string;
+    file_url: string;
+    file_name: string;
+    mime_type: string;
+    uploaded_at: string;
+    field_title?: string;
+    submission_id: string;
+  }>>([]);
+  const [acceptedAt, setAcceptedAt] = useState<string | null>(null);
+  const [allocatedAt, setAllocatedAt] = useState<string | null>(null);
+  const [gigWorkerWhoFilledForm, setGigWorkerWhoFilledForm] = useState<{
+    id: string;
+    name: string;
+    phone: string;
+  } | null>(null);
 
   const isOverdue = (dueAt: string) => {
     return new Date(dueAt) < new Date();
@@ -176,6 +196,171 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
+
+  // Fetch allocation timestamps from allocation_logs if not in caseData
+  useEffect(() => {
+    const fetchAllocationTimestamps = async () => {
+      // If caseData already has allocated_at, use it
+      if (caseData.allocated_at) {
+        setAllocatedAt(caseData.allocated_at);
+      }
+
+      // If caseData already has accepted_at, use it
+      if (caseData.accepted_at) {
+        setAcceptedAt(caseData.accepted_at);
+      }
+
+      // Fetch from allocation_logs if needed
+      try {
+        const { data: allocationLogs, error } = await supabase
+          .from('allocation_logs')
+          .select('accepted_at, allocated_at, decision')
+          .eq('case_id', caseData.id)
+          .order('allocated_at', { ascending: false });
+
+        if (error) throw error;
+
+        if (allocationLogs && allocationLogs.length > 0) {
+          // Get allocated_at from the most recent allocation log
+          if (!caseData.allocated_at && allocationLogs[0].allocated_at) {
+            setAllocatedAt(allocationLogs[0].allocated_at);
+          }
+
+          // Get accepted_at from accepted logs
+          if (!caseData.accepted_at) {
+            const acceptedLog = allocationLogs.find(log => 
+              log.decision === 'accepted' && log.accepted_at
+            );
+            if (acceptedLog && acceptedLog.accepted_at) {
+              setAcceptedAt(acceptedLog.accepted_at);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching allocation timestamps:', error);
+      }
+    };
+
+    fetchAllocationTimestamps();
+  }, [caseData.id, caseData.allocated_at, caseData.accepted_at]);
+
+  // Fetch gig worker who filled the form (if case was assigned to vendor)
+  useEffect(() => {
+    const fetchGigWorkerWhoFilledForm = async () => {
+      // Only fetch if assignee is a vendor
+      if (caseData.assignee?.type !== 'vendor') {
+        setGigWorkerWhoFilledForm(null);
+        return;
+      }
+
+      try {
+        // Get the gig_partner_id from form_submissions
+        const { data: formSubmission, error: formError } = await supabase
+          .from('form_submissions')
+          .select('gig_partner_id')
+          .eq('case_id', caseData.id)
+          .limit(1)
+          .single();
+
+        if (formError || !formSubmission?.gig_partner_id) {
+          // No form submission found or no gig worker assigned
+          setGigWorkerWhoFilledForm(null);
+          return;
+        }
+
+        // Fetch gig worker details
+        const { data: gigWorker, error: gigError } = await supabase
+          .from('gig_partners')
+          .select(`
+            id,
+            profiles!inner (
+              first_name,
+              last_name,
+              phone
+            )
+          `)
+          .eq('id', formSubmission.gig_partner_id)
+          .single();
+
+        if (gigError || !gigWorker) {
+          console.error('Error fetching gig worker:', gigError);
+          setGigWorkerWhoFilledForm(null);
+          return;
+        }
+
+        setGigWorkerWhoFilledForm({
+          id: gigWorker.id,
+          name: `${gigWorker.profiles?.first_name || ''} ${gigWorker.profiles?.last_name || ''}`.trim() || 'Unknown',
+          phone: gigWorker.profiles?.phone || 'N/A',
+        });
+      } catch (error) {
+        console.error('Error fetching gig worker who filled form:', error);
+        setGigWorkerWhoFilledForm(null);
+      }
+    };
+
+    fetchGigWorkerWhoFilledForm();
+  }, [caseData.id, caseData.assignee?.type]);
+
+  // Fetch form submission images
+  useEffect(() => {
+    const fetchFormSubmissionImages = async () => {
+      try {
+        // Get all form submissions for this case
+        const { data: submissions, error: submissionsError } = await supabase
+          .from('form_submissions')
+          .select('id')
+          .eq('case_id', caseData.id);
+
+        if (submissionsError) throw submissionsError;
+
+        if (!submissions || submissions.length === 0) {
+          setFormSubmissionImages([]);
+          return;
+        }
+
+        const submissionIds = submissions.map(s => s.id);
+
+        // Get all files for these submissions
+        const { data: files, error: filesError } = await supabase
+          .from('form_submission_files')
+          .select(`
+            id,
+            file_url,
+            file_name,
+            mime_type,
+            uploaded_at,
+            submission_id,
+            form_field:form_fields(
+              field_title
+            )
+          `)
+          .in('submission_id', submissionIds)
+          .like('mime_type', 'image/%')
+          .order('uploaded_at', { ascending: false });
+
+        if (filesError) throw filesError;
+
+        // Transform the data
+        const images = (files || []).map(file => ({
+          id: file.id,
+          file_url: file.file_url,
+          file_name: file.file_name,
+          mime_type: file.mime_type,
+          uploaded_at: file.uploaded_at,
+          field_title: (file.form_field as any)?.field_title || 'Unknown Field',
+          submission_id: file.submission_id
+        }));
+
+        setFormSubmissionImages(images);
+      } catch (error) {
+        console.error('Error fetching form submission images:', error);
+        setFormSubmissionImages([]);
+      }
+    };
+
+    fetchFormSubmissionImages();
+  }, [caseData.id]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -488,7 +673,6 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="location">Location</TabsTrigger>
           <TabsTrigger value="assignee">Assignee</TabsTrigger>
-          <TabsTrigger value="submissions">Legacy Submissions</TabsTrigger>
           <TabsTrigger value="dynamic-forms">Dynamic Forms</TabsTrigger>
           <TabsTrigger value="attachments">Attachments</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
@@ -757,104 +941,92 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
         {/* Assignee Tab */}
         <TabsContent value="assignee" className="space-y-6">
           {caseData.assignee ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Assigned To
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="font-medium">{caseData.assignee.name}</p>
-                  <p className="text-sm text-muted-foreground capitalize">{caseData.assignee.type}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{caseData.assignee.phone}</span>
-                </div>
-                {caseData.assignee.vendor && (
-                  <div>
-                    <p className="text-sm font-medium">Vendor</p>
-                    <p className="text-sm text-muted-foreground">{caseData.assignee.vendor.name}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <div className="space-y-4">
+              {/* Vendor Assignment Card */}
+              {caseData.assignee.type === 'vendor' ? (
+                <>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Building className="h-5 w-5" />
+                        Assigned Vendor
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <p className="font-medium">{caseData.assignee.name}</p>
+                        <p className="text-sm text-muted-foreground">Vendor</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">{caseData.assignee.phone}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Gig Worker Who Filled Form Card */}
+                  {gigWorkerWhoFilledForm ? (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <User className="h-5 w-5" />
+                          Gig Worker Who Filled Form
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <p className="font-medium">{gigWorkerWhoFilledForm.name}</p>
+                          <p className="text-sm text-muted-foreground">Gig Worker</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">{gigWorkerWhoFilledForm.phone}</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card>
+                      <CardContent className="text-center py-6">
+                        <User className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No form submission found yet</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              ) : (
+                /* Direct Gig Worker Assignment Card */
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5" />
+                      Assigned Gig Worker
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <p className="font-medium">{caseData.assignee.name}</p>
+                      <p className="text-sm text-muted-foreground">Gig Worker</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">{caseData.assignee.phone}</span>
+                    </div>
+                    {caseData.assignee.vendor && (
+                      <div>
+                        <p className="text-sm font-medium">Vendor</p>
+                        <p className="text-sm text-muted-foreground">{caseData.assignee.vendor.name}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           ) : (
             <Card>
               <CardContent className="text-center py-8">
                 <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-lg font-medium mb-2">No Assignee</h3>
                 <p className="text-muted-foreground">This case has not been assigned yet.</p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Submissions Tab */}
-        <TabsContent value="submissions" className="space-y-6">
-          {caseData.submissions && caseData.submissions.length > 0 ? (
-            <div className="space-y-4">
-              {caseData.submissions.map((submission) => (
-                <Card key={submission.id}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Submission #{submission.id.slice(-8)}
-                    </CardTitle>
-                    <CardDescription>
-                      Submitted on {format(new Date(submission.submitted_at), 'PPP p')}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <p className="font-medium">Status</p>
-                        <Badge className={STATUS_COLORS[submission.status as keyof typeof STATUS_COLORS]}>
-                          {submission.status}
-                        </Badge>
-                      </div>
-                      <div>
-                        <p className="font-medium">Photos</p>
-                        <p className="text-sm text-muted-foreground">{submission.photos.length} photos</p>
-                      </div>
-                    </div>
-                    {submission.notes && (
-                      <div>
-                        <p className="font-medium">Notes</p>
-                        <p className="text-sm text-muted-foreground">{submission.notes}</p>
-                      </div>
-                    )}
-                    {submission.photos.length > 0 && (
-                      <div>
-                        <p className="font-medium mb-2">Photos</p>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                          {submission.photos.map((photo) => (
-                            <div key={photo.id} className="relative">
-                              <img
-                                src={photo.photo_url}
-                                alt="Submission photo"
-                                className="w-full h-24 object-cover rounded border"
-                              />
-                              <div className="absolute bottom-1 left-1 right-1 bg-black/50 text-white text-xs p-1 rounded">
-                                {format(new Date(photo.taken_at), 'MMM dd, HH:mm')}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-8">
-                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No Submissions</h3>
-                <p className="text-muted-foreground">No submissions have been made for this case yet.</p>
               </CardContent>
             </Card>
           )}
@@ -912,34 +1084,62 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
 
         {/* Attachments Tab */}
         <TabsContent value="attachments" className="space-y-6">
-          {caseData.attachments && caseData.attachments.length > 0 ? (
-            <div className="space-y-4">
-              {caseData.attachments.map((attachment) => (
-                <Card key={attachment.id}>
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <FileText className="h-8 w-8 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">{attachment.file_name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {attachment.file_type} • {format(new Date(attachment.uploaded_at), 'PPP')}
-                        </p>
+          {formSubmissionImages.length > 0 ? (
+            <div>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold mb-2">Form Submission Images</h3>
+                <p className="text-sm text-muted-foreground">
+                  {formSubmissionImages.length} image{formSubmissionImages.length !== 1 ? 's' : ''} uploaded in form submissions
+                </p>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {formSubmissionImages.map((image) => (
+                  <Card key={image.id} className="overflow-hidden">
+                    <div className="relative aspect-square bg-gray-100">
+                      <img
+                        src={image.file_url}
+                        alt={image.file_name}
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => window.open(image.file_url, '_blank')}
+                      />
+                      <div className="absolute top-2 right-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 w-8 p-0 bg-white/90 hover:bg-white"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const link = document.createElement('a');
+                            link.href = image.file_url;
+                            link.download = image.file_name;
+                            link.click();
+                          }}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">
-                      <Download className="h-4 w-4 mr-2" />
-                      Download
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+                    <CardContent className="p-3">
+                      <p className="text-sm font-medium truncate" title={image.file_name}>
+                        {image.file_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate" title={image.field_title}>
+                        {image.field_title}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(image.uploaded_at), 'MMM dd, yyyy HH:mm')}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
           ) : (
             <Card>
               <CardContent className="text-center py-8">
-                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No Attachments</h3>
-                <p className="text-muted-foreground">No files have been attached to this case.</p>
+                <Image className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Images</h3>
+                <p className="text-muted-foreground">No images have been uploaded in form submissions for this case.</p>
               </CardContent>
             </Card>
           )}
@@ -954,7 +1154,7 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {/* This would be populated with actual timeline data */}
+                {/* Case Created */}
                 <div className="flex items-center gap-3">
                   <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
                   <div>
@@ -964,18 +1164,55 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
                     </p>
                   </div>
                 </div>
-                {caseData.assignee && (
+
+                {/* Allocated At */}
+                {(caseData.allocated_at || allocatedAt) && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 bg-purple-600 rounded-full"></div>
+                    <div>
+                      <p className="font-medium">Case Allocated</p>
+                      <p className="text-sm text-muted-foreground">
+                        {format(new Date(caseData.allocated_at || allocatedAt!), 'PPP p')}
+                      </p>
+                      {caseData.assignee && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Assigned to {caseData.assignee.name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Accepted At */}
+                {(caseData.accepted_at || acceptedAt) && (
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 bg-green-600 rounded-full"></div>
                     <div>
-                      <p className="font-medium">Assigned to {caseData.assignee.name}</p>
+                      <p className="font-medium">Case Accepted</p>
                       <p className="text-sm text-muted-foreground">
-                        {format(new Date(caseData.updated_at), 'PPP p')}
+                        {format(new Date(caseData.accepted_at || acceptedAt!), 'PPP p')}
+                      </p>
+                      {caseData.assignee && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Accepted by {caseData.assignee.name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Submitted At */}
+                {caseData.submitted_at && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 bg-orange-600 rounded-full"></div>
+                    <div>
+                      <p className="font-medium">Form Submitted</p>
+                      <p className="text-sm text-muted-foreground">
+                        {format(new Date(caseData.submitted_at), 'PPP p')}
                       </p>
                     </div>
                   </div>
                 )}
-                {/* Add more timeline events as needed */}
               </div>
             </CardContent>
           </Card>

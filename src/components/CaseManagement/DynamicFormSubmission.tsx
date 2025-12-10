@@ -67,6 +67,49 @@ interface DynamicFormSubmissionProps {
   qcReviewData?: any; // QC review data for rework cases
 }
 
+// Status badge styling and labels
+const STATUS_COLORS: Record<string, string> = {
+  new: 'bg-gray-100 text-gray-800',
+  allocated: 'bg-blue-100 text-blue-800',
+  accepted: 'bg-green-100 text-green-800',
+  pending_allocation: 'bg-yellow-100 text-yellow-800',
+  in_progress: 'bg-blue-100 text-blue-800',
+  submitted: 'bg-purple-100 text-purple-800',
+  qc_passed: 'bg-green-100 text-green-800',
+  qc_rejected: 'bg-red-100 text-red-800',
+  qc_rework: 'bg-yellow-100 text-yellow-800',
+  reported: 'bg-green-100 text-green-800',
+  in_payment_cycle: 'bg-blue-100 text-blue-800',
+  payment_complete: 'bg-green-100 text-green-800',
+  cancelled: 'bg-gray-100 text-gray-800',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  new: 'New',
+  allocated: 'Allocated',
+  accepted: 'Accepted',
+  pending_allocation: 'Pending Allocation',
+  in_progress: 'In Progress',
+  submitted: 'Submitted',
+  qc_passed: 'QC Passed',
+  qc_rejected: 'QC Rejected',
+  qc_rework: 'QC Rework',
+  reported: 'Reported',
+  in_payment_cycle: 'In Payment Cycle',
+  payment_complete: 'Payment Complete',
+  cancelled: 'Cancelled',
+};
+
+const getStatusBadgeClass = (status: string | undefined): string => {
+  if (!status) return 'bg-gray-100 text-gray-800';
+  return STATUS_COLORS[status] || 'bg-gray-100 text-gray-800';
+};
+
+const getStatusLabel = (status: string | undefined): string => {
+  if (!status) return 'Unknown';
+  return STATUS_LABELS[status] || status;
+};
+
 export default function DynamicFormSubmission({ caseId, caseStatus, onSubmissionsLoaded, qcReviewData }: DynamicFormSubmissionProps) {
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -762,9 +805,9 @@ export default function DynamicFormSubmission({ caseId, caseStatus, onSubmission
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
                 {submission.form_template?.template_name || 'Form Submission'}
-                {submission.status === 'draft' && (
-                  <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
-                    Draft
+                {caseStatus && (
+                  <Badge className={getStatusBadgeClass(caseStatus)}>
+                    {getStatusLabel(caseStatus)}
                   </Badge>
                 )}
               </CardTitle>
@@ -783,7 +826,7 @@ export default function DynamicFormSubmission({ caseId, caseStatus, onSubmission
                 </Button>
               )}
             </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <div className="flex flex-col gap-2 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
                 {submission.status === 'draft' ? 'Last saved on ' : 'Submitted on '}
@@ -818,9 +861,6 @@ export default function DynamicFormSubmission({ caseId, caseStatus, onSubmission
                 }
                 return null;
               })()}
-              <Badge variant="outline">
-                Version {submission.form_template?.template_version || 1}
-              </Badge>
             </div>
           </CardHeader>
           <CardContent>
@@ -864,9 +904,6 @@ export default function DynamicFormSubmission({ caseId, caseStatus, onSubmission
                   <div key={fieldKey} className="border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="font-medium text-lg">{fieldTitle}</h4>
-                      <Badge variant="outline" className="capitalize">
-                        {fieldType.replace(/_/g, ' ')}
-                      </Badge>
                     </div>
                     <div className="text-sm">
                       {renderFieldValue(fieldKey, value, fieldType, fieldTitle, submission)}

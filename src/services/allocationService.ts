@@ -279,15 +279,17 @@ export class AllocationService {
       }
 
       // Update case with assignment
+      const allocationTime = new Date().toISOString();
       const { error: caseUpdateError } = await supabase
         .from('cases')
         .update({
           current_assignee_id: request.gigWorkerId,
           current_assignee_type: 'gig',
           status: 'allocated',
-          status_updated_at: new Date().toISOString(),
+          allocated_at: allocationTime,
+          status_updated_at: allocationTime,
           last_updated_by: (await supabase.auth.getUser()).data.user?.id,
-          updated_at: new Date().toISOString()
+          updated_at: allocationTime
         })
         .eq('id', request.caseId);
 
@@ -420,6 +422,7 @@ export class AllocationService {
       }
 
       // Update case with assignment
+      const allocationTime = new Date().toISOString();
       const { error: caseUpdateError } = await supabase
         .from('cases')
         .update({
@@ -427,9 +430,10 @@ export class AllocationService {
           current_assignee_type: 'vendor',
           current_vendor_id: request.vendorId,
           status: 'allocated',
-          status_updated_at: new Date().toISOString(),
+          allocated_at: allocationTime,
+          status_updated_at: allocationTime,
           last_updated_by: (await supabase.auth.getUser()).data.user?.id,
-          updated_at: new Date().toISOString()
+          updated_at: allocationTime
         })
         .eq('id', request.caseId);
 
@@ -705,6 +709,7 @@ export class AllocationService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    const allocationTime = new Date().toISOString();
     const { error } = await supabase
       .from('cases')
       .update({
@@ -712,7 +717,8 @@ export class AllocationService {
         current_assignee_type: allocation.assigneeType,
         current_vendor_id: allocation.vendorId,
         status: 'allocated',
-        status_updated_at: new Date().toISOString(),
+        allocated_at: allocationTime,
+        status_updated_at: allocationTime,
         last_updated_by: user.id
       })
       .eq('id', caseId);

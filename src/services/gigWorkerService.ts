@@ -54,11 +54,8 @@ export class GigWorkerService {
    */
   async debugGigWorkerVendorAssociation(gigWorkerId: string): Promise<void> {
     try {
-      console.log('=== DEBUG GIG WORKER VENDOR ASSOCIATION ===');
-      console.log('Gig Worker ID:', gigWorkerId);
-
       // Get full gig worker data
-      const { data: gigWorkerData, error: gigWorkerError } = await supabase
+      const { data: gigWorkerData } = await supabase
         .from('gig_partners')
         .select(`
           id,
@@ -74,24 +71,16 @@ export class GigWorkerService {
         .eq('id', gigWorkerId)
         .single();
 
-      console.log('Full gig worker data:', gigWorkerData);
-      console.log('Gig worker query error:', gigWorkerError);
-
       if (gigWorkerData && gigWorkerData.vendor_id) {
         // Get vendor data
-        const { data: vendorData, error: vendorError } = await supabase
+        await supabase
           .from('vendors')
           .select('id, name, email')
           .eq('id', gigWorkerData.vendor_id)
           .single();
-
-        console.log('Associated vendor data:', vendorData);
-        console.log('Vendor query error:', vendorError);
       }
-
-      console.log('=== END DEBUG ===');
     } catch (error) {
-      console.error('Error debugging gig worker vendor association:', error);
+      // Silent error handling for debug function
     }
   }
 
@@ -100,9 +89,6 @@ export class GigWorkerService {
    */
   async acceptCase(request: CaseAcceptanceRequest): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log('=== GIG WORKER ACCEPT CASE DEBUG ===');
-      console.log('Request:', request);
-
       // Debug gig worker vendor association
       await this.debugGigWorkerVendorAssociation(request.gigWorkerId);
 
@@ -113,16 +99,11 @@ export class GigWorkerService {
         .eq('id', request.gigWorkerId)
         .single();
 
-      console.log('Gig worker data query result:', gigWorkerData);
-      console.log('Gig worker data query error:', gigWorkerError);
-
       if (gigWorkerError) {
-        console.error('Error fetching gig worker vendor info:', gigWorkerError);
         throw gigWorkerError;
       }
 
       if (!gigWorkerData) {
-        console.error('No gig worker data found for ID:', request.gigWorkerId);
         throw new Error('Gig worker not found');
       }
 
@@ -132,26 +113,11 @@ export class GigWorkerService {
         status_updated_at: new Date().toISOString()
       };
 
-      console.log('Gig worker vendor info:', {
-        id: gigWorkerData.id,
-        vendor_id: gigWorkerData.vendor_id,
-        is_direct_gig: gigWorkerData.is_direct_gig
-      });
-
       // If gig worker is associated with a vendor (has vendor_id), set current_vendor_id
       // Note: We check for vendor_id regardless of is_direct_gig flag
       if (gigWorkerData && gigWorkerData.vendor_id) {
         caseUpdateData.current_vendor_id = gigWorkerData.vendor_id;
-        console.log(`✅ Setting current_vendor_id to ${gigWorkerData.vendor_id} for gig worker ${request.gigWorkerId} (is_direct_gig: ${gigWorkerData.is_direct_gig})`);
-      } else {
-        console.log(`❌ Gig worker ${request.gigWorkerId} has no vendor association:`, {
-          has_vendor_id: !!gigWorkerData.vendor_id,
-          is_direct_gig: gigWorkerData.is_direct_gig,
-          vendor_id_value: gigWorkerData.vendor_id
-        });
       }
-
-      console.log('Case update data:', caseUpdateData);
 
       // Update case status and vendor assignment
       const { error: acceptCaseError } = await supabase
@@ -159,24 +125,16 @@ export class GigWorkerService {
         .update(caseUpdateData)
         .eq('id', request.caseId);
 
-      console.log('Case update error:', acceptCaseError);
-
       if (acceptCaseError) {
-        console.error('Error updating case:', acceptCaseError);
         throw acceptCaseError;
       }
 
-      console.log('✅ Case updated successfully with data:', caseUpdateData);
-
       // Verify the case was updated correctly
-      const { data: updatedCase, error: verifyError } = await supabase
+      await supabase
         .from('cases')
         .select('id, case_number, status, current_vendor_id, current_assignee_id, current_assignee_type')
         .eq('id', request.caseId)
         .single();
-
-      console.log('Case verification after update:', updatedCase);
-      console.log('Case verification error:', verifyError);
 
       // Update allocation log
       const { error: logError } = await supabase
@@ -257,9 +215,7 @@ export class GigWorkerService {
           p_reason: 'Rejected by gig worker'
         });
 
-      if (capacityError) {
-        console.warn('Could not free capacity:', capacityError);
-      }
+      // Note: Capacity error is non-critical, continue execution
 
       // Send notification
       const { data: rejectCaseInfo } = await supabase
@@ -366,11 +322,13 @@ export class GigWorkerService {
       }
 
       // Update case status
+      const submissionTime = new Date().toISOString();
       const { error: updateCaseError } = await supabase
         .from('cases')
         .update({
           status: 'submitted',
-          status_updated_at: new Date().toISOString()
+          submitted_at: submissionTime,
+          status_updated_at: submissionTime
         })
         .eq('id', request.caseId);
 
@@ -390,9 +348,7 @@ export class GigWorkerService {
           .from('submission_photos')
           .insert(photoInserts);
 
-        if (photosError) {
-          console.warn('Could not save photos:', photosError);
-        }
+        // Note: Photo save error is non-critical, continue execution
       }
 
       // Send notification
@@ -577,33 +533,37 @@ export class GigWorkerService {
 
       if (error) throw error;
 
-      console.log('Raw cases data from database:', cases);
-      console.log('Client data for first case:', cases?.[0]?.clients);
-      console.log('Client ID for first case:', cases?.[0]?.client_id);
-      
-      // Debug QC_Response field
-      cases?.forEach((caseItem, index) => {
-        console.log(`Case ${index + 1} (${caseItem.case_number}):`, {
-          id: caseItem.id,
-          QC_Response: caseItem.QC_Response,
-          status: caseItem.status
-        });
-      });
 
       // Get acceptance deadlines from allocation logs
       const caseIds = cases?.map(c => c.id) || [];
+      
+      // Fetch client data separately as fallback (in case relationship doesn't load)
+      // Always fetch clients separately to ensure we have the data
+      const clientIds = cases?.filter(c => c.client_id).map(c => c.client_id) || [];
+      const uniqueClientIds = [...new Set(clientIds.filter(id => id))]; // Filter out null/undefined
+      const clientsMap = new Map();
+      if (uniqueClientIds.length > 0) {
+        const { data: clientsData, error: clientsError } = await supabase
+          .from('clients')
+          .select('id, name')
+          .in('id', uniqueClientIds);
+        
+        if (!clientsError && clientsData) {
+          (clientsData || []).forEach(client => {
+            clientsMap.set(client.id, { id: client.id, name: client.name });
+          });
+        }
+      }
       
       // For submitted cases, let's also query form_submissions directly to see what's there
       const submittedCaseIds = cases?.filter(c => c.status === 'submitted').map(c => c.id) || [];
       let directFormSubmissions = [];
       if (submittedCaseIds.length > 0) {
-        console.log('Querying form_submissions directly for submitted cases:', submittedCaseIds);
-        const { data: formSubmissions, error: formError } = await supabase
+        const { data: formSubmissions } = await supabase
           .from('form_submissions')
           .select('case_id, updated_at, created_at')
           .in('case_id', submittedCaseIds);
         
-        console.log('Direct form_submissions query result:', formSubmissions, 'error:', formError);
         directFormSubmissions = formSubmissions || [];
       }
       const { data: allocationLogs } = await supabase
@@ -681,26 +641,16 @@ export class GigWorkerService {
         
         // Get the actual submission timestamp (prefer form_submissions over submissions)
         let actualSubmittedAt = null;
-        console.log('Processing case:', caseItem.case_number, {
-          form_submissions: caseItem.form_submissions,
-          submissions: caseItem.submissions,
-          status: caseItem.status
-        });
         
         if (caseItem.form_submissions && caseItem.form_submissions.length > 0) {
           actualSubmittedAt = caseItem.form_submissions[0].updated_at;
-          console.log('Found form submission timestamp (updated_at):', actualSubmittedAt, 'for case:', caseItem.case_number);
         } else if (caseItem.submissions && caseItem.submissions.length > 0) {
           actualSubmittedAt = caseItem.submissions[0].submitted_at;
-          console.log('Found legacy submission timestamp:', actualSubmittedAt, 'for case:', caseItem.case_number);
         } else {
           // Try direct query results as fallback
           const directSubmission = directFormSubmissions.find(s => s.case_id === caseItem.id);
           if (directSubmission) {
             actualSubmittedAt = directSubmission.updated_at;
-            console.log('Found direct form submission timestamp (updated_at):', actualSubmittedAt, 'for case:', caseItem.case_number);
-          } else {
-            console.log('No submission timestamp found for case:', caseItem.case_number, 'status:', caseItem.status);
           }
         }
         
@@ -743,6 +693,16 @@ export class GigWorkerService {
           submittedAt = (caseItem as any).status_updated_at;
         }
 
+        // Get client data - prefer relationship data, fallback to fetched data
+        let clientData = caseItem.clients;
+        // If relationship data doesn't exist or doesn't have name, use fetched data
+        if ((!clientData || !clientData.name) && caseItem.client_id) {
+          const fetchedClient = clientsMap.get(caseItem.client_id);
+          if (fetchedClient && fetchedClient.name) {
+            clientData = fetchedClient;
+          }
+        }
+        
         return {
           ...caseItem,
           is_direct_gig: gigWorker?.is_direct_gig ?? true,
@@ -750,6 +710,8 @@ export class GigWorkerService {
           acceptance_deadline: log?.acceptance_deadline || caseItem.due_at,
           actual_submitted_at: actualSubmittedAt,
           fi_type: this.determineFiType(caseItem.contract_type),
+          // Ensure clients data is preserved or fetched - always use fetched data if relationship failed
+          clients: clientData || (caseItem.client_id ? clientsMap.get(caseItem.client_id) : null) || null,
           // Date fields for month filtering
           allocated_at: allocatedAt,
           accepted_at: acceptedAt,
@@ -923,9 +885,7 @@ export class GigWorkerService {
             p_reason: 'Case timeout - not accepted'
           });
 
-        if (capacityError) {
-          console.warn('Could not free capacity for timeout case:', capacityError);
-        }
+        // Note: Capacity error is non-critical, continue execution
 
         timeoutCount++;
       }

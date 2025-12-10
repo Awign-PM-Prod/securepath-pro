@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -121,6 +122,7 @@ interface Client {
 }
 
 export default function Reports() {
+  const navigate = useNavigate();
   const [cases, setCases] = useState<Case[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -202,26 +204,52 @@ export default function Reports() {
 
       if (error) throw error;
 
-      // Get case IDs to fetch form_submissions
+      // Get case IDs to fetch form_submissions and legacy submissions as fallback
       const caseIds = data?.map(c => c.id) || [];
       
-      // Fetch form_submissions to get updated_at (submission time)
+      // Fetch form_submissions to get submitted_at or updated_at (fallback if cases.submitted_at is null)
       const { data: formSubmissionsData } = await supabase
         .from('form_submissions')
-        .select('case_id, updated_at')
+        .select('case_id, submitted_at, updated_at')
         .in('case_id', caseIds.length > 0 ? caseIds : [])
         .order('updated_at', { ascending: false });
 
-      // Create a map of case_id to updated_at
+      // Fetch legacy submissions as final fallback
+      const { data: legacySubmissionsData } = await supabase
+        .from('submissions')
+        .select('case_id, submitted_at')
+        .in('case_id', caseIds.length > 0 ? caseIds : [])
+        .order('submitted_at', { ascending: false });
+
+      // Create a map of case_id to submission timestamp
+      // Prefer submitted_at, fallback to updated_at
       const formSubmissionsMap = new Map();
       (formSubmissionsData || []).forEach(submission => {
-        // Store the most recent updated_at for each case
-        if (!formSubmissionsMap.has(submission.case_id)) {
-          formSubmissionsMap.set(submission.case_id, submission.updated_at);
-        } else {
-          const current = formSubmissionsMap.get(submission.case_id);
-          if (new Date(submission.updated_at) > new Date(current)) {
-            formSubmissionsMap.set(submission.case_id, submission.updated_at);
+        const timestamp = submission.submitted_at || submission.updated_at;
+        if (timestamp) {
+          // Store the most recent timestamp for each case
+          if (!formSubmissionsMap.has(submission.case_id)) {
+            formSubmissionsMap.set(submission.case_id, timestamp);
+          } else {
+            const current = formSubmissionsMap.get(submission.case_id);
+            if (new Date(timestamp) > new Date(current)) {
+              formSubmissionsMap.set(submission.case_id, timestamp);
+            }
+          }
+        }
+      });
+
+      // Create a map for legacy submissions (only if not already in formSubmissionsMap)
+      const legacySubmissionsMap = new Map();
+      (legacySubmissionsData || []).forEach(submission => {
+        if (submission.submitted_at && !formSubmissionsMap.has(submission.case_id)) {
+          if (!legacySubmissionsMap.has(submission.case_id)) {
+            legacySubmissionsMap.set(submission.case_id, submission.submitted_at);
+          } else {
+            const current = legacySubmissionsMap.get(submission.case_id);
+            if (new Date(submission.submitted_at) > new Date(current)) {
+              legacySubmissionsMap.set(submission.case_id, submission.submitted_at);
+            }
           }
         }
       });
@@ -258,8 +286,8 @@ export default function Reports() {
         QC_Response: caseItem.QC_Response as any,
         assigned_at: null, // This will be populated from allocation logs in production
         is_positive: caseItem.is_positive,
-        // Use updated_at from form_submissions instead of submitted_at
-        submitted_at: formSubmissionsMap.get(caseItem.id) || null
+        // Use cases.submitted_at first, then fallback to form_submissions, then legacy submissions
+        submitted_at: caseItem.submitted_at || formSubmissionsMap.get(caseItem.id) || legacySubmissionsMap.get(caseItem.id) || null
       })) || [];
 
       // Show only cases created after November 2nd, 2025
@@ -1458,7 +1486,8 @@ export default function Reports() {
               {filteredCases.map((caseItem) => (
                 <div
                   key={caseItem.id}
-                  className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+                  className="border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/ops/cases/${caseItem.id}`)}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
@@ -1484,7 +1513,10 @@ export default function Reports() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleDownloadCSV(caseItem)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadCSV(caseItem);
+                        }}
                       >
                         <FileSpreadsheet className="h-4 w-4 mr-2" />
                         CSV
@@ -1492,7 +1524,10 @@ export default function Reports() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleDownloadPDF(caseItem)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadPDF(caseItem);
+                        }}
                       >
                         <FileText className="h-4 w-4 mr-2" />
                         PDF
