@@ -4,6 +4,16 @@ import { caseService, Case } from '@/services/caseService';
 // Filter cases created after November 2nd, 2025
 const CUTOFF_DATE = new Date('2025-11-02T00:00:00.000Z');
 
+export interface UseCasesFilters {
+  statusFilter?: string[];
+  clientFilter?: string;
+  dateFilter?: { from?: Date; to?: Date };
+  tatExpiryFilter?: { from?: Date; to?: Date };
+  tierFilter?: string;
+  searchTerm?: string;
+  qcResponseTab?: string;
+}
+
 export interface UseCasesResult {
   cases: Case[];
   total: number;
@@ -11,11 +21,11 @@ export interface UseCasesResult {
   error: Error | null;
 }
 
-export function useCases(page: number = 1, pageSize: number = 10): UseCasesResult {
+export function useCases(page: number = 1, pageSize: number = 10, filters?: UseCasesFilters): UseCasesResult {
   const query = useQuery({
-    queryKey: ['cases', page, pageSize],
+    queryKey: ['cases', page, pageSize, filters],
     queryFn: async () => {
-      const result = await caseService.getCases(page, pageSize);
+      const result = await caseService.getCases(page, pageSize, filters);
       // Filter cases created after November 2nd, 2025
       const filteredCases = result.cases.filter(caseItem => {
         const caseCreatedDate = new Date(caseItem.created_at);

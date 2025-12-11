@@ -114,9 +114,9 @@ const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (case
               <div>
                 <p className="text-muted-foreground">Client</p>
                 <p className="font-medium">
-                  {Array.isArray(caseItem.clients) 
-                    ? caseItem.clients[0]?.name 
-                    : (caseItem.clients?.name || caseItem.client?.name || 'N/A')}
+                  {Array.isArray((caseItem as any).clients) 
+                    ? (caseItem as any).clients[0]?.name 
+                    : ((caseItem as any).clients?.name || caseItem.client?.name || 'N/A')}
                 </p>
               </div>
             </div>
@@ -134,9 +134,9 @@ const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (case
               <div>
                 <p className="text-muted-foreground">Location</p>
                 <p className="font-medium">
-                  {Array.isArray(caseItem.locations)
-                    ? `${caseItem.locations[0]?.city || 'N/A'}, ${caseItem.locations[0]?.state || 'N/A'}`
-                    : `${caseItem.locations?.city || caseItem.location?.city || 'N/A'}, ${caseItem.locations?.state || caseItem.location?.state || 'N/A'}`}
+                  {Array.isArray((caseItem as any).locations)
+                    ? `${(caseItem as any).locations[0]?.city || 'N/A'}, ${(caseItem as any).locations[0]?.state || 'N/A'}`
+                    : `${(caseItem as any).locations?.city || caseItem.location?.city || 'N/A'}, ${(caseItem as any).locations?.state || caseItem.location?.state || 'N/A'}`}
                 </p>
               </div>
             </div>
@@ -435,15 +435,13 @@ export default function QCDashboard() {
           .lte('submitted_at', endOfDay.toISOString());
       }
 
-      // Apply search filter server-side (searches across all cases, not just current page)
-      // This searches in case_number, client_case_id, candidate_name, phone_primary, phone_secondary
-      // Note: Client name and city will be filtered client-side since they're in related tables
+      // Apply search filter server-side (searches across direct fields)
+      // Note: Related fields (client name, location fields) and enum fields (status) will be filtered client-side
       if (searchQuery) {
         const searchPattern = `%${searchQuery.toLowerCase()}%`;
-        // Use Supabase's or() method to search across multiple fields
-        // Format: field1.ilike.pattern,field2.ilike.pattern,field3.ilike.pattern
-        // Note: Supabase automatically wraps this in parentheses
-        query = query.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern}`);
+        // Search in all direct case fields that are displayed on cards
+        // Exclude status from server-side search as it's an enum type and can't use ilike
+        query = query.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern},contract_type.ilike.${searchPattern}`);
       }
 
       // Order by submitted_at (most recent first), fallback to created_at
@@ -488,7 +486,8 @@ export default function QCDashboard() {
       }
       if (searchQuery) {
         const searchPattern = `%${searchQuery.toLowerCase()}%`;
-        countQuery.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern}`);
+        // Exclude status from server-side search as it's an enum type and can't use ilike
+        countQuery.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern},contract_type.ilike.${searchPattern}`);
       }
 
       const { count: totalCount } = await countQuery;
@@ -516,7 +515,7 @@ export default function QCDashboard() {
 
       // Transform data structure to match expected format
       // Supabase returns relationships as objects/arrays, we need to normalize them
-      const transformedCases = (cases || []).map(c => {
+      const transformedCases = (cases || []).map((c: any) => {
         // Normalize clients - handle both array and object formats
         const client = Array.isArray(c.clients) ? c.clients[0] : c.clients;
         
@@ -529,7 +528,7 @@ export default function QCDashboard() {
           location: location || c.location, // Fallback to c.location if exists
           clients: client, // Keep for backward compatibility
           locations: location // Keep for backward compatibility
-        };
+        } as Case;
       });
 
       // Don't apply search filter here - it will be applied in getFilteredCases()
@@ -553,33 +552,98 @@ export default function QCDashboard() {
   const getFilteredCases = () => {
     let filtered = [...allCases];
 
-    // Apply search filter client-side for related fields and other metadata
-    // Direct fields (case_number, client_case_id, candidate_name, phone) are already filtered server-side
+    // Apply search filter client-side for ALL fields displayed on the card
+    // This is an "open search" that searches across all visible metadata
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter(c => {
-        const clientName = c.client?.name || c.clients?.name || (Array.isArray(c.clients) ? c.clients[0]?.name : '');
-        const city = c.location?.city || c.locations?.city || (Array.isArray(c.locations) ? c.locations[0]?.city : '');
-        const state = c.location?.state || c.locations?.state || (Array.isArray(c.locations) ? c.locations[0]?.state : '');
-        const pincode = c.location?.pincode || c.locations?.pincode || (Array.isArray(c.locations) ? c.locations[0]?.pincode : '');
-        const address = c.location?.address_line || c.locations?.address_line || (Array.isArray(c.locations) ? c.locations[0]?.address_line : '');
+        // Extract all fields that are displayed on the case card
+        // Handle both singular and plural property names from Supabase
+        const caseAny = c as any;
+        const clientName = c.client?.name || caseAny.clients?.name || (Array.isArray(caseAny.clients) ? caseAny.clients[0]?.name : '');
+        const city = c.location?.city || caseAny.locations?.city || (Array.isArray(caseAny.locations) ? caseAny.locations[0]?.city : '');
+        const state = c.location?.state || caseAny.locations?.state || (Array.isArray(caseAny.locations) ? caseAny.locations[0]?.state : '');
+        const pincode = c.location?.pincode || caseAny.locations?.pincode || (Array.isArray(caseAny.locations) ? caseAny.locations[0]?.pincode : '');
+        const address = c.location?.address_line || caseAny.locations?.address_line || (Array.isArray(caseAny.locations) ? caseAny.locations[0]?.address_line : '');
         const contractType = c.contract_type || '';
         const status = c.status || '';
         const qcResponse = c.QC_Response || '';
+        const assigneeName = c.current_assignee?.name || '';
+        const assigneeType = c.current_assignee?.type === 'gig' ? 'gig worker' : (c.current_assignee?.type === 'vendor' ? 'vendor' : '');
         
-        // Check if it matches related fields and other metadata shown on the card
+        // Format dates for search (same format as displayed on card)
+        const formatDateForSearch = (dateString?: string) => {
+          if (!dateString) return '';
+          try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }).toLowerCase();
+          } catch {
+            return '';
+          }
+        };
+        
+        const assignedAtFormatted = formatDateForSearch(c.assigned_at);
+        const submittedAtFormatted = formatDateForSearch(c.submitted_at);
+        
+        // Format time taken for search
+        const getTimeTakenForSearch = (assignedAt?: string, submittedAt?: string) => {
+          if (!assignedAt || !submittedAt) return '';
+          try {
+            const assigned = new Date(assignedAt);
+            const submitted = new Date(submittedAt);
+            const diffMs = submitted.getTime() - assigned.getTime();
+            if (diffMs < 0) return '';
+            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+            if (diffHours > 0) {
+              return `${diffHours}h ${diffMinutes}m`;
+            } else {
+              return `${diffMinutes}m`;
+            }
+          } catch {
+            return '';
+          }
+        };
+        
+        const timeTaken = getTimeTakenForSearch(c.assigned_at, c.submitted_at);
+        
+        // Search across ALL fields displayed on the card
         return (
+          // Direct case fields (also searched server-side, but included here for completeness)
+          (c.case_number?.toLowerCase().includes(searchLower)) ||
+          (c.client_case_id?.toLowerCase().includes(searchLower)) ||
+          (c.candidate_name?.toLowerCase().includes(searchLower)) ||
+          (c.phone_primary?.toLowerCase().includes(searchLower)) ||
+          (c.phone_secondary?.toLowerCase().includes(searchLower)) ||
+          // Related fields
           clientName?.toLowerCase().includes(searchLower) ||
           city?.toLowerCase().includes(searchLower) ||
           state?.toLowerCase().includes(searchLower) ||
           pincode?.toLowerCase().includes(searchLower) ||
           address?.toLowerCase().includes(searchLower) ||
+          // Status and type fields
           contractType?.toLowerCase().includes(searchLower) ||
           status?.toLowerCase().includes(searchLower) ||
           qcResponse?.toLowerCase().includes(searchLower) ||
+          // Numeric fields (as strings)
           c.base_rate_inr?.toString().includes(searchLower) ||
           c.total_payout_inr?.toString().includes(searchLower) ||
-          c.priority?.toLowerCase().includes(searchLower)
+          c.tat_hours?.toString().includes(searchLower) ||
+          // Priority (optional field)
+          (caseAny.priority?.toLowerCase().includes(searchLower) || false) ||
+          // Assignee information
+          assigneeName?.toLowerCase().includes(searchLower) ||
+          assigneeType?.toLowerCase().includes(searchLower) ||
+          // Formatted dates and times
+          assignedAtFormatted.includes(searchLower) ||
+          submittedAtFormatted.includes(searchLower) ||
+          timeTaken.toLowerCase().includes(searchLower)
         );
       });
     }
@@ -789,13 +853,13 @@ export default function QCDashboard() {
                     <SelectContent>
                       <SelectItem value="all">All Clients</SelectItem>
                       {Array.from(new Set(allCases
-                        .map(c => c.client?.id || c.clients?.id)
+                        .map(c => c.client?.id || (c as any).clients?.id)
                         .filter(id => id !== undefined && id !== null)
                       )).map(clientId => {
                         const client = allCases.find(c => 
-                          (c.client?.id || c.clients?.id) === clientId
+                          (c.client?.id || (c as any).clients?.id) === clientId
                         );
-                        const clientData = client?.client || client?.clients;
+                        const clientData = client?.client || (client as any)?.clients;
                         return (
                           <SelectItem key={clientId} value={clientId}>
                             {clientData?.name || 'Unknown Client'}

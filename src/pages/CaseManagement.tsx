@@ -147,8 +147,19 @@ export default function CaseManagement() {
   console.log('CaseManagement component initialized with path:', location.pathname);
   console.log('Initial state:', initialState);
   
+  // State to track filters from CaseListWithAllocation
+  const [filters, setFilters] = useState<{
+    statusFilter?: string[];
+    clientFilter?: string;
+    dateFilter?: { from?: Date; to?: Date };
+    tatExpiryFilter?: { from?: Date; to?: Date };
+    tierFilter?: string;
+    searchTerm?: string;
+    qcResponseTab?: string;
+  }>({});
+
   // Use React Query hooks for data fetching with caching and pagination
-  const { cases, total, isLoading: isLoadingCases, error: casesError } = useCases(currentPage, pageSize);
+  const { cases, total, isLoading: isLoadingCases, error: casesError } = useCases(currentPage, pageSize, filters);
   const { data: clients = [], isLoading: isLoadingClients } = useClients();
   const { data: contractTypes = [], isLoading: isLoadingContractTypes } = useContractTypes();
   const invalidateCases = useCasesInvalidation();
@@ -604,6 +615,7 @@ export default function CaseManagement() {
         onCreateCase={handleCreateCase}
         onRefresh={loadData}
         isLoading={isLoading}
+        onFiltersChange={setFilters}
       />
     </div>
   );

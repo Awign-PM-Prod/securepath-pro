@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { MoreHorizontal, Search, Filter, Plus, Eye, Edit, Trash2, MapPin, Clock, User, Building, Zap, Users, CheckCircle, XCircle, AlertCircle, FileText, RotateCcw, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2, ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { useToast } from '@/hooks/use-toast';
@@ -85,6 +85,15 @@ interface CaseListWithAllocationProps {
   onCreateCase: () => void;
   onRefresh: () => void;
   isLoading?: boolean;
+  onFiltersChange?: (filters: {
+    statusFilter?: string[];
+    clientFilter?: string;
+    dateFilter?: { from?: Date; to?: Date };
+    tatExpiryFilter?: { from?: Date; to?: Date };
+    tierFilter?: string;
+    searchTerm?: string;
+    qcResponseTab?: string;
+  }) => void;
 }
 
 const STATUS_COLORS = {
@@ -147,9 +156,11 @@ export default function CaseListWithAllocation({
   onDeleteCase, 
   onCreateCase, 
   onRefresh,
-  isLoading = false 
+  isLoading = false,
+  onFiltersChange
 }: CaseListWithAllocationProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchQuery, setSearchQuery] = useState(''); // Separate state for actual search query
   const [statusFilter, setStatusFilter] = useState<string[]>([]); // Multi-select: array of selected statuses
   const [dateFilter, setDateFilter] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
   const [tatExpiryFilter, setTatExpiryFilter] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
@@ -181,6 +192,7 @@ export default function CaseListWithAllocation({
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [sortBy, setSortBy] = useState<'due_at_asc' | 'due_at_desc' | 'none'>('none');
+  const [qcStats, setQcStats] = useState({ all: 0, approved: 0, rejected: 0, rework: 0 });
   const { toast } = useToast();
 
   // Helper function to check if a case matches the search term across all metadata
@@ -240,82 +252,109 @@ export default function CaseListWithAllocation({
     );
   }, []);
 
-  // Calculate filtered cases without QC Response filter (for tab counts)
+  // filteredCasesForStats is no longer needed since stats are fetched from server
+  // Keeping it for fallback in error cases
   const filteredCasesForStats = useMemo(() => {
-    return cases.filter(caseItem => {
-      const matchesSearch = caseMatchesSearch(caseItem, searchTerm);
-      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(caseItem.status);
-      
-      const matchesDate = (() => {
-        if (!dateFilter || (!dateFilter.from && !dateFilter.to)) return true;
-        const caseDate = new Date(caseItem.created_at);
-        const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
-        
-        if (dateFilter.from && dateFilter.to) {
-          // Date range: both from and to are set
-          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
-          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
-          return caseDateOnly >= fromDateOnly && caseDateOnly <= toDateOnly;
-        } else if (dateFilter.from) {
-          // Only from date is set
-          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
-          return caseDateOnly >= fromDateOnly;
-        } else if (dateFilter.to) {
-          // Only to date is set
-          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
-          return caseDateOnly <= toDateOnly;
-        }
-        return true;
-      })();
-      
-      const matchesTatExpiry = (() => {
-        if (!tatExpiryFilter || (!tatExpiryFilter.from && !tatExpiryFilter.to)) return true;
-        const caseDueDate = new Date(caseItem.due_at);
-        const caseDueDateOnly = new Date(caseDueDate.getFullYear(), caseDueDate.getMonth(), caseDueDate.getDate());
-        
-        if (tatExpiryFilter.from && tatExpiryFilter.to) {
-          // Date range: both from and to are set
-          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
-          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
-          return caseDueDateOnly >= fromDateOnly && caseDueDateOnly <= toDateOnly;
-        } else if (tatExpiryFilter.from) {
-          // Only from date is set
-          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
-          return caseDueDateOnly >= fromDateOnly;
-        } else if (tatExpiryFilter.to) {
-          // Only to date is set
-          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
-          return caseDueDateOnly <= toDateOnly;
-        }
-        return true;
-      })();
-      
-      const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
-      const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
-      
-      return matchesSearch && matchesStatus && matchesDate && matchesTatExpiry && matchesClient && matchesTier;
-    });
-  }, [cases, searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, caseMatchesSearch]);
+    return cases; // Cases are already filtered server-side
+  }, [cases]);
 
-  // Calculate QC stats based on filtered cases (excluding QC Response filter) - memoized for performance
-  const qcStats = useMemo(() => {
-    return {
-      all: filteredCasesForStats.length,
-      approved: filteredCasesForStats.filter(c => c.QC_Response === 'Approved').length,
-      rejected: filteredCasesForStats.filter(c => c.QC_Response === 'Rejected').length,
-      rework: filteredCasesForStats.filter(c => c.QC_Response === 'Rework').length
+  // Load QC stats from server (total counts across all cases, not just current page)
+  React.useEffect(() => {
+    const loadQcStats = async () => {
+      try {
+        const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+        
+        // Build base query with filters (excluding QC_Response and search)
+        let baseQuery = supabase
+          .from('cases')
+          .select('id, QC_Response', { count: 'exact', head: false })
+          .eq('is_active', true)
+          .gte('created_at', cutoffDate.toISOString());
+
+        // Apply status filter
+        if (statusFilter.length > 0) {
+          baseQuery = baseQuery.in('status', statusFilter);
+        }
+
+        // Apply client filter
+        if (clientFilter !== 'all') {
+          baseQuery = baseQuery.eq('client_id', clientFilter);
+        }
+
+        // Fetch all matching cases to calculate stats
+        const { data: allCases } = await baseQuery;
+
+        if (!allCases) {
+          setQcStats({ all: 0, approved: 0, rejected: 0, rework: 0 });
+          return;
+        }
+
+        // Apply client-side filters for date and tier (since they require joins)
+        let filtered = allCases;
+        
+        // Filter by date (client-side since we need created_at)
+        if (dateFilter && (dateFilter.from || dateFilter.to)) {
+          // We need to fetch created_at for date filtering
+          const { data: casesWithDates } = await supabase
+            .from('cases')
+            .select('id, QC_Response, created_at')
+            .eq('is_active', true)
+            .gte('created_at', cutoffDate.toISOString())
+            .in('status', statusFilter.length > 0 ? statusFilter : ['new', 'allocated', 'accepted', 'pending_allocation', 'in_progress', 'submitted', 'qc_passed', 'qc_rejected', 'qc_rework', 'reported', 'in_payment_cycle', 'payment_complete', 'cancelled'])
+            .eq('client_id', clientFilter !== 'all' ? clientFilter : undefined);
+
+          if (casesWithDates) {
+            filtered = casesWithDates.filter(c => {
+              const caseDate = new Date(c.created_at);
+              const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
+              
+              if (dateFilter.from && dateFilter.to) {
+                const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
+                const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
+                return caseDateOnly >= fromDateOnly && caseDateOnly <= toDateOnly;
+              } else if (dateFilter.from) {
+                const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
+                return caseDateOnly >= fromDateOnly;
+              } else if (dateFilter.to) {
+                const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
+                return caseDateOnly <= toDateOnly;
+              }
+              return true;
+            });
+          }
+        }
+
+        // Calculate stats from filtered results
+        const all = filtered.length;
+        const approved = filtered.filter(c => c.QC_Response === 'Approved').length;
+        const rejected = filtered.filter(c => c.QC_Response === 'Rejected').length;
+        const rework = filtered.filter(c => c.QC_Response === 'Rework').length;
+
+        setQcStats({ all, approved, rejected, rework });
+      } catch (error) {
+        console.error('Error loading QC stats:', error);
+        // Fallback to client-side calculation from current page
+        setQcStats({
+          all: filteredCasesForStats.length,
+          approved: filteredCasesForStats.filter(c => c.QC_Response === 'Approved').length,
+          rejected: filteredCasesForStats.filter(c => c.QC_Response === 'Rejected').length,
+          rework: filteredCasesForStats.filter(c => c.QC_Response === 'Rework').length
+        });
+      }
     };
-  }, [filteredCasesForStats]);
 
-  // Reset to page 1 when filters or sort change
+    loadQcStats();
+  }, [statusFilter, clientFilter, tierFilter, dateFilter, tatExpiryFilter, filteredCasesForStats]);
+
+  // Reset to page 1 when filters or sort change (but not when page changes)
   React.useEffect(() => {
     onPageChange(1);
-  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab, sortBy, onPageChange]);
+  }, [searchQuery, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab, sortBy, onPageChange]);
 
   // Check if any filter is active
   const hasActiveFilters = useMemo(() => {
     return (
-      searchTerm.trim() !== '' ||
+      searchQuery.trim() !== '' ||
       statusFilter.length > 0 ||
       (dateFilter && (dateFilter.from || dateFilter.to)) ||
       (tatExpiryFilter && (tatExpiryFilter.from || tatExpiryFilter.to)) ||
@@ -324,7 +363,7 @@ export default function CaseListWithAllocation({
       qcResponseTab !== 'all' ||
       sortBy !== 'none'
     );
-  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab, sortBy]);
+  }, [searchQuery, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab, sortBy]);
 
   // Helper function to highlight matching text (handles multiple matches)
   const highlightText = (text: string, searchTerm: string): React.ReactNode => {
@@ -366,75 +405,16 @@ export default function CaseListWithAllocation({
   };
 
 
-  // Memoized filtered cases for better performance
+  // Cases are already filtered server-side, so we just need to apply client-side filters
+  // that can't be done server-side (like tier filter and sorting)
   const filteredCases = useMemo(() => {
-    let filtered = cases.filter(caseItem => {
-      // Search filter - now searches all metadata
-      const matchesSearch = caseMatchesSearch(caseItem, searchTerm);
-      
-      // Multi-select status filter: if no statuses selected, show all; otherwise show only selected statuses
-      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(caseItem.status);
-      
-      // Filter by QC_Response tab
-      const matchesQcResponse = qcResponseTab === 'all' || caseItem.QC_Response === qcResponseTab;
-      
-      // Filter by creation date range
-      const matchesDate = (() => {
-        if (!dateFilter || (!dateFilter.from && !dateFilter.to)) return true;
-        
-        const caseDate = new Date(caseItem.created_at);
-        const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
-        
-        if (dateFilter.from && dateFilter.to) {
-          // Date range: both from and to are set
-          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
-          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
-          return caseDateOnly >= fromDateOnly && caseDateOnly <= toDateOnly;
-        } else if (dateFilter.from) {
-          // Only from date is set
-          const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
-          return caseDateOnly >= fromDateOnly;
-        } else if (dateFilter.to) {
-          // Only to date is set
-          const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
-          return caseDateOnly <= toDateOnly;
-        }
-        return true;
-      })();
-      
-      // Filter by TAT expiry date
-      const matchesTatExpiry = (() => {
-        if (!tatExpiryFilter || (!tatExpiryFilter.from && !tatExpiryFilter.to)) return true;
-        
-        const caseDueDate = new Date(caseItem.due_at);
-        const caseDueDateOnly = new Date(caseDueDate.getFullYear(), caseDueDate.getMonth(), caseDueDate.getDate());
-        
-        if (tatExpiryFilter.from && tatExpiryFilter.to) {
-          // Date range: both from and to are set
-          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
-          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
-          return caseDueDateOnly >= fromDateOnly && caseDueDateOnly <= toDateOnly;
-        } else if (tatExpiryFilter.from) {
-          // Only from date is set
-          const fromDateOnly = new Date(tatExpiryFilter.from.getFullYear(), tatExpiryFilter.from.getMonth(), tatExpiryFilter.from.getDate());
-          return caseDueDateOnly >= fromDateOnly;
-        } else if (tatExpiryFilter.to) {
-          // Only to date is set
-          const toDateOnly = new Date(tatExpiryFilter.to.getFullYear(), tatExpiryFilter.to.getMonth(), tatExpiryFilter.to.getDate());
-          return caseDueDateOnly <= toDateOnly;
-        }
-        return true;
-      })();
-      
-      // Filter by client
-      const matchesClient = clientFilter === 'all' || caseItem.client.id === clientFilter;
-      
-      // Filter by tier
-      const matchesTier = tierFilter === 'all' || caseItem.location.pincode_tier === tierFilter;
-      
-      return matchesSearch && matchesStatus && matchesQcResponse && matchesDate && matchesTatExpiry && matchesClient && matchesTier;
-    });
-
+    let filtered = cases;
+    
+    // Apply tier filter client-side (since it requires location join)
+    if (tierFilter !== 'all') {
+      filtered = filtered.filter(c => c.location.pincode_tier === tierFilter);
+    }
+    
     // Apply sorting
     if (sortBy === 'due_at_asc') {
       filtered = [...filtered].sort((a, b) => {
@@ -448,13 +428,53 @@ export default function CaseListWithAllocation({
         const dateB = new Date(b.due_at).getTime();
         return dateB - dateA;
       });
-    } else {
-      // Default: sort by creation date (newest first)
-      filtered = [...filtered].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
 
     return filtered;
-  }, [cases, searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab, sortBy]);
+  }, [cases, tierFilter, sortBy]);
+
+  // Handle search button click
+  const handleSearch = () => {
+    setSearchQuery(searchTerm);
+    onPageChange(1); // Reset to page 1 when searching
+  };
+
+  // Handle Enter key in search input
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  // Handle clear search
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setSearchQuery('');
+    onPageChange(1);
+  };
+
+  // Clear search query when search term becomes empty
+  React.useEffect(() => {
+    if (!searchTerm && searchQuery) {
+      setSearchQuery('');
+      onPageChange(1);
+    }
+  }, [searchTerm, searchQuery, onPageChange]);
+
+  // Update filters in parent component when filters change
+  React.useEffect(() => {
+    if (onFiltersChange) {
+      onFiltersChange({
+        statusFilter: statusFilter.length > 0 ? statusFilter : undefined,
+        clientFilter: clientFilter !== 'all' ? clientFilter : undefined,
+        dateFilter: dateFilter && (dateFilter.from || dateFilter.to) ? dateFilter : undefined,
+        tatExpiryFilter: tatExpiryFilter && (tatExpiryFilter.from || tatExpiryFilter.to) ? tatExpiryFilter : undefined,
+        tierFilter: tierFilter !== 'all' ? tierFilter : undefined,
+        searchTerm: searchQuery.trim() ? searchQuery : undefined, // Use searchQuery instead of searchTerm
+        qcResponseTab: qcResponseTab !== 'all' ? qcResponseTab : undefined
+      });
+    }
+  }, [searchQuery, statusFilter, dateFilter, tatExpiryFilter, clientFilter, tierFilter, qcResponseTab, onFiltersChange]);
 
   // Memoized derived data for better performance
   const allocatableCases = useMemo(() => 
@@ -516,6 +536,7 @@ export default function CaseListWithAllocation({
     setDateFilter(undefined);
     setTatExpiryFilter(undefined);
     setSearchTerm('');
+    setSearchQuery('');
     setQcResponseTab('all');
     setSortBy('none');
     onPageChange(1);
@@ -1214,13 +1235,35 @@ export default function CaseListWithAllocation({
           <div className="flex gap-2 flex-wrap">
             {/* Search Bar */}
             <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
               <Input
+                type="text"
                 placeholder="Search all case metadata..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className={`pl-10 w-full ${searchTerm ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                onKeyPress={handleSearchKeyPress}
+                className={`pl-10 w-full ${searchTerm ? 'pr-20' : 'pr-10'}`}
               />
+              {searchTerm && (
+                <>
+                  <button
+                    onClick={handleSearch}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-primary hover:text-primary/80 p-1.5 rounded hover:bg-primary/10 transition-colors z-10"
+                    type="button"
+                    title="Search"
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={handleClearSearch}
+                    className="absolute right-10 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground p-1.5 rounded hover:bg-muted transition-colors z-10"
+                    type="button"
+                    title="Clear"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Multi-Select Status Filter */}
