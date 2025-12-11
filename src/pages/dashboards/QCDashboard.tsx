@@ -7,11 +7,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { UserCheck, FileText, Clock, XCircle, Eye, MapPin, User, Phone, Calendar as CalendarIcon, CheckCircle, XCircle as XCircleIcon, RotateCcw, Search, Filter, Building } from 'lucide-react';
+import { UserCheck, FileText, Clock, XCircle, Eye, MapPin, User, Phone, Calendar as CalendarIcon, CheckCircle, XCircle as XCircleIcon, RotateCcw, Search, Filter, Building, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { caseService, Case } from '@/services/caseService';
 import { useToast } from '@/hooks/use-toast';
 import QCSubmissionReview from '@/components/QC/QCSubmissionReview';
 import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
 
 // CasesList component to render the list of cases
 const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (caseItem: Case) => void }) => {
@@ -112,7 +113,11 @@ const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (case
               <User className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-muted-foreground">Client</p>
-                <p className="font-medium">{caseItem.client.name}</p>
+                <p className="font-medium">
+                  {Array.isArray(caseItem.clients) 
+                    ? caseItem.clients[0]?.name 
+                    : (caseItem.clients?.name || caseItem.client?.name || 'N/A')}
+                </p>
               </div>
             </div>
 
@@ -128,7 +133,11 @@ const CasesList = ({ cases, onReviewCase }: { cases: Case[], onReviewCase: (case
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-muted-foreground">Location</p>
-                <p className="font-medium">{caseItem.location.city}, {caseItem.location.state}</p>
+                <p className="font-medium">
+                  {Array.isArray(caseItem.locations)
+                    ? `${caseItem.locations[0]?.city || 'N/A'}, ${caseItem.locations[0]?.state || 'N/A'}`
+                    : `${caseItem.locations?.city || caseItem.location?.city || 'N/A'}, ${caseItem.locations?.state || caseItem.location?.state || 'N/A'}`}
+                </p>
               </div>
             </div>
           </div>
@@ -229,46 +238,304 @@ export default function QCDashboard() {
   });
   const [selectedCaseForReview, setSelectedCaseForReview] = useState<Case | null>(null);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(10);
+  const [totalCases, setTotalCases] = useState(0);
+  const [isFilterLoading, setIsFilterLoading] = useState(false);
   const { toast } = useToast();
 
+  // Separate state for search input and actual search query
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Load cases when pagination or filters change (including search query)
   useEffect(() => {
     loadAllCases();
-  }, []);
+    loadStats();
+  }, [currentPage, activeTab, statusFilter, clientFilter, contractTypeFilter, dateFilter, searchQuery]);
+
+  // Reset to page 1 when filters or search change
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    }
+  }, [activeTab, statusFilter, clientFilter, contractTypeFilter, dateFilter, searchQuery]);
+
+  // Handle search button click
+  const handleSearch = () => {
+    setSearchQuery(searchTerm);
+    setCurrentPage(1); // Reset to page 1 when searching
+  };
+
+  // Handle Enter key in search input
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  // Handle clear search
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setSearchQuery('');
+    setCurrentPage(1);
+  };
+
+  // Clear search query when search term becomes empty
+  useEffect(() => {
+    if (!searchTerm && searchQuery) {
+      setSearchQuery('');
+      setCurrentPage(1);
+    }
+  }, [searchTerm, searchQuery]);
+
+  const loadStats = async () => {
+    try {
+      // Fetch stats separately - count cases by QC_Response
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+      
+      // Get counts by QC_Response - cases that are submitted or have been QC'd
+      const [allResult, approvedResult, rejectedResult, reworkResult] = await Promise.all([
+        // All cases that are submitted or have been QC'd
+        supabase
+          .from('cases')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_active', true)
+          .in('status', ['submitted', 'qc_passed', 'qc_rejected', 'qc_rework'])
+          .gte('created_at', cutoffDate.toISOString()),
+        // Approved cases
+        supabase
+          .from('cases')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_active', true)
+          .eq('QC_Response', 'Approved')
+          .gte('created_at', cutoffDate.toISOString()),
+        // Rejected cases
+        supabase
+          .from('cases')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_active', true)
+          .eq('QC_Response', 'Rejected')
+          .gte('created_at', cutoffDate.toISOString()),
+        // Rework cases
+        supabase
+          .from('cases')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_active', true)
+          .eq('QC_Response', 'Rework')
+          .gte('created_at', cutoffDate.toISOString())
+      ]);
+
+      const allCount = allResult.count || 0;
+      setTotalCases(allCount);
+      
+      setStats({
+        all: allCount,
+        approved: approvedResult.count || 0,
+        rejected: rejectedResult.count || 0,
+        rework: reworkResult.count || 0
+      });
+    } catch (error) {
+      console.error('Failed to load stats:', error);
+      // Don't show error toast for stats - it's not critical
+    }
+  };
 
   const loadAllCases = async () => {
     try {
-      setIsLoading(true);
-      // Fetch all cases for QC dashboard (using large page size)
-      const { cases } = await caseService.getCases(1, 10000);
-      
-      // Filter cases created after November 2nd, 2025
+      // Only show loading spinner if we don't have any cases yet (initial load)
+      // For filter changes, we'll show a subtle loading state
+      if (allCases.length === 0) {
+        setIsLoading(true);
+      }
       const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       
-      const filteredCases = cases.filter(caseItem => {
-        const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= cutoffDate;
+      // Build query with filters
+      let query = supabase
+        .from('cases')
+        .select(`
+          id,
+          case_number,
+          client_case_id,
+          contract_type,
+          candidate_name,
+          phone_primary,
+          phone_secondary,
+          status,
+          priority,
+          vendor_tat_start_date,
+          due_at,
+          created_at,
+          status_updated_at,
+          base_rate_inr,
+          total_payout_inr,
+          "QC_Response",
+          submitted_at,
+          clients!inner (
+            id,
+            name,
+            contact_person,
+            phone,
+            email
+          ),
+          locations!inner (
+            id,
+            address_line,
+            city,
+            state,
+            pincode,
+            location_url
+          ),
+          form_submissions (
+            id,
+            updated_at,
+            created_at
+          ),
+          submissions (
+            id,
+            submitted_at,
+            created_at
+          )
+        `, { count: 'exact' })
+        .eq('is_active', true)
+        .in('status', ['submitted', 'qc_passed', 'qc_rejected', 'qc_rework'])
+        .gte('created_at', cutoffDate.toISOString());
+
+      // Apply QC_Response filter (tab filter)
+      if (activeTab === 'approved') {
+        query = query.eq('QC_Response', 'Approved');
+      } else if (activeTab === 'rejected') {
+        query = query.eq('QC_Response', 'Rejected');
+      } else if (activeTab === 'rework') {
+        query = query.eq('QC_Response', 'Rework');
+      }
+
+      // Apply status filter
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+
+      // Apply client filter
+      if (clientFilter !== 'all') {
+        query = query.eq('client_id', clientFilter);
+      }
+
+      // Apply contract type filter
+      if (contractTypeFilter !== 'all') {
+        query = query.eq('contract_type', contractTypeFilter);
+      }
+
+      // Apply date filter
+      if (dateFilter) {
+        const startOfDay = new Date(dateFilter);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(dateFilter);
+        endOfDay.setHours(23, 59, 59, 999);
+        query = query
+          .gte('submitted_at', startOfDay.toISOString())
+          .lte('submitted_at', endOfDay.toISOString());
+      }
+
+      // Apply search filter server-side (searches across all cases, not just current page)
+      // This searches in case_number, client_case_id, candidate_name, phone_primary, phone_secondary
+      // Note: Client name and city will be filtered client-side since they're in related tables
+      if (searchQuery) {
+        const searchPattern = `%${searchQuery.toLowerCase()}%`;
+        // Use Supabase's or() method to search across multiple fields
+        // Format: field1.ilike.pattern,field2.ilike.pattern,field3.ilike.pattern
+        // Note: Supabase automatically wraps this in parentheses
+        query = query.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern}`);
+      }
+
+      // Order by submitted_at (most recent first), fallback to created_at
+      query = query
+        .order('submitted_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false });
+
+      // First, get the total count to ensure we don't request an invalid range
+      // We need to clone the query for count since we'll use the original for data
+      const countQuery = supabase
+        .from('cases')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_active', true)
+        .in('status', ['submitted', 'qc_passed', 'qc_rejected', 'qc_rework'])
+        .gte('created_at', cutoffDate.toISOString());
+
+      // Apply all the same filters to count query
+      if (activeTab === 'approved') {
+        countQuery.eq('QC_Response', 'Approved');
+      } else if (activeTab === 'rejected') {
+        countQuery.eq('QC_Response', 'Rejected');
+      } else if (activeTab === 'rework') {
+        countQuery.eq('QC_Response', 'Rework');
+      }
+      if (statusFilter !== 'all') {
+        countQuery.eq('status', statusFilter);
+      }
+      if (clientFilter !== 'all') {
+        countQuery.eq('client_id', clientFilter);
+      }
+      if (contractTypeFilter !== 'all') {
+        countQuery.eq('contract_type', contractTypeFilter);
+      }
+      if (dateFilter) {
+        const startOfDay = new Date(dateFilter);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(dateFilter);
+        endOfDay.setHours(23, 59, 59, 999);
+        countQuery
+          .gte('submitted_at', startOfDay.toISOString())
+          .lte('submitted_at', endOfDay.toISOString());
+      }
+      if (searchQuery) {
+        const searchPattern = `%${searchQuery.toLowerCase()}%`;
+        countQuery.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern}`);
+      }
+
+      const { count: totalCount } = await countQuery;
+      
+      // Calculate pagination with bounds checking
+      const maxPage = totalCount ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1;
+      const safePage = Math.min(currentPage, maxPage);
+      const from = (safePage - 1) * pageSize;
+      const to = Math.min(from + pageSize - 1, Math.max(0, (totalCount || 1) - 1));
+
+      // If current page is beyond available pages, reset to page 1
+      if (currentPage > maxPage && maxPage > 0) {
+        setCurrentPage(1);
+        // Use page 1 range
+        query = query.range(0, pageSize - 1);
+      } else {
+        query = query.range(from, to);
+      }
+
+      const { data: cases, error, count } = await query;
+
+      if (error) {
+        throw error;
+      }
+
+      // Transform data structure to match expected format
+      // Supabase returns relationships as objects/arrays, we need to normalize them
+      const transformedCases = (cases || []).map(c => {
+        // Normalize clients - handle both array and object formats
+        const client = Array.isArray(c.clients) ? c.clients[0] : c.clients;
+        
+        // Normalize locations - handle both array and object formats
+        const location = Array.isArray(c.locations) ? c.locations[0] : c.locations;
+        
+        return {
+          ...c,
+          client: client || c.client, // Fallback to c.client if exists
+          location: location || c.location, // Fallback to c.location if exists
+          clients: client, // Keep for backward compatibility
+          locations: location // Keep for backward compatibility
+        };
       });
-      
-      console.log(`QC filtered cases: ${filteredCases.length} out of ${cases.length} total cases (showing cases created after November 2nd, 2025)`);
-      
-      // Sort cases by submitted_at field (most recent first)
-      const sortedCases = filteredCases.sort((a, b) => {
-        const aSubmittedAt = a.submitted_at || a.created_at;
-        const bSubmittedAt = b.submitted_at || b.created_at;
-        return new Date(bSubmittedAt).getTime() - new Date(aSubmittedAt).getTime();
-      });
-      
-      setAllCases(sortedCases);
-      
-      // Calculate stats based on QC_Response
-      const stats = {
-        all: sortedCases.length,
-        approved: sortedCases.filter(c => c.QC_Response === 'Approved').length,
-        rejected: sortedCases.filter(c => c.QC_Response === 'Rejected').length,
-        rework: sortedCases.filter(c => c.QC_Response === 'Rework').length
-      };
-      
-      setStats(stats);
+
+      // Don't apply search filter here - it will be applied in getFilteredCases()
+      // This allows search to work on the current page without server reload
+      setAllCases(transformedCases);
+      setTotalCases(count || 0);
     } catch (error) {
       console.error('Failed to load cases:', error);
       toast({
@@ -278,6 +545,7 @@ export default function QCDashboard() {
       });
     } finally {
       setIsLoading(false);
+      setIsFilterLoading(false);
     }
   };
 
@@ -285,55 +553,34 @@ export default function QCDashboard() {
   const getFilteredCases = () => {
     let filtered = [...allCases];
 
-    // Apply tab filter
-    switch (activeTab) {
-      case 'approved':
-        filtered = filtered.filter(c => c.QC_Response === 'Approved');
-        break;
-      case 'rejected':
-        filtered = filtered.filter(c => c.QC_Response === 'Rejected');
-        break;
-      case 'rework':
-        filtered = filtered.filter(c => c.QC_Response === 'Rework');
-        break;
-      default:
-        break;
-    }
-
-    // Apply search filter
-    if (searchTerm) {
-      filtered = filtered.filter(c => 
-        c.case_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.client_case_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.location.city.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Apply status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(c => c.status === statusFilter);
-    }
-
-    // Apply client filter
-    if (clientFilter !== 'all') {
-      filtered = filtered.filter(c => c.client.id === clientFilter);
-    }
-
-    // Apply contract type filter
-    if (contractTypeFilter !== 'all') {
-      filtered = filtered.filter(c => c.contract_type === contractTypeFilter);
-    }
-
-    // Apply date filter
-    if (dateFilter) {
+    // Apply search filter client-side for related fields and other metadata
+    // Direct fields (case_number, client_case_id, candidate_name, phone) are already filtered server-side
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter(c => {
-        const caseDate = new Date(c.submitted_at || c.created_at);
-        const selectedDate = new Date(dateFilter);
-        const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
-        const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-        return caseDateOnly.getTime() === selectedDateOnly.getTime();
+        const clientName = c.client?.name || c.clients?.name || (Array.isArray(c.clients) ? c.clients[0]?.name : '');
+        const city = c.location?.city || c.locations?.city || (Array.isArray(c.locations) ? c.locations[0]?.city : '');
+        const state = c.location?.state || c.locations?.state || (Array.isArray(c.locations) ? c.locations[0]?.state : '');
+        const pincode = c.location?.pincode || c.locations?.pincode || (Array.isArray(c.locations) ? c.locations[0]?.pincode : '');
+        const address = c.location?.address_line || c.locations?.address_line || (Array.isArray(c.locations) ? c.locations[0]?.address_line : '');
+        const contractType = c.contract_type || '';
+        const status = c.status || '';
+        const qcResponse = c.QC_Response || '';
+        
+        // Check if it matches related fields and other metadata shown on the card
+        return (
+          clientName?.toLowerCase().includes(searchLower) ||
+          city?.toLowerCase().includes(searchLower) ||
+          state?.toLowerCase().includes(searchLower) ||
+          pincode?.toLowerCase().includes(searchLower) ||
+          address?.toLowerCase().includes(searchLower) ||
+          contractType?.toLowerCase().includes(searchLower) ||
+          status?.toLowerCase().includes(searchLower) ||
+          qcResponse?.toLowerCase().includes(searchLower) ||
+          c.base_rate_inr?.toString().includes(searchLower) ||
+          c.total_payout_inr?.toString().includes(searchLower) ||
+          c.priority?.toLowerCase().includes(searchLower)
+        );
       });
     }
 
@@ -347,8 +594,9 @@ export default function QCDashboard() {
   };
 
   const handleReviewComplete = () => {
-    // Refresh the cases list after QC action
+    // Refresh the cases list and stats after QC action
     loadAllCases();
+    loadStats();
   };
 
   if (isLoading) {
@@ -418,7 +666,7 @@ export default function QCDashboard() {
                 Review and manage cases based on their QC response status
               </CardDescription>
             </div>
-            <Button onClick={loadAllCases} variant="outline" size="sm">
+            <Button onClick={() => { loadAllCases(); loadStats(); }} variant="outline" size="sm">
               <Clock className="h-4 w-4 mr-2" />
               Refresh
             </Button>
@@ -450,13 +698,35 @@ export default function QCDashboard() {
               <div className="flex flex-col sm:flex-row gap-4 mb-6">
                 <div className="flex-1 max-w-md">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
+                      type="text"
                       placeholder="Search cases..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
+                      onKeyPress={handleSearchKeyPress}
+                      className={`pl-10 ${searchTerm ? 'pr-20' : 'pr-10'}`}
                     />
+                    {searchTerm && (
+                      <>
+                        <button
+                          onClick={handleSearch}
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 text-primary hover:text-primary/80 p-1 rounded hover:bg-primary/10 transition-colors"
+                          type="button"
+                          title="Search"
+                        >
+                          <Search className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={handleClearSearch}
+                          className="absolute right-10 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted transition-colors"
+                          type="button"
+                          title="Clear"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
@@ -518,11 +788,17 @@ export default function QCDashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Clients</SelectItem>
-                      {Array.from(new Set(allCases.map(c => c.client.id))).map(clientId => {
-                        const client = allCases.find(c => c.client.id === clientId)?.client;
+                      {Array.from(new Set(allCases
+                        .map(c => c.client?.id || c.clients?.id)
+                        .filter(id => id !== undefined && id !== null)
+                      )).map(clientId => {
+                        const client = allCases.find(c => 
+                          (c.client?.id || c.clients?.id) === clientId
+                        );
+                        const clientData = client?.client || client?.clients;
                         return (
                           <SelectItem key={clientId} value={clientId}>
-                            {client?.name || 'Unknown Client'}
+                            {clientData?.name || 'Unknown Client'}
                           </SelectItem>
                         );
                       })}
@@ -543,21 +819,107 @@ export default function QCDashboard() {
                 </div>
               </div>
 
-              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              {isFilterLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
+                </div>
+              ) : (
+                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              )}
             </TabsContent>
 
             <TabsContent value="approved" className="mt-6">
-              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              {isFilterLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
+                </div>
+              ) : (
+                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              )}
             </TabsContent>
 
             <TabsContent value="rejected" className="mt-6">
-              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              {isFilterLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
+                </div>
+              ) : (
+                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              )}
             </TabsContent>
 
             <TabsContent value="rework" className="mt-6">
-              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              {isFilterLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
+                </div>
+              ) : (
+                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              )}
             </TabsContent>
           </Tabs>
+
+          {/* Pagination */}
+          {totalCases > pageSize && (
+            <div className="flex items-center justify-between mt-6 pt-6 border-t">
+              <div className="text-sm text-muted-foreground">
+                Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCases)} of {totalCases} cases
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(5, Math.ceil(totalCases / pageSize)) }, (_, i) => {
+                    const totalPages = Math.ceil(totalCases / pageSize);
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCases / pageSize)))}
+                  disabled={currentPage >= Math.ceil(totalCases / pageSize)}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
