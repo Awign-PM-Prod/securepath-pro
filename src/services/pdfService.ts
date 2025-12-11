@@ -869,8 +869,20 @@ export class PDFService {
    */
   private static async addLogoToPDF(doc: jsPDF, x: number, y: number, maxWidth: number, alignRight: boolean = false, clientName?: string): Promise<number> {
     // If client is "Finova Capital", use the Finova Capital logo
+    // Normalize client name for comparison (trim, lowercase, remove extra spaces)
+    const normalizedClientName = clientName ? clientName.toLowerCase().trim().replace(/\s+/g, ' ') : '';
+    const isFinovaCapital = normalizedClientName === 'finova capital';
+    
+    // Debug logging (can be removed in production)
+    if (clientName) {
+      console.log('PDF Logo Selection:', { 
+        originalClientName: clientName, 
+        normalizedClientName, 
+        isFinovaCapital 
+      });
+    }
+    
     let logoPaths: string[] = [];
-    const isFinovaCapital = clientName && clientName.toLowerCase().trim() === 'finova capital';
     
     if (isFinovaCapital) {
       logoPaths = ['/Finova Capital.png'];
@@ -896,7 +908,9 @@ export class PDFService {
     for (const logoPath of logoPaths) {
       try {
         // Try to fetch logo from public folder
-        const logoUrl = window.location.origin + logoPath;
+        // URL-encode the path to handle spaces and special characters (encodeURI preserves /)
+        const encodedPath = encodeURI(logoPath);
+        const logoUrl = window.location.origin + encodedPath;
         // For PNG files, preserve PNG format to avoid black edges from transparency
         const isPNG = logoPath.toLowerCase().endsWith('.png');
         const imageData = await this.fetchImageAsBase64(logoUrl, 300, 100, 0.9, isPNG);
@@ -919,6 +933,8 @@ export class PDFService {
           break;
         }
       } catch (error) {
+        // Log error for debugging (but don't show to user)
+        console.warn(`Failed to load logo from ${logoPath}:`, error);
         // Try next logo path
         continue;
       }
