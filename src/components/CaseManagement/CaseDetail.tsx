@@ -466,7 +466,8 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
           lng: caseData.location?.lng
         },
         contract_type: caseData.contract_type,
-        company_name: caseData.company_name
+        company_name: caseData.company_name,
+        client_name: caseData.client?.name
       };
       
       // Animate progress while waiting for OpenAI API (0% to 85%)

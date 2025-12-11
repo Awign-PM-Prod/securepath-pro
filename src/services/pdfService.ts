@@ -18,13 +18,14 @@ export interface CaseDataForPDF {
   };
   contract_type?: string;
   company_name?: string;
+  client_name?: string;
 }
 
 export class PDFService {
   /**
    * Fetch image from URL and convert to base64 with dimensions (optimized for 1-5MB range)
    */
-  private static async fetchImageAsBase64(url: string, maxWidth: number = 1200, maxHeight: number = 900, quality: number = 0.7): Promise<{ base64: string; width: number; height: number } | null> {
+  private static async fetchImageAsBase64(url: string, maxWidth: number = 1200, maxHeight: number = 900, quality: number = 0.7, preservePNG: boolean = false): Promise<{ base64: string; width: number; height: number } | null> {
     try {
       // First, fetch the image
       const response = await fetch(url);
@@ -64,10 +65,20 @@ export class PDFService {
           const ctx = canvas.getContext('2d');
           
           if (ctx) {
+            // For PNG images, preserve transparency by not filling with background
+            // For JPEG images, fill with white background to avoid black edges
+            if (!preservePNG) {
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, width, height);
+            }
+            
             // Draw resized image
             ctx.drawImage(img, 0, 0, width, height);
-            // Use JPEG compression with quality setting for smaller file size
-            const base64 = canvas.toDataURL('image/jpeg', quality);
+            
+            // Use PNG format if preservePNG is true (to preserve transparency), otherwise JPEG
+            const base64 = preservePNG 
+              ? canvas.toDataURL('image/png')
+              : canvas.toDataURL('image/jpeg', quality);
             URL.revokeObjectURL(objectUrl); // Clean up
             resolve({
               base64,
@@ -333,7 +344,7 @@ export class PDFService {
     };
 
     // Add logo on the right side (only first page)
-    const logoHeight = await this.addLogoToPDF(doc, pageWidth - margin, margin, contentWidth, true);
+    const logoHeight = await this.addLogoToPDF(doc, pageWidth - margin, margin, contentWidth, true, caseData?.client_name);
     
     // Add report title centered below the logo (only first page)
     const reportTitle = this.getReportTitle(contractType);
@@ -856,38 +867,54 @@ export class PDFService {
    * @param maxWidth - Maximum width available
    * @param alignRight - If true, x is the right edge, logo will be right-aligned
    */
-  private static async addLogoToPDF(doc: jsPDF, x: number, y: number, maxWidth: number, alignRight: boolean = false): Promise<number> {
-    // Try to load logo from public folder
-    // Common logo paths to try
-    const logoPaths = [
-      '/logo.png',
-      '/logo.svg',
-      '/awign-logo.png',
-      '/awign-logo.svg',
-      '/icon-512.png' // Fallback to app icon
-    ];
+  private static async addLogoToPDF(doc: jsPDF, x: number, y: number, maxWidth: number, alignRight: boolean = false, clientName?: string): Promise<number> {
+    // If client is "Finova Capital", use the Finova Capital logo
+    let logoPaths: string[] = [];
+    const isFinovaCapital = clientName && clientName.toLowerCase().trim() === 'finova capital';
+    
+    if (isFinovaCapital) {
+      logoPaths = ['/Finova Capital.png'];
+    } else {
+      // Try to load logo from public folder
+      // Common logo paths to try
+      logoPaths = [
+        '/logo.png',
+        '/logo.svg',
+        '/awign-logo.png',
+        '/awign-logo.svg',
+        '/icon-512.png' // Fallback to app icon
+      ];
+    }
     
     let logoHeight = 0;
-    const logoWidth = Math.min(60, maxWidth * 0.3); // Max 60mm width or 30% of content
+    // Increase size for Finova Capital logo
+    const logoWidth = isFinovaCapital 
+      ? Math.min(80, maxWidth * 0.4) // Max 80mm width or 40% of content for Finova Capital
+      : Math.min(60, maxWidth * 0.3); // Max 60mm width or 30% of content for others
+    const maxLogoHeight = isFinovaCapital ? 35 : 25; // Max 35mm height for Finova Capital, 25mm for others
     
     for (const logoPath of logoPaths) {
       try {
         // Try to fetch logo from public folder
         const logoUrl = window.location.origin + logoPath;
-        const imageData = await this.fetchImageAsBase64(logoUrl, 300, 100, 0.9);
+        // For PNG files, preserve PNG format to avoid black edges from transparency
+        const isPNG = logoPath.toLowerCase().endsWith('.png');
+        const imageData = await this.fetchImageAsBase64(logoUrl, 300, 100, 0.9, isPNG);
         
         if (imageData) {
           const { width, height } = this.calculateImageDimensions(
             imageData.width,
             imageData.height,
             logoWidth,
-            25 // Max 25mm height for logo
+            maxLogoHeight
           );
           
           // Calculate X position: if alignRight, x is right edge, so subtract width
           const logoX = alignRight ? x - width : x;
           
-          doc.addImage(imageData.base64, 'PNG', logoX, y, width, height);
+          // Use the correct format - PNG for PNG images to preserve transparency
+          const imageFormat = isPNG ? 'PNG' : 'JPEG';
+          doc.addImage(imageData.base64, imageFormat, logoX, y, width, height);
           logoHeight = height;
           break;
         }

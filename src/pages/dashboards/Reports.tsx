@@ -767,7 +767,8 @@ export default function Reports() {
                   lng: caseItem.location?.lng
                 },
                 contract_type: caseItem.contract_type,
-                company_name: caseItem.company_name
+                company_name: caseItem.company_name,
+                client_name: caseItem.client?.name
               };
               
               // Generate PDF as blob (same as single PDF, but returns blob instead of downloading)
@@ -1285,7 +1286,8 @@ export default function Reports() {
           lng: caseItem.location?.lng
         },
         contract_type: caseItem.contract_type,
-        company_name: caseItem.company_name
+        company_name: caseItem.company_name,
+        client_name: caseItem.client?.name
       };
       
       // Animate progress while waiting for OpenAI API (0% to 85%)
