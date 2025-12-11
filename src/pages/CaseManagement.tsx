@@ -140,13 +140,15 @@ export default function CaseManagement() {
   const [detailCase, setDetailCase] = useState<Case | null>(null);
   const [isLoadingDetailCase, setIsLoadingDetailCase] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(10);
   
   // Debug initial state
   console.log('CaseManagement component initialized with path:', location.pathname);
   console.log('Initial state:', initialState);
   
-  // Use React Query hooks for data fetching with caching
-  const { data: cases = [], isLoading: isLoadingCases, error: casesError } = useCases();
+  // Use React Query hooks for data fetching with caching and pagination
+  const { cases, total, isLoading: isLoadingCases, error: casesError } = useCases(currentPage, pageSize);
   const { data: clients = [], isLoading: isLoadingClients } = useClients();
   const { data: contractTypes = [], isLoading: isLoadingContractTypes } = useContractTypes();
   const invalidateCases = useCasesInvalidation();
@@ -233,6 +235,11 @@ export default function CaseManagement() {
   const loadData = useCallback(() => {
     invalidateCases();
   }, [invalidateCases]);
+
+  // Handle page change
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+  }, []);
 
   const loadContractTypes = async () => {
     try {
@@ -587,6 +594,10 @@ export default function CaseManagement() {
     <div className="container mx-auto py-6">
       <CaseListWithAllocation
         cases={cases}
+        totalCases={total}
+        currentPage={currentPage}
+        pageSize={pageSize}
+        onPageChange={handlePageChange}
         onViewCase={handleViewCase}
         onEditCase={handleEditCase}
         onDeleteCase={handleDeleteCase}

@@ -75,6 +75,10 @@ interface Case {
 
 interface CaseListWithAllocationProps {
   cases: Case[];
+  totalCases: number;
+  currentPage: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
   onViewCase: (caseId: string) => void;
   onEditCase: (caseId: string) => void;
   onDeleteCase: (caseId: string) => void;
@@ -134,6 +138,10 @@ const getTierNumber = (tierString: string | undefined | null) => {
 
 export default function CaseListWithAllocation({ 
   cases, 
+  totalCases,
+  currentPage,
+  pageSize,
+  onPageChange,
   onViewCase, 
   onEditCase, 
   onDeleteCase, 
@@ -147,8 +155,6 @@ export default function CaseListWithAllocation({
   const [tatExpiryFilter, setTatExpiryFilter] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [tierFilter, setTierFilter] = useState<string>('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
   const [isAllocationDialogOpen, setIsAllocationDialogOpen] = useState(false);
   const [allocationMode, setAllocationMode] = useState<'auto' | 'manual' | null>(null);
   const [isAllocating, setIsAllocating] = useState(false);
@@ -303,8 +309,8 @@ export default function CaseListWithAllocation({
 
   // Reset to page 1 when filters or sort change
   React.useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab, sortBy]);
+    onPageChange(1);
+  }, [searchTerm, statusFilter, dateFilter, tatExpiryFilter, clientFilter, qcResponseTab, sortBy, onPageChange]);
 
   // Check if any filter is active
   const hasActiveFilters = useMemo(() => {
@@ -489,17 +495,18 @@ export default function CaseListWithAllocation({
     }), [selectedCases, cases]
   );
 
-  // Pagination logic - memoized
-  const paginationData = useMemo(() => {
-    const totalPages = Math.ceil(filteredCases.length / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const paginatedCases = filteredCases.slice(startIndex, endIndex);
+  // Pagination logic - server-side pagination (cases are already paginated from server)
+  const { totalPages, startIndex, endIndex, displayCases } = useMemo(() => {
+    const totalPages = Math.ceil(totalCases / pageSize);
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + cases.length, totalCases);
     
-    return { totalPages, startIndex, endIndex, paginatedCases };
-  }, [filteredCases, currentPage, itemsPerPage]);
-
-  const { totalPages, startIndex, endIndex, paginatedCases: displayCases } = paginationData;
+    // Cases are already paginated from server, so use them directly
+    // Apply client-side filtering to the already-paginated cases
+    const displayCases = filteredCases;
+    
+    return { totalPages, startIndex, endIndex, displayCases };
+  }, [filteredCases, currentPage, pageSize, totalCases, cases.length]);
 
   // Clear all filters
   const clearAllFilters = () => {
@@ -511,7 +518,7 @@ export default function CaseListWithAllocation({
     setSearchTerm('');
     setQcResponseTab('all');
     setSortBy('none');
-    setCurrentPage(1);
+    onPageChange(1);
   };
 
   const handleAutoAllocate = async () => {
@@ -1600,9 +1607,11 @@ export default function CaseListWithAllocation({
                                 {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchTerm)}
                               </Badge>
                             </div>
-                            <p className="text-sm text-muted-foreground mb-2">
-                              {highlightText(caseItem.client_case_id, searchTerm)} • {getContractTypeBadge(caseItem.contract_type, searchTerm)}
-                            </p>
+                            <div className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
+                              <span>{highlightText(caseItem.client_case_id, searchTerm)}</span>
+                              <span>•</span>
+                              {getContractTypeBadge(caseItem.contract_type, searchTerm)}
+                            </div>
                             <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchTerm)}</h4>
                           </div>
                         </div>
@@ -1789,16 +1798,16 @@ export default function CaseListWithAllocation({
         )}
 
         {/* Pagination */}
-        {filteredCases.length > itemsPerPage && (
+        {totalCases > pageSize && (
           <div className="flex items-center justify-between mt-6">
             <div className="text-sm text-muted-foreground">
-              Showing {startIndex + 1} to {Math.min(endIndex, filteredCases.length)} of {filteredCases.length} cases
+              Showing {startIndex + 1} to {endIndex} of {totalCases} cases
             </div>
             <div className="flex items-center space-x-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
                 disabled={currentPage === 1}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -1823,7 +1832,7 @@ export default function CaseListWithAllocation({
                       key={pageNum}
                       variant={currentPage === pageNum ? "default" : "outline"}
                       size="sm"
-                      onClick={() => setCurrentPage(pageNum)}
+                      onClick={() => onPageChange(pageNum)}
                       className="w-8 h-8 p-0"
                     >
                       {pageNum}
@@ -1835,7 +1844,7 @@ export default function CaseListWithAllocation({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}
                 disabled={currentPage === totalPages}
               >
                 Next

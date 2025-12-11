@@ -107,9 +107,11 @@ export class QCService {
       });
 
       // Update case status based on QC result
+      const now = new Date().toISOString();
       let updateData: any = { 
         "QC_Response": qcResponse, // Always update QC_Response column
-        status_updated_at: new Date().toISOString()
+        status_updated_at: now,
+        updated_at: now // Also update the updated_at timestamp
       };
 
       // Update status based on QC result
@@ -127,18 +129,58 @@ export class QCService {
 
       console.log('Updating case with data:', updateData);
 
-      const { error: caseUpdateError } = await supabase
+      const { data: updatedCase, error: caseUpdateError } = await supabase
         .from('cases')
         .update(updateData)
-        .eq('id', request.caseId);
+        .eq('id', request.caseId)
+        .select('id, status, QC_Response')
+        .single();
 
       if (caseUpdateError) {
         console.error('Error updating case status:', caseUpdateError);
-        // Don't fail the entire operation if case update fails
-        console.warn('QC review created but case status update failed');
-      } else {
-        console.log('Case update successful - QC_Response should be set to:', qcResponse);
+        // Fail the operation if case update fails - this is critical
+        return { 
+          success: false, 
+          error: `Failed to update case status: ${caseUpdateError.message}` 
+        };
       }
+
+      if (!updatedCase) {
+        console.error('Case update returned no data');
+        return { 
+          success: false, 
+          error: 'Case update failed: No data returned' 
+        };
+      }
+
+      // Verify the update was successful
+      if (updatedCase.status !== updateData.status) {
+        console.error('Case status mismatch after update:', {
+          expected: updateData.status,
+          actual: updatedCase.status
+        });
+        return { 
+          success: false, 
+          error: `Case status update failed: Expected ${updateData.status} but got ${updatedCase.status}` 
+        };
+      }
+
+      if (updatedCase.QC_Response !== qcResponse) {
+        console.error('QC_Response mismatch after update:', {
+          expected: qcResponse,
+          actual: updatedCase.QC_Response
+        });
+        return { 
+          success: false, 
+          error: `QC_Response update failed: Expected ${qcResponse} but got ${updatedCase.QC_Response}` 
+        };
+      }
+
+      console.log('Case update successful:', {
+        caseId: updatedCase.id,
+        status: updatedCase.status,
+        QC_Response: updatedCase.QC_Response
+      });
 
       // Update QC workflow for all QC results
       const workflowStage = request.result === 'pass' ? 'passed' : 

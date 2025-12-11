@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Download, FileSpreadsheet, FileText, User, Phone, MapPin, Clock, Building, Calendar as CalendarIcon, X } from 'lucide-react';
+import { Search, Download, FileSpreadsheet, FileText, User, Phone, MapPin, Clock, Building, Calendar as CalendarIcon, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { CSVService, FormSubmissionData } from '@/services/csvService';
@@ -157,10 +157,20 @@ export default function Reports() {
   const [selectionClient, setSelectionClient] = useState<string>('all');
   const [selectionSearchTerm, setSelectionSearchTerm] = useState<string>('');
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(10);
+  const [totalCases, setTotalCases] = useState(0);
+
   useEffect(() => {
     loadSubmittedCases();
     loadFilterOptions();
-  }, []);
+  }, [currentPage]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, startDate, endDate, submissionStartDate, submissionEndDate, approvalStartDate, approvalEndDate, selectedClient]);
 
   const loadFilterOptions = async () => {
     try {
@@ -189,42 +199,56 @@ export default function Reports() {
       const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       const cutoffDateISOString = cutoffDate.toISOString();
       
-      const { data, error } = await supabase
+      // Calculate pagination range
+      const from = (currentPage - 1) * pageSize;
+      const to = from + pageSize - 1;
+      
+      // Fetch paginated cases with total count
+      const { data, error, count } = await supabase
         .from('cases')
         .select(`
           *,
           is_positive,
           clients(id, name, contact_person, phone, email),
           locations(id, address_line, city, state, pincode, pincode_tier, lat, lng, location_url)
-        `)
+        `, { count: 'exact' })
         .in('status', ['submitted', 'qc_passed'])
         .eq('is_active', true)
         .gte('created_at', cutoffDateISOString)
-        .order('status_updated_at', { ascending: false });
+        .order('status_updated_at', { ascending: false })
+        .range(from, to);
 
       if (error) throw error;
+
+      // Set total count
+      setTotalCases(count || 0);
 
       // Get case IDs to fetch form_submissions and legacy submissions as fallback
       const caseIds = data?.map(c => c.id) || [];
       
-      // Fetch form_submissions to get submitted_at or updated_at (fallback if cases.submitted_at is null)
-      const { data: formSubmissionsData } = await supabase
-        .from('form_submissions')
-        .select('case_id, submitted_at, updated_at')
-        .in('case_id', caseIds.length > 0 ? caseIds : [])
-        .order('updated_at', { ascending: false });
+      // Optimized: Only fetch submissions if we have cases
+      const [formSubmissionsData, legacySubmissionsData] = await Promise.all([
+        // Fetch form_submissions to get submitted_at or updated_at (fallback if cases.submitted_at is null)
+        caseIds.length > 0 ? supabase
+          .from('form_submissions')
+          .select('case_id, submitted_at, updated_at')
+          .in('case_id', caseIds)
+          .order('updated_at', { ascending: false })
+          : Promise.resolve({ data: [] }),
 
-      // Fetch legacy submissions as final fallback
-      const { data: legacySubmissionsData } = await supabase
-        .from('submissions')
-        .select('case_id, submitted_at')
-        .in('case_id', caseIds.length > 0 ? caseIds : [])
-        .order('submitted_at', { ascending: false });
+        // Fetch legacy submissions as final fallback
+        caseIds.length > 0 ? supabase
+          .from('submissions')
+          .select('case_id, submitted_at')
+          .in('case_id', caseIds)
+          .order('submitted_at', { ascending: false })
+          : Promise.resolve({ data: [] })
+      ]);
 
       // Create a map of case_id to submission timestamp
       // Prefer submitted_at, fallback to updated_at
       const formSubmissionsMap = new Map();
-      (formSubmissionsData || []).forEach(submission => {
+      ((formSubmissionsData as any)?.data || []).forEach((submission: any) => {
         const timestamp = submission.submitted_at || submission.updated_at;
         if (timestamp) {
           // Store the most recent timestamp for each case
@@ -241,7 +265,7 @@ export default function Reports() {
 
       // Create a map for legacy submissions (only if not already in formSubmissionsMap)
       const legacySubmissionsMap = new Map();
-      (legacySubmissionsData || []).forEach(submission => {
+      ((legacySubmissionsData as any)?.data || []).forEach((submission: any) => {
         if (submission.submitted_at && !formSubmissionsMap.has(submission.case_id)) {
           if (!legacySubmissionsMap.has(submission.case_id)) {
             legacySubmissionsMap.set(submission.case_id, submission.submitted_at);
@@ -1504,9 +1528,11 @@ export default function Reports() {
                           {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchTerm)}
                         </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        {highlightText(caseItem.client_case_id, searchTerm)} • {getContractTypeBadge(caseItem.contract_type, searchTerm)}
-                      </p>
+                      <div className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
+                        <span>{highlightText(caseItem.client_case_id, searchTerm)}</span>
+                        <span>•</span>
+                        {getContractTypeBadge(caseItem.contract_type, searchTerm)}
+                      </div>
                       <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchTerm)}</h4>
                     </div>
                     <div className="flex gap-2">
@@ -1620,6 +1646,64 @@ export default function Reports() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalCases > pageSize && (
+            <div className="flex items-center justify-between mt-6 pt-6 border-t">
+              <div className="text-sm text-muted-foreground">
+                Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCases)} of {totalCases} cases
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(5, Math.ceil(totalCases / pageSize)) }, (_, i) => {
+                    const totalPages = Math.ceil(totalCases / pageSize);
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCases / pageSize)))}
+                  disabled={currentPage >= Math.ceil(totalCases / pageSize)}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

@@ -110,7 +110,7 @@ export default function DatabaseTest() {
       results.push('Testing case service...');
       setStatus(prev => ({ ...prev, cases: 'testing' }));
       
-      const casesData = await caseService.getCases();
+      const { cases: casesData } = await caseService.getCases(1, 1000);
       if (casesData.length >= 0) {
         results.push(`✅ Case service working. Found ${casesData.length} cases`);
         setStatus(prev => ({ ...prev, cases: 'working' }));

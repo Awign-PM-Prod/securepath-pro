@@ -238,7 +238,8 @@ export default function QCDashboard() {
   const loadAllCases = async () => {
     try {
       setIsLoading(true);
-      const cases = await caseService.getCases();
+      // Fetch all cases for QC dashboard (using large page size)
+      const { cases } = await caseService.getCases(1, 10000);
       
       // Filter cases created after November 2nd, 2025
       const cutoffDate = new Date('2025-11-02T00:00:00.000Z');

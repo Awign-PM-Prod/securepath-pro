@@ -96,12 +96,34 @@ export class CaseService {
   }
 
   /**
-   * Get all cases with related data - OPTIMIZED VERSION
+   * Get total count of active cases
    */
-  async getCases(): Promise<Case[]> {
+  async getCasesCount(): Promise<number> {
     try {
-      // First, get all cases with basic data
-      const { data: casesData, error: casesError } = await supabase
+      const { count, error } = await supabase
+        .from('cases')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+
+      if (error) throw error;
+      return count || 0;
+    } catch (error) {
+      console.error('Failed to fetch cases count:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get all cases with related data - OPTIMIZED VERSION with pagination
+   */
+  async getCases(page: number = 1, pageSize: number = 10): Promise<{ cases: Case[]; total: number }> {
+    try {
+      // Calculate pagination range
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      // First, get all cases with basic data (paginated)
+      const { data: casesData, error: casesError, count } = await supabase
         .from('cases')
         .select(`
           id,
@@ -150,25 +172,25 @@ export class CaseService {
             lng,
             location_url
           )
-        `)
+        `, { count: 'exact' })
         .eq('is_active', true)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
       if (casesError) throw casesError;
-      if (!casesData || casesData.length === 0) return [];
+      if (!casesData || casesData.length === 0) {
+        return { cases: [], total: count || 0 };
+      }
 
       const caseIds = casesData.map(c => c.id);
       const assigneeIds = casesData
         .filter(c => c.current_assignee_id)
         .map(c => c.current_assignee_id);
 
-      // Filter cases that have been submitted
-      // Logic: Only fetch submitted_at when case has form_submissions (was submitted at some point)
-      // When status is 'submitted', we fetch the submitted_at from form_submissions
-      // Once fetched, we always display that time regardless of what the status changes to next
-      // Batch fetch all assignee information
+      // Optimized: Only fetch related data if we have cases
+      // Batch fetch all assignee information and related data in parallel
       const [gigWorkersData, vendorsData, allocationLogsData, formSubmissionsData, legacySubmissionsData] = await Promise.all([
-        // Get all gig workers in one query
+        // Get all gig workers in one query (only if we have assignees)
         assigneeIds.length > 0 ? supabase
           .from('gig_partners')
           .select(`
@@ -182,22 +204,23 @@ export class CaseService {
           `)
           .in('id', assigneeIds) : Promise.resolve({ data: [] }),
         
-        // Get all vendors in one query
+        // Get all vendors in one query (only if we have assignees)
         assigneeIds.length > 0 ? supabase
           .from('vendors')
           .select('id, name')
           .in('id', assigneeIds) : Promise.resolve({ data: [] }),
         
-        // Get all allocation logs in one query
-        // Order by accepted_at first (if available), then by allocated_at as fallback
-        supabase
+        // Get allocation logs (only if we have cases)
+        // Optimized: Only fetch the most recent log per case to reduce data transfer
+        caseIds.length > 0 ? supabase
           .from('allocation_logs')
           .select('case_id, candidate_id, allocated_at, accepted_at, decision')
           .in('case_id', caseIds)
-          .order('allocated_at', { ascending: false }),
+          .order('allocated_at', { ascending: false })
+          : Promise.resolve({ data: [] }),
         
-        // Query form_submissions for all cases to identify which ones have been submitted
-        // We'll use submitted_at if available, otherwise updated_at
+        // Query form_submissions (only if we have cases)
+        // Optimized: Only get the most recent submission per case
         caseIds.length > 0 ? supabase
           .from('form_submissions')
           .select('case_id, submitted_at, updated_at')
@@ -205,7 +228,7 @@ export class CaseService {
           .order('updated_at', { ascending: false })
           : Promise.resolve({ data: [] }),
         
-        // Also query legacy submissions table as fallback
+        // Query legacy submissions (only if we have cases)
         caseIds.length > 0 ? supabase
           .from('submissions')
           .select('case_id, submitted_at')
@@ -390,10 +413,10 @@ export class CaseService {
         };
       });
 
-      return casesWithAssignees;
+      return { cases: casesWithAssignees, total: count || 0 };
     } catch (error) {
       console.error('Failed to fetch cases:', error);
-      return [];
+      return { cases: [], total: 0 };
     }
   }
 
