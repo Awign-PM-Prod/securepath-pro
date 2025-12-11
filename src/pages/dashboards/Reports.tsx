@@ -125,7 +125,8 @@ export default function Reports() {
   const navigate = useNavigate();
   const [cases, setCases] = useState<Case[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(''); // For input field
+  const [searchQuery, setSearchQuery] = useState(''); // For actual search query
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadType, setDownloadType] = useState<'csv' | 'pdf' | null>(null);
@@ -165,12 +166,42 @@ export default function Reports() {
   useEffect(() => {
     loadSubmittedCases();
     loadFilterOptions();
-  }, [currentPage]);
+  }, [currentPage, searchQuery]); // Reload cases when page or search query changes
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
+  // Handle search button click
+  const handleSearch = () => {
+    setSearchQuery(searchTerm);
+    setCurrentPage(1); // Reset to page 1 when searching
+  };
+
+  // Handle Enter key in search input
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  // Handle clear search
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setSearchQuery('');
     setCurrentPage(1);
-  }, [searchTerm, startDate, endDate, submissionStartDate, submissionEndDate, approvalStartDate, approvalEndDate, selectedClient]);
+  };
+
+  // Clear search query when search term becomes empty
+  useEffect(() => {
+    if (!searchTerm && searchQuery) {
+      setSearchQuery('');
+      setCurrentPage(1);
+    }
+  }, [searchTerm, searchQuery]);
+
+  // Reset to page 1 when filters change (but not when currentPage changes to avoid infinite loop)
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    }
+  }, [searchQuery, startDate, endDate, submissionStartDate, submissionEndDate, approvalStartDate, approvalEndDate, selectedClient]);
 
   const loadFilterOptions = async () => {
     try {
@@ -199,12 +230,11 @@ export default function Reports() {
       const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       const cutoffDateISOString = cutoffDate.toISOString();
       
-      // Calculate pagination range
-      const from = (currentPage - 1) * pageSize;
-      const to = from + pageSize - 1;
+      // When there's a search query, load ALL cases (not paginated) so we can filter them properly
+      // When there's no search query, use normal pagination
+      const shouldLoadAll = !!searchQuery;
       
-      // Fetch paginated cases with total count
-      const { data, error, count } = await supabase
+      let query = supabase
         .from('cases')
         .select(`
           *,
@@ -215,13 +245,23 @@ export default function Reports() {
         .in('status', ['submitted', 'qc_passed'])
         .eq('is_active', true)
         .gte('created_at', cutoffDateISOString)
-        .order('status_updated_at', { ascending: false })
-        .range(from, to);
+        .order('status_updated_at', { ascending: false });
+
+      // Only apply pagination if not searching
+      if (!shouldLoadAll) {
+        const from = (currentPage - 1) * pageSize;
+        const to = from + pageSize - 1;
+        query = query.range(from, to);
+      }
+
+      const { data, error, count } = await query;
 
       if (error) throw error;
 
-      // Set total count
-      setTotalCases(count || 0);
+      // Set total count - if searching, we'll update this after filtering
+      if (!shouldLoadAll) {
+        setTotalCases(count || 0);
+      }
 
       // Get case IDs to fetch form_submissions and legacy submissions as fallback
       const caseIds = data?.map(c => c.id) || [];
@@ -430,7 +470,7 @@ export default function Reports() {
 
   const filteredCases = cases.filter(caseItem => {
     // Search filter - now searches all metadata
-    const matchesSearch = caseMatchesSearch(caseItem, searchTerm);
+    const matchesSearch = caseMatchesSearch(caseItem, searchQuery);
 
     // Creation date range filter
     let matchesDateRange = true;
@@ -504,6 +544,22 @@ export default function Reports() {
 
     return matchesSearch && matchesDateRange && matchesSubmissionDateRange && matchesApprovalDateRange && matchesClient;
   });
+
+  // When searching, we need to paginate the filtered results
+  // Calculate pagination for filtered cases
+  const totalFilteredCases = filteredCases.length;
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedFilteredCases = searchQuery 
+    ? filteredCases.slice(startIndex, endIndex) 
+    : filteredCases; // If no search, filteredCases already contains only current page cases
+
+  // Update total cases count when searching (so pagination works correctly)
+  useEffect(() => {
+    if (searchQuery) {
+      setTotalCases(filteredCases.length);
+    }
+  }, [searchQuery, filteredCases.length]);
 
   const clearFilters = () => {
     setStartDate('');
@@ -1367,7 +1423,7 @@ export default function Reports() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Reports Cases ({filteredCases.length})</CardTitle>
+          <CardTitle>Reports Cases ({searchQuery ? totalFilteredCases : totalCases})</CardTitle>
           <CardDescription>
             All cases with status "submitted" or "qc_passed"
           </CardDescription>
@@ -1376,13 +1432,35 @@ export default function Reports() {
           <div className="mt-4 space-y-4">
             {/* Search */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
               <Input
+                type="text"
                 placeholder="Search all case metadata..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
+                onKeyPress={handleSearchKeyPress}
+                className={`pl-10 ${searchTerm ? 'pr-20' : 'pr-10'}`}
               />
+              {searchTerm && (
+                <>
+                  <button
+                    onClick={handleSearch}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-primary hover:text-primary/80 p-1.5 rounded hover:bg-primary/10 transition-colors z-10"
+                    type="button"
+                    title="Search"
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={handleClearSearch}
+                    className="absolute right-10 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground p-1.5 rounded hover:bg-muted transition-colors z-10"
+                    type="button"
+                    title="Clear"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Filter Row */}
@@ -1501,13 +1579,13 @@ export default function Reports() {
           </div>
         </CardHeader>
         <CardContent>
-          {filteredCases.length === 0 ? (
+          {paginatedFilteredCases.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No cases found.
             </div>
           ) : (
             <div className="grid gap-4">
-              {filteredCases.map((caseItem) => (
+              {paginatedFilteredCases.map((caseItem) => (
                 <div
                   key={caseItem.id}
                   className="border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
@@ -1517,7 +1595,7 @@ export default function Reports() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="font-semibold text-lg flex items-center gap-2">
-                          {highlightText(caseItem.case_number, searchTerm)}
+                          {highlightText(caseItem.case_number, searchQuery)}
                           {isRecreatedCase(caseItem.case_number) && (
                             <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
                               Recreated
@@ -1525,15 +1603,15 @@ export default function Reports() {
                           )}
                         </h3>
                         <Badge className={STATUS_COLORS[caseItem.status] || 'bg-gray-100 text-gray-800'}>
-                          {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchTerm)}
+                          {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchQuery)}
                         </Badge>
                       </div>
                       <div className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
-                        <span>{highlightText(caseItem.client_case_id, searchTerm)}</span>
+                        <span>{highlightText(caseItem.client_case_id, searchQuery)}</span>
                         <span>•</span>
-                        {getContractTypeBadge(caseItem.contract_type, searchTerm)}
+                        {getContractTypeBadge(caseItem.contract_type, searchQuery)}
                       </div>
-                      <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchTerm)}</h4>
+                      <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchQuery)}</h4>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -1566,8 +1644,8 @@ export default function Reports() {
                       <Building className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Client</p>
-                        <p className="font-medium">{highlightText(caseItem.client.name, searchTerm)}</p>
-                        <p className="text-xs text-muted-foreground">{highlightText(caseItem.client.email, searchTerm)}</p>
+                        <p className="font-medium">{highlightText(caseItem.client.name, searchQuery)}</p>
+                        <p className="text-xs text-muted-foreground">{highlightText(caseItem.client.email, searchQuery)}</p>
                       </div>
                     </div>
 
@@ -1575,7 +1653,7 @@ export default function Reports() {
                       <Phone className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Phone</p>
-                        <p className="font-medium">{highlightText(caseItem.phone_primary, searchTerm)}</p>
+                        <p className="font-medium">{highlightText(caseItem.phone_primary, searchQuery)}</p>
                       </div>
                     </div>
 
@@ -1590,15 +1668,15 @@ export default function Reports() {
                             rel="noopener noreferrer"
                             className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                           >
-                            {highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchTerm)}
+                            {highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchQuery)}
                           </a>
                         ) : (
-                          <p className="font-medium">{highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchTerm)}</p>
+                          <p className="font-medium">{highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchQuery)}</p>
                         )}
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{highlightText(caseItem.location.pincode, searchTerm)}</span>
+                          <span className="text-xs text-muted-foreground">{highlightText(caseItem.location.pincode, searchQuery)}</span>
                           <Badge variant="outline" className="text-xs">
-                            {highlightText(`Tier ${getTierNumber(caseItem.location.pincode_tier)}`, searchTerm)}
+                            {highlightText(`Tier ${getTierNumber(caseItem.location.pincode_tier)}`, searchQuery)}
                           </Badge>
                         </div>
                       </div>
@@ -1608,7 +1686,7 @@ export default function Reports() {
                       <Clock className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">TAT Hours</p>
-                        <p className="font-medium">{highlightText(`${caseItem.tat_hours}h`, searchTerm)}</p>
+                        <p className="font-medium">{highlightText(`${caseItem.tat_hours}h`, searchQuery)}</p>
                       </div>
                     </div>
                   </div>
@@ -1618,8 +1696,8 @@ export default function Reports() {
                       <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Created At</p>
-                        <p className="font-medium">{highlightText(format(new Date(caseItem.created_at), 'MMM dd, yyyy'), searchTerm)}</p>
-                        <p className="text-xs text-muted-foreground">{highlightText(format(new Date(caseItem.created_at), 'HH:mm'), searchTerm)}</p>
+                        <p className="font-medium">{highlightText(format(new Date(caseItem.created_at), 'MMM dd, yyyy'), searchQuery)}</p>
+                        <p className="text-xs text-muted-foreground">{highlightText(format(new Date(caseItem.created_at), 'HH:mm'), searchQuery)}</p>
                       </div>
                     </div>
 
@@ -1628,7 +1706,7 @@ export default function Reports() {
                       <div>
                         <p className="text-muted-foreground">Submitted At</p>
                         <p className="font-medium">
-                          {caseItem.submitted_at ? highlightText(format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm'), searchTerm) : 'N/A'}
+                          {caseItem.submitted_at ? highlightText(format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm'), searchQuery) : 'N/A'}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {caseItem.submitted_at ? 'Submission time' : 'Not submitted'}
@@ -1640,7 +1718,7 @@ export default function Reports() {
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Total Payout (INR)</p>
-                        <p className="font-medium">{highlightText(`₹${caseItem.total_payout_inr || 0}`, searchTerm)}</p>
+                        <p className="font-medium">{highlightText(`₹${caseItem.total_payout_inr || 0}`, searchQuery)}</p>
                       </div>
                     </div>
                   </div>
