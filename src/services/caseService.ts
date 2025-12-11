@@ -130,6 +130,9 @@ export class CaseService {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
+      // Filter cases created after November 2nd, 2025 (cutoff date)
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+
       // Build query with filters
       let query = supabase
         .from('cases')
@@ -181,7 +184,8 @@ export class CaseService {
             location_url
           )
         `, { count: 'exact' })
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .gte('created_at', cutoffDate.toISOString());
 
       // Apply filters
       if (filters?.statusFilter && filters.statusFilter.length > 0) {
@@ -244,14 +248,110 @@ export class CaseService {
           return location?.pincode_tier === filters.tierFilter;
         });
         
-        // Note: When tier filter is applied client-side, the count from server
-        // doesn't reflect the tier filter. We need to recalculate.
-        // For now, we'll use the filtered cases length as an approximation
-        // A better solution would be to fetch count separately with tier filter
-        if (filteredCases.length < (casesData || []).length) {
-          // If filtering reduced results, we need to adjust the count
-          // This is an approximation - ideally we'd fetch the actual count
-          adjustedCount = Math.max(filteredCases.length, adjustedCount);
+        // When tier filter is applied client-side, we need to fetch the actual count
+        // with the tier filter applied to get an accurate total
+        try {
+          let countQuery = supabase
+            .from('cases')
+            .select('id', { count: 'exact', head: true })
+            .eq('is_active', true)
+            .gte('created_at', cutoffDate.toISOString());
+
+          // Apply all the same filters to count query
+          if (filters?.statusFilter && filters.statusFilter.length > 0) {
+            countQuery = countQuery.in('status', filters.statusFilter);
+          }
+          if (filters?.clientFilter && filters.clientFilter !== 'all') {
+            countQuery = countQuery.eq('client_id', filters.clientFilter);
+          }
+          if (filters?.qcResponseTab && filters.qcResponseTab !== 'all') {
+            countQuery = countQuery.eq('QC_Response', filters.qcResponseTab);
+          }
+          if (filters?.dateFilter) {
+            if (filters.dateFilter.from) {
+              const startOfDay = new Date(filters.dateFilter.from);
+              startOfDay.setHours(0, 0, 0, 0);
+              countQuery = countQuery.gte('created_at', startOfDay.toISOString());
+            }
+            if (filters.dateFilter.to) {
+              const endOfDay = new Date(filters.dateFilter.to);
+              endOfDay.setHours(23, 59, 59, 999);
+              countQuery = countQuery.lte('created_at', endOfDay.toISOString());
+            }
+          }
+          if (filters?.tatExpiryFilter) {
+            if (filters.tatExpiryFilter.from) {
+              const startOfDay = new Date(filters.tatExpiryFilter.from);
+              startOfDay.setHours(0, 0, 0, 0);
+              countQuery = countQuery.gte('due_at', startOfDay.toISOString());
+            }
+            if (filters.tatExpiryFilter.to) {
+              const endOfDay = new Date(filters.tatExpiryFilter.to);
+              endOfDay.setHours(23, 59, 59, 999);
+              countQuery = countQuery.lte('due_at', endOfDay.toISOString());
+            }
+          }
+          if (filters?.searchTerm) {
+            const searchPattern = `%${filters.searchTerm.toLowerCase()}%`;
+            countQuery = countQuery.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern}`);
+          }
+
+          // Apply tier filter to count query using inner join
+          // Note: We need to use the same join structure as the main query
+          let tierCountQuery = supabase
+            .from('cases')
+            .select('id, locations!inner(pincode_tier)', { count: 'exact', head: true })
+            .eq('is_active', true)
+            .gte('created_at', cutoffDate.toISOString())
+            .eq('locations.pincode_tier', filters.tierFilter);
+
+          if (filters?.statusFilter && filters.statusFilter.length > 0) {
+            tierCountQuery = tierCountQuery.in('status', filters.statusFilter);
+          }
+          if (filters?.clientFilter && filters.clientFilter !== 'all') {
+            tierCountQuery = tierCountQuery.eq('client_id', filters.clientFilter);
+          }
+          if (filters?.qcResponseTab && filters.qcResponseTab !== 'all') {
+            tierCountQuery = tierCountQuery.eq('QC_Response', filters.qcResponseTab);
+          }
+          if (filters?.dateFilter) {
+            if (filters.dateFilter.from) {
+              const startOfDay = new Date(filters.dateFilter.from);
+              startOfDay.setHours(0, 0, 0, 0);
+              tierCountQuery = tierCountQuery.gte('created_at', startOfDay.toISOString());
+            }
+            if (filters.dateFilter.to) {
+              const endOfDay = new Date(filters.dateFilter.to);
+              endOfDay.setHours(23, 59, 59, 999);
+              tierCountQuery = tierCountQuery.lte('created_at', endOfDay.toISOString());
+            }
+          }
+          if (filters?.tatExpiryFilter) {
+            if (filters.tatExpiryFilter.from) {
+              const startOfDay = new Date(filters.tatExpiryFilter.from);
+              startOfDay.setHours(0, 0, 0, 0);
+              tierCountQuery = tierCountQuery.gte('due_at', startOfDay.toISOString());
+            }
+            if (filters.tatExpiryFilter.to) {
+              const endOfDay = new Date(filters.tatExpiryFilter.to);
+              endOfDay.setHours(23, 59, 59, 999);
+              tierCountQuery = tierCountQuery.lte('due_at', endOfDay.toISOString());
+            }
+          }
+          if (filters?.searchTerm) {
+            const searchPattern = `%${filters.searchTerm.toLowerCase()}%`;
+            tierCountQuery = tierCountQuery.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern}`);
+          }
+
+          const { count: tierFilteredCount } = await tierCountQuery;
+          if (tierFilteredCount !== null) {
+            adjustedCount = tierFilteredCount;
+          }
+        } catch (error) {
+          console.error('Error fetching tier-filtered count:', error);
+          // Fallback: use filtered cases length as approximation
+          // This is not perfect but better than using the unfiltered count
+          adjustedCount = filteredCases.length;
         }
       }
 

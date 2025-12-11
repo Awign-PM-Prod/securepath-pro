@@ -265,67 +265,94 @@ export default function CaseListWithAllocation({
         const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
         
         // Build base query with filters (excluding QC_Response and search)
+        // Use the same query structure as caseService.getCases to ensure consistency
         let baseQuery = supabase
           .from('cases')
           .select('id, QC_Response', { count: 'exact', head: false })
           .eq('is_active', true)
           .gte('created_at', cutoffDate.toISOString());
 
-        // Apply status filter
+        // Apply status filter (same as caseService.getCases)
         if (statusFilter.length > 0) {
           baseQuery = baseQuery.in('status', statusFilter);
         }
 
-        // Apply client filter
+        // Apply client filter (same as caseService.getCases)
         if (clientFilter !== 'all') {
           baseQuery = baseQuery.eq('client_id', clientFilter);
         }
 
+        // Apply date filter (same as caseService.getCases)
+        if (dateFilter) {
+          if (dateFilter.from) {
+            const startOfDay = new Date(dateFilter.from);
+            startOfDay.setHours(0, 0, 0, 0);
+            baseQuery = baseQuery.gte('created_at', startOfDay.toISOString());
+          }
+          if (dateFilter.to) {
+            const endOfDay = new Date(dateFilter.to);
+            endOfDay.setHours(23, 59, 59, 999);
+            baseQuery = baseQuery.lte('created_at', endOfDay.toISOString());
+          }
+        }
+
+        // Apply TAT expiry filter (same as caseService.getCases)
+        if (tatExpiryFilter) {
+          if (tatExpiryFilter.from) {
+            const startOfDay = new Date(tatExpiryFilter.from);
+            startOfDay.setHours(0, 0, 0, 0);
+            baseQuery = baseQuery.gte('due_at', startOfDay.toISOString());
+          }
+          if (tatExpiryFilter.to) {
+            const endOfDay = new Date(tatExpiryFilter.to);
+            endOfDay.setHours(23, 59, 59, 999);
+            baseQuery = baseQuery.lte('due_at', endOfDay.toISOString());
+          }
+        }
+
+        // Apply search filter (same as caseService.getCases)
+        if (searchQuery) {
+          const searchPattern = `%${searchQuery.toLowerCase()}%`;
+          baseQuery = baseQuery.or(`case_number.ilike.${searchPattern},client_case_id.ilike.${searchPattern},candidate_name.ilike.${searchPattern},phone_primary.ilike.${searchPattern},phone_secondary.ilike.${searchPattern}`);
+        }
+
         // Fetch all matching cases to calculate stats
-        const { data: allCases } = await baseQuery;
+        const { data: allCases, count: totalCount } = await baseQuery;
 
         if (!allCases) {
-          setQcStats({ all: 0, approved: 0, rejected: 0, rework: 0 });
+          // Use totalCases from props as fallback for "All" count to ensure consistency
+          setQcStats({ 
+            all: totalCases || 0, 
+            approved: 0, 
+            rejected: 0, 
+            rework: 0 
+          });
           return;
         }
 
-        // Apply client-side filters for date and tier (since they require joins)
+        // Apply tier filter client-side (since it requires location join, same as caseService.getCases)
         let filtered = allCases;
-        
-        // Filter by date (client-side since we need created_at)
-        if (dateFilter && (dateFilter.from || dateFilter.to)) {
-          // We need to fetch created_at for date filtering
-          const { data: casesWithDates } = await supabase
+        if (tierFilter && tierFilter !== 'all') {
+          // For tier filter, we need to fetch locations
+          const caseIds = allCases.map(c => c.id);
+          const { data: casesWithLocations } = await supabase
             .from('cases')
-            .select('id, QC_Response, created_at')
-            .eq('is_active', true)
-            .gte('created_at', cutoffDate.toISOString())
-            .in('status', statusFilter.length > 0 ? statusFilter : ['new', 'allocated', 'accepted', 'pending_allocation', 'in_progress', 'submitted', 'qc_passed', 'qc_rejected', 'qc_rework', 'reported', 'in_payment_cycle', 'payment_complete', 'cancelled'])
-            .eq('client_id', clientFilter !== 'all' ? clientFilter : undefined);
+            .select('id, QC_Response, locations!inner(pincode_tier)')
+            .in('id', caseIds)
+            .eq('locations.pincode_tier', tierFilter);
 
-          if (casesWithDates) {
-            filtered = casesWithDates.filter(c => {
-              const caseDate = new Date(c.created_at);
-              const caseDateOnly = new Date(caseDate.getFullYear(), caseDate.getMonth(), caseDate.getDate());
-              
-              if (dateFilter.from && dateFilter.to) {
-                const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
-                const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
-                return caseDateOnly >= fromDateOnly && caseDateOnly <= toDateOnly;
-              } else if (dateFilter.from) {
-                const fromDateOnly = new Date(dateFilter.from.getFullYear(), dateFilter.from.getMonth(), dateFilter.from.getDate());
-                return caseDateOnly >= fromDateOnly;
-              } else if (dateFilter.to) {
-                const toDateOnly = new Date(dateFilter.to.getFullYear(), dateFilter.to.getMonth(), dateFilter.to.getDate());
-                return caseDateOnly <= toDateOnly;
-              }
-              return true;
-            });
+          if (casesWithLocations) {
+            const filteredIds = new Set(casesWithLocations.map(c => c.id));
+            filtered = allCases.filter(c => filteredIds.has(c.id));
           }
         }
 
         // Calculate stats from filtered results
-        const all = filtered.length;
+        // Use totalCases from props for "All" to ensure it matches pagination exactly
+        // Only use filtered.length if tier filter is applied (since tier filter is client-side)
+        const all = tierFilter && tierFilter !== 'all' 
+          ? filtered.length 
+          : (totalCases || totalCount || filtered.length);
         const approved = filtered.filter(c => c.QC_Response === 'Approved').length;
         const rejected = filtered.filter(c => c.QC_Response === 'Rejected').length;
         const rework = filtered.filter(c => c.QC_Response === 'Rework').length;
@@ -333,9 +360,9 @@ export default function CaseListWithAllocation({
         setQcStats({ all, approved, rejected, rework });
       } catch (error) {
         console.error('Error loading QC stats:', error);
-        // Fallback to client-side calculation from current page
+        // Fallback: Use totalCases from props for "All" to ensure consistency with pagination
         setQcStats({
-          all: filteredCasesForStats.length,
+          all: totalCases,
           approved: filteredCasesForStats.filter(c => c.QC_Response === 'Approved').length,
           rejected: filteredCasesForStats.filter(c => c.QC_Response === 'Rejected').length,
           rework: filteredCasesForStats.filter(c => c.QC_Response === 'Rework').length
@@ -344,7 +371,7 @@ export default function CaseListWithAllocation({
     };
 
     loadQcStats();
-  }, [statusFilter, clientFilter, tierFilter, dateFilter, tatExpiryFilter, filteredCasesForStats]);
+  }, [statusFilter, clientFilter, tierFilter, dateFilter, tatExpiryFilter, searchQuery, totalCases, filteredCasesForStats]);
 
   // Reset to page 1 when filters or sort change (but not when page changes)
   React.useEffect(() => {
@@ -409,12 +436,12 @@ export default function CaseListWithAllocation({
   // that can't be done server-side (like tier filter and sorting)
   const filteredCases = useMemo(() => {
     let filtered = cases;
-    
+      
     // Apply tier filter client-side (since it requires location join)
     if (tierFilter !== 'all') {
       filtered = filtered.filter(c => c.location.pincode_tier === tierFilter);
     }
-    
+
     // Apply sorting
     if (sortBy === 'due_at_asc') {
       filtered = [...filtered].sort((a, b) => {

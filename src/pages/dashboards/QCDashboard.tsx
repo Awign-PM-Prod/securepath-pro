@@ -345,7 +345,7 @@ export default function QCDashboard() {
       // Only show loading spinner if we don't have any cases yet (initial load)
       // For filter changes, we'll show a subtle loading state
       if (allCases.length === 0) {
-        setIsLoading(true);
+      setIsLoading(true);
       }
       const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       
@@ -889,7 +889,7 @@ export default function QCDashboard() {
                   <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
                 </div>
               ) : (
-                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
               )}
             </TabsContent>
 
@@ -900,7 +900,7 @@ export default function QCDashboard() {
                   <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
                 </div>
               ) : (
-                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
               )}
             </TabsContent>
 
@@ -911,7 +911,7 @@ export default function QCDashboard() {
                   <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
                 </div>
               ) : (
-                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
               )}
             </TabsContent>
 
@@ -922,7 +922,7 @@ export default function QCDashboard() {
                   <span className="ml-2 text-sm text-muted-foreground">Loading cases...</span>
                 </div>
               ) : (
-                <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
+              <CasesList cases={getFilteredCases()} onReviewCase={handleReviewCase} />
               )}
             </TabsContent>
           </Tabs>

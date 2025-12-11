@@ -185,8 +185,8 @@ export class QCService {
 
         // Now update the case status directly
         const { data: directUpdateCase, error: directUpdateError } = await supabase
-          .from('cases')
-          .update(updateData)
+        .from('cases')
+        .update(updateData)
           .eq('id', request.caseId)
           .select('id, status, QC_Response')
           .single();
@@ -280,7 +280,7 @@ export class QCService {
         
         if (qcRetryError) {
           console.warn('Could not update QC_Response on retry:', qcRetryError);
-        }
+      }
       }
 
       console.log('Case update successful:', {

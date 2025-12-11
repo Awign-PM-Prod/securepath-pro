@@ -26,16 +26,10 @@ export function useCases(page: number = 1, pageSize: number = 10, filters?: UseC
     queryKey: ['cases', page, pageSize, filters],
     queryFn: async () => {
       const result = await caseService.getCases(page, pageSize, filters);
-      // Filter cases created after November 2nd, 2025
-      const filteredCases = result.cases.filter(caseItem => {
-        const caseCreatedDate = new Date(caseItem.created_at);
-        return caseCreatedDate >= CUTOFF_DATE;
-      });
-      // Note: We filter client-side but the total count is from server
-      // This means pagination might show fewer items if many are filtered out
-      // For accurate pagination, the date filter should be applied server-side
+      // Cutoff date filter is now applied server-side in caseService.getCases
+      // No need to filter client-side anymore
       return {
-        cases: filteredCases,
+        cases: result.cases,
         total: result.total,
       };
     },
