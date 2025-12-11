@@ -17,7 +17,9 @@ import {
   Settings,
   RefreshCw,
   Play,
-  Pause
+  Pause,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { allocationEngine } from '@/services/allocationEngine';
@@ -62,19 +64,22 @@ export default function AllocationDashboard() {
   const [allocationStats, setAllocationStats] = useState<AllocationStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAutoAllocationEnabled, setIsAutoAllocationEnabled] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(10);
+  const [totalCapacity, setTotalCapacity] = useState(0);
   const { toast } = useToast();
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentPage]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      await Promise.all([
-        loadCapacityData(),
-        loadAllocationStats()
-      ]);
+      // Load stats first (doesn't depend on capacity data)
+      await loadAllocationStats();
+      // Then load capacity data (paginated)
+      await loadCapacityData();
     } catch (error) {
       console.error('Failed to load allocation data:', error);
       toast({
@@ -88,7 +93,11 @@ export default function AllocationDashboard() {
   };
 
   const loadCapacityData = async () => {
-    const { data, error } = await supabase
+    // Calculate pagination range
+    const from = (currentPage - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data, error, count } = await supabase
       .from('capacity_tracking')
       .select(`
         *,
@@ -102,9 +111,10 @@ export default function AllocationDashboard() {
           is_active,
           is_available
         )
-      `)
+      `, { count: 'exact' })
       .eq('is_active', true)
-      .order('current_capacity_available', { ascending: false });
+      .order('current_capacity_available', { ascending: false })
+      .range(from, to);
 
     if (error) {
       console.error('Error loading capacity data:', error);
@@ -112,21 +122,88 @@ export default function AllocationDashboard() {
     }
 
     setCapacityData(data || []);
+    setTotalCapacity(count || 0);
   };
 
   const loadAllocationStats = async () => {
-    // This would typically come from a more complex query
-    // For now, we'll calculate basic stats
-    const stats: AllocationStats = {
-      total_allocations: capacityData.reduce((sum, worker) => sum + worker.cases_allocated, 0),
-      successful_allocations: capacityData.reduce((sum, worker) => sum + worker.cases_accepted, 0),
-      pending_allocations: capacityData.reduce((sum, worker) => sum + worker.cases_in_progress, 0),
-      failed_allocations: 0, // Would need to query allocation_logs
-      average_acceptance_time: 0, // Would need to calculate from allocation_logs
-      capacity_utilization: 0 // Would need to calculate
-    };
+    try {
+      // Get today's date range
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
 
-    setAllocationStats(stats);
+      // Query allocation_logs for today's allocations
+      const { data: allocationLogs, error: logsError } = await supabase
+        .from('allocation_logs')
+        .select('decision, allocated_at, accepted_at')
+        .gte('allocated_at', today.toISOString())
+        .lt('allocated_at', tomorrow.toISOString());
+
+      if (logsError) {
+        console.error('Error loading allocation logs:', logsError);
+        throw logsError;
+      }
+
+      // Calculate stats from allocation_logs
+      const total_allocations = allocationLogs?.length || 0;
+      const successful_allocations = allocationLogs?.filter(log => log.decision === 'accepted').length || 0;
+      const pending_allocations = allocationLogs?.filter(log => log.decision === 'allocated').length || 0;
+      const failed_allocations = allocationLogs?.filter(log => 
+        log.decision === 'rejected' || log.decision === 'timeout'
+      ).length || 0;
+
+      // Calculate average acceptance time (in minutes)
+      const acceptedLogs = allocationLogs?.filter(log => 
+        log.decision === 'accepted' && log.allocated_at && log.accepted_at
+      ) || [];
+      
+      let average_acceptance_time = 0;
+      if (acceptedLogs.length > 0) {
+        const totalTime = acceptedLogs.reduce((sum, log) => {
+          const allocated = new Date(log.allocated_at).getTime();
+          const accepted = new Date(log.accepted_at!).getTime();
+          return sum + (accepted - allocated);
+        }, 0);
+        average_acceptance_time = Math.round(totalTime / acceptedLogs.length / (1000 * 60)); // Convert to minutes
+      }
+
+      // Calculate capacity utilization from capacity_tracking
+      const { data: allCapacityData, error: capacityError } = await supabase
+        .from('capacity_tracking')
+        .select('max_daily_capacity, current_capacity_available')
+        .eq('is_active', true);
+
+      let capacity_utilization = 0;
+      if (!capacityError && allCapacityData && allCapacityData.length > 0) {
+        const totalMax = allCapacityData.reduce((sum, w) => sum + (w.max_daily_capacity || 0), 0);
+        const totalAvailable = allCapacityData.reduce((sum, w) => sum + (w.current_capacity_available || 0), 0);
+        const totalUsed = totalMax - totalAvailable;
+        capacity_utilization = totalMax > 0 ? Math.round((totalUsed / totalMax) * 100) : 0;
+      }
+
+      const stats: AllocationStats = {
+        total_allocations,
+        successful_allocations,
+        pending_allocations,
+        failed_allocations,
+        average_acceptance_time,
+        capacity_utilization
+      };
+
+      setAllocationStats(stats);
+    } catch (error) {
+      console.error('Error loading allocation stats:', error);
+      // Set default stats on error
+      setAllocationStats({
+        total_allocations: 0,
+        successful_allocations: 0,
+        pending_allocations: 0,
+        failed_allocations: 0,
+        average_acceptance_time: 0,
+        capacity_utilization: 0
+      });
+    }
   };
 
   const handleManualAllocation = async () => {
@@ -149,16 +226,19 @@ export default function AllocationDashboard() {
   const handleRefreshCapacity = async () => {
     setIsLoading(true);
     try {
-      await loadCapacityData();
+      await Promise.all([
+        loadCapacityData(),
+        loadAllocationStats()
+      ]);
       toast({
         title: 'Success',
-        description: 'Capacity data refreshed',
+        description: 'Data refreshed',
       });
     } catch (error) {
-      console.error('Failed to refresh capacity:', error);
+      console.error('Failed to refresh data:', error);
       toast({
         title: 'Error',
-        description: 'Failed to refresh capacity data',
+        description: 'Failed to refresh data',
         variant: 'destructive',
       });
     } finally {
@@ -396,6 +476,64 @@ export default function AllocationDashboard() {
                     </div>
                   );
                 })}
+
+                {/* Pagination */}
+                {totalCapacity > pageSize && (
+                  <div className="flex items-center justify-between mt-6 pt-6 border-t">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCapacity)} of {totalCapacity} workers
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Previous
+                      </Button>
+                      
+                      <div className="flex items-center space-x-1">
+                        {Array.from({ length: Math.min(5, Math.ceil(totalCapacity / pageSize)) }, (_, i) => {
+                          const totalPages = Math.ceil(totalCapacity / pageSize);
+                          let pageNum;
+                          if (totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={currentPage === pageNum ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setCurrentPage(pageNum)}
+                              className="w-8 h-8 p-0"
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCapacity / pageSize)))}
+                        disabled={currentPage >= Math.ceil(totalCapacity / pageSize)}
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -475,6 +613,64 @@ export default function AllocationDashboard() {
                   ))}
                 </TableBody>
               </Table>
+
+              {/* Pagination */}
+              {totalCapacity > pageSize && (
+                <div className="flex items-center justify-between mt-6 pt-6 border-t">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCapacity)} of {totalCapacity} workers
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Previous
+                    </Button>
+                    
+                    <div className="flex items-center space-x-1">
+                      {Array.from({ length: Math.min(5, Math.ceil(totalCapacity / pageSize)) }, (_, i) => {
+                        const totalPages = Math.ceil(totalCapacity / pageSize);
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={currentPage === pageNum ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setCurrentPage(pageNum)}
+                            className="w-8 h-8 p-0"
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCapacity / pageSize)))}
+                      disabled={currentPage >= Math.ceil(totalCapacity / pageSize)}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
