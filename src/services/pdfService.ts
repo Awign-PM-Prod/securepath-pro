@@ -885,7 +885,7 @@ export class PDFService {
     let logoPaths: string[] = [];
     
     if (isFinovaCapital) {
-      logoPaths = ['/Finova Capital.png'];
+      logoPaths = ['/Finova.png'];
     } else {
       // Try to load logo from public folder
       // Common logo paths to try
