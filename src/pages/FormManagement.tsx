@@ -306,15 +306,43 @@ export default function FormManagement() {
     });
   };
 
-  // Filter to show only published templates
-  const publishedTemplates = templates.filter(t => t.is_active);
-  
   // Group templates by template_name to find unpublished versions
-  const getUnpublishedVersions = (templateName: string) => {
+  // Exclude the current template if it's already shown in the main list (version 1, unpublished)
+  const getUnpublishedVersions = (templateName: string, excludeTemplateId?: string) => {
     return templates.filter(t => 
-      t.template_name === templateName && !t.is_active
+      t.template_name === templateName && 
+      !t.is_active &&
+      t.id !== excludeTemplateId
     ).sort((a, b) => b.template_version - a.template_version);
   };
+
+  // Get maximum version for a template name
+  const getMaxVersion = (templateName: string) => {
+    const versions = templates
+      .filter(t => t.template_name === templateName)
+      .map(t => t.template_version);
+    return versions.length > 0 ? Math.max(...versions) : 0;
+  };
+
+  // Filter to show:
+  // 1. Published templates (is_active = true)
+  // 2. Templates with max version = 1 (regardless of published/unpublished) - exception for new templates
+  // But avoid duplicates: if a template name has a published version, only show that one
+  const publishedTemplates = templates.filter(t => {
+    const maxVersion = getMaxVersion(t.template_name);
+    const hasPublishedVersion = templates.some(
+      other => other.template_name === t.template_name && other.is_active
+    );
+    
+    // If there's a published version, only show published ones
+    if (hasPublishedVersion) {
+      return t.is_active;
+    }
+    
+    // If no published version exists:
+    // - Show if it's published OR if it's the only version (max version = 1) - exception for new templates
+    return t.is_active || (maxVersion === 1 && t.template_version === 1);
+  });
 
   if (loading) {
     return (
@@ -371,8 +399,12 @@ export default function FormManagement() {
               </TableHeader>
               <TableBody>
                 {publishedTemplates.map((template) => {
-                  const unpublishedVersions = getUnpublishedVersions(template.template_name);
+                  const maxVersion = getMaxVersion(template.template_name);
+                  // If this is an unpublished version 1 template, exclude it from unpublished versions list
+                  const excludeId = (!template.is_active && maxVersion === 1) ? template.id : undefined;
+                  const unpublishedVersions = getUnpublishedVersions(template.template_name, excludeId);
                   const isExpanded = expandedRows.has(template.id);
+                  // Only show expand icon if there are other unpublished versions (excluding the current one if it's version 1)
                   const hasUnpublishedVersions = unpublishedVersions.length > 0;
                   
                   return (
@@ -413,8 +445,8 @@ export default function FormManagement() {
                           {template.form_fields?.length || 0} fields
                         </TableCell>
                         <TableCell>
-                          <Badge variant="default">
-                            Published
+                          <Badge variant={template.is_active ? 'default' : 'secondary'}>
+                            {template.is_active ? 'Published' : 'Draft'}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -429,13 +461,33 @@ export default function FormManagement() {
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleUnpublishTemplate(template.id)}
-                            >
-                              Unpublish
-                            </Button>
+                            {!template.is_active ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handlePublishClick(template)}
+                                >
+                                  Publish
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteTemplate(template.id)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleUnpublishTemplate(template.id)}
+                              >
+                                Unpublish
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
