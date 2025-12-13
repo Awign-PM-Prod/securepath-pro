@@ -73,6 +73,15 @@ interface Case {
   submitted_at?: string;
 }
 
+interface Client {
+  id: string;
+  name: string;
+  contact_person: string;
+  email: string;
+  phone: string;
+  is_active: boolean;
+}
+
 interface CaseListWithAllocationProps {
   cases: Case[];
   totalCases: number;
@@ -85,6 +94,7 @@ interface CaseListWithAllocationProps {
   onCreateCase: () => void;
   onRefresh: () => void;
   isLoading?: boolean;
+  clients?: Client[];
   onFiltersChange?: (filters: {
     statusFilter?: string[];
     clientFilter?: string;
@@ -157,6 +167,7 @@ export default function CaseListWithAllocation({
   onCreateCase, 
   onRefresh,
   isLoading = false,
+  clients = [],
   onFiltersChange
 }: CaseListWithAllocationProps) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -1459,14 +1470,14 @@ export default function CaseListWithAllocation({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Clients</SelectItem>
-                {Array.from(new Set(cases.map(c => c.client.id))).map(clientId => {
-                  const client = cases.find(c => c.client.id === clientId)?.client;
-                  return (
-                    <SelectItem key={clientId} value={clientId}>
-                      {client?.name || 'Unknown Client'}
+                {clients
+                  .filter(client => client.is_active)
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(client => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
                     </SelectItem>
-                  );
-                })}
+                  ))}
               </SelectContent>
             </Select>
             

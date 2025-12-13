@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, Edit, Eye, Trash2, FileText } from 'lucide-react';
+import { Plus, Edit, Eye, Trash2, FileText, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formService } from '@/services/formService';
 import { FormBuilder } from '@/components/FormBuilder';
@@ -31,6 +31,7 @@ export default function FormManagement() {
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [templateToPublish, setTemplateToPublish] = useState<FormTemplate | null>(null);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   useEffect(() => {
@@ -293,6 +294,28 @@ export default function FormManagement() {
     }
   };
 
+  const toggleRowExpansion = (templateId: string) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(templateId)) {
+        newSet.delete(templateId);
+      } else {
+        newSet.add(templateId);
+      }
+      return newSet;
+    });
+  };
+
+  // Filter to show only published templates
+  const publishedTemplates = templates.filter(t => t.is_active);
+  
+  // Group templates by template_name to find unpublished versions
+  const getUnpublishedVersions = (templateName: string) => {
+    return templates.filter(t => 
+      t.template_name === templateName && !t.is_active
+    ).sort((a, b) => b.template_version - a.template_version);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -317,11 +340,11 @@ export default function FormManagement() {
         </Button>
       </div>
 
-      {templates.length === 0 ? (
+      {publishedTemplates.length === 0 ? (
         <Alert>
           <FileText className="h-4 w-4" />
           <AlertDescription>
-            No form templates found. Create your first form template to get started.
+            No published form templates found. Create and publish your first form template to get started.
           </AlertDescription>
         </Alert>
       ) : (
@@ -336,6 +359,7 @@ export default function FormManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12"></TableHead>
                   <TableHead>Template Name</TableHead>
                   <TableHead>Contract Type</TableHead>
                   <TableHead>Version</TableHead>
@@ -346,74 +370,139 @@ export default function FormManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {templates.map((template) => (
-                  <TableRow key={template.id}>
-                    <TableCell className="font-medium">
-                      <span className={template.is_negative ? 'text-red-600' : ''}>
-                        {template.template_name}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {template.contract_type_config?.display_name ? (
-                        <Badge variant="outline">
-                          {template.contract_type_config.display_name}
-                        </Badge>
-                      ) : (
-                        <span className="text-gray-500">Draft (No contract type)</span>
-                      )}
-                    </TableCell>
-                    <TableCell>v{template.template_version}</TableCell>
-                    <TableCell>
-                      {template.form_fields?.length || 0} fields
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={template.is_active ? 'default' : 'secondary'}>
-                        {template.is_active ? 'Published' : 'Draft'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(template.created_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditTemplate(template)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        {!template.is_active ? (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handlePublishClick(template)}
-                            >
-                              Publish
-                            </Button>
+                {publishedTemplates.map((template) => {
+                  const unpublishedVersions = getUnpublishedVersions(template.template_name);
+                  const isExpanded = expandedRows.has(template.id);
+                  const hasUnpublishedVersions = unpublishedVersions.length > 0;
+                  
+                  return (
+                    <React.Fragment key={template.id}>
+                      <TableRow>
+                        <TableCell>
+                          {hasUnpublishedVersions ? (
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDeleteTemplate(template.id)}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              className="h-8 w-8 p-0"
+                              onClick={() => toggleRowExpansion(template.id)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <ChevronRight 
+                                className={`h-4 w-4 transition-transform duration-200 ${
+                                  isExpanded ? 'rotate-90' : ''
+                                }`}
+                              />
                             </Button>
-                          </>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleUnpublishTemplate(template.id)}
-                          >
-                            Unpublish
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <span className={template.is_negative ? 'text-red-600' : ''}>
+                            {template.template_name}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {template.contract_type_config?.display_name ? (
+                            <Badge variant="outline">
+                              {template.contract_type_config.display_name}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-500">Draft (No contract type)</span>
+                          )}
+                        </TableCell>
+                        <TableCell>v{template.template_version}</TableCell>
+                        <TableCell>
+                          {template.form_fields?.length || 0} fields
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="default">
+                            Published
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(template.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditTemplate(template)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleUnpublishTemplate(template.id)}
+                            >
+                              Unpublish
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && hasUnpublishedVersions && (
+                        <>
+                          {unpublishedVersions.map((unpublishedTemplate) => (
+                            <TableRow key={unpublishedTemplate.id} className="bg-gray-50">
+                              <TableCell></TableCell>
+                              <TableCell className="font-medium pl-8">
+                                <span className={unpublishedTemplate.is_negative ? 'text-red-600' : ''}>
+                                  {unpublishedTemplate.template_name}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                {unpublishedTemplate.contract_type_config?.display_name ? (
+                                  <Badge variant="outline">
+                                    {unpublishedTemplate.contract_type_config.display_name}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-gray-500">Draft (No contract type)</span>
+                                )}
+                              </TableCell>
+                              <TableCell>v{unpublishedTemplate.template_version}</TableCell>
+                              <TableCell>
+                                {unpublishedTemplate.form_fields?.length || 0} fields
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="secondary">
+                                  Draft
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {new Date(unpublishedTemplate.created_at).toLocaleDateString()}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEditTemplate(unpublishedTemplate)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handlePublishClick(unpublishedTemplate)}
+                                  >
+                                    Publish
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDeleteTemplate(unpublishedTemplate.id)}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>

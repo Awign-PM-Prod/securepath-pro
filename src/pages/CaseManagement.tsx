@@ -615,6 +615,7 @@ export default function CaseManagement() {
         onCreateCase={handleCreateCase}
         onRefresh={loadData}
         isLoading={isLoading}
+        clients={clients}
         onFiltersChange={setFilters}
       />
     </div>
