@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, Edit, Eye, Trash2, FileText, ChevronRight } from 'lucide-react';
+import { Plus, Edit, Eye, Trash2, FileText, ChevronRight, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formService } from '@/services/formService';
 import { FormBuilder } from '@/components/FormBuilder';
@@ -306,6 +306,114 @@ export default function FormManagement() {
     });
   };
 
+  const handleDownloadTemplate = (template: FormTemplate) => {
+    try {
+      // Create CSV content
+      const csvRows: string[] = [];
+      
+      // Template metadata section
+      csvRows.push('Template Information');
+      csvRows.push('Template Name,' + (template.template_name || ''));
+      csvRows.push('Template ID,' + template.id);
+      csvRows.push('Version,' + template.template_version);
+      csvRows.push('Status,' + (template.is_active ? 'Published' : 'Draft'));
+      csvRows.push('Contract Type,' + (template.contract_type_config?.display_name || 'N/A'));
+      csvRows.push('Contract Type Key,' + (template.contract_type_config?.type_key || 'N/A'));
+      csvRows.push('Created At,' + new Date(template.created_at).toLocaleString());
+      csvRows.push('Updated At,' + new Date(template.updated_at).toLocaleString());
+      csvRows.push('');
+      
+      // Form fields section
+      csvRows.push('Form Fields');
+      csvRows.push('Field Order,Field Key,Field Title,Field Type,Validation Type,Max Files,Max File Size (MB),Field Config (JSON)');
+      
+      if (template.form_fields && template.form_fields.length > 0) {
+        const sortedFields = [...template.form_fields].sort((a, b) => a.field_order - b.field_order);
+        sortedFields.forEach(field => {
+          // Parse field_config if it's a string, otherwise use as-is
+          let parsedFieldConfig: any = null;
+          if (typeof field.field_config === 'string') {
+            try {
+              parsedFieldConfig = JSON.parse(field.field_config);
+            } catch (e) {
+              parsedFieldConfig = null;
+            }
+          } else {
+            parsedFieldConfig = field.field_config;
+          }
+          
+          const fieldConfig = parsedFieldConfig ? JSON.stringify(parsedFieldConfig) : '';
+          
+          // Get max files - check direct property first, then field_config, handle 0 as valid value
+          const maxFiles = field.max_files ?? parsedFieldConfig?.maxFiles ?? '';
+          
+          // Get max file size - check multiple sources and handle 0 as valid value
+          // Check direct property first, then field_config.maxSizeMB, then field_config.maxSize
+          // For file_upload fields, default to 10 if not specified
+          let maxFileSize = '';
+          if (field.max_file_size_mb !== null && field.max_file_size_mb !== undefined) {
+            maxFileSize = String(field.max_file_size_mb);
+          } else if (parsedFieldConfig?.maxSizeMB !== null && parsedFieldConfig?.maxSizeMB !== undefined) {
+            maxFileSize = String(parsedFieldConfig.maxSizeMB);
+          } else if (parsedFieldConfig?.maxSize !== null && parsedFieldConfig?.maxSize !== undefined) {
+            maxFileSize = String(parsedFieldConfig.maxSize);
+          } else if (field.field_type === 'file_upload') {
+            // Default to 10 MB for file upload fields if not specified (matches database default)
+            maxFileSize = '10';
+          }
+          
+          // Escape commas and quotes in CSV
+          const escapeCSV = (value: string | number) => {
+            const str = String(value);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+              return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+          };
+          
+          csvRows.push([
+            field.field_order,
+            escapeCSV(field.field_key),
+            escapeCSV(field.field_title),
+            field.field_type,
+            field.validation_type,
+            maxFiles,
+            maxFileSize,
+            escapeCSV(fieldConfig)
+          ].join(','));
+        });
+      } else {
+        csvRows.push('No fields defined');
+      }
+      
+      // Convert to CSV string
+      const csvContent = csvRows.join('\n');
+      
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${template.template_name}_v${template.template_version}_${template.is_active ? 'published' : 'draft'}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: 'Success',
+        description: 'Form template downloaded successfully',
+      });
+    } catch (error) {
+      console.error('Error downloading template:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to download form template',
+        variant: 'destructive',
+      });
+    }
+  };
+
   // Group templates by template_name to find unpublished versions
   // Exclude the current template if it's already shown in the main list (version 1, unpublished)
   const getUnpublishedVersions = (templateName: string, excludeTemplateId?: string) => {
@@ -457,6 +565,14 @@ export default function FormManagement() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              onClick={() => handleDownloadTemplate(template)}
+                              title="Download as CSV"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => handleEditTemplate(template)}
                             >
                               <Edit className="h-4 w-4" />
@@ -524,6 +640,14 @@ export default function FormManagement() {
                               </TableCell>
                               <TableCell>
                                 <div className="flex gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDownloadTemplate(unpublishedTemplate)}
+                                    title="Download as CSV"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </Button>
                                   <Button
                                     variant="ghost"
                                     size="sm"
