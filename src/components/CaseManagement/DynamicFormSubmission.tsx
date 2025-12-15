@@ -119,8 +119,8 @@ export default function DynamicFormSubmission({ caseId, caseStatus, onSubmission
   const [isSaving, setIsSaving] = useState(false);
   const { user, hasRole } = useAuth();
 
-  // Check if user can edit (ops_team or super_admin)
-  const canEdit = hasRole('ops_team') || hasRole('super_admin');
+  // Check if user can edit (ops_team, qc_team, or super_admin)
+  const canEdit = hasRole('ops_team') || hasRole('qc_team') || hasRole('super_admin');
   
   // Check if editing is allowed for this case status
   const canEditThisCase = canEdit && (caseStatus === 'submitted' || caseStatus === 'qc_passed');

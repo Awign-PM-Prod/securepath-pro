@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -60,8 +61,32 @@ export default function QCSubmissionReview({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showRecreationPopup, setShowRecreationPopup] = useState(false);
   const [isRecreating, setIsRecreating] = useState(false);
+  const [caseStatus, setCaseStatus] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+
+  // Fetch case status when dialog opens
+  useEffect(() => {
+    if (isOpen && caseId) {
+      const fetchCaseStatus = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('cases')
+            .select('status')
+            .eq('id', caseId)
+            .single();
+          
+          if (error) throw error;
+          if (data) {
+            setCaseStatus(data.status);
+          }
+        } catch (error) {
+          console.error('Error fetching case status:', error);
+        }
+      };
+      fetchCaseStatus();
+    }
+  }, [isOpen, caseId]);
 
   const handleActionSelect = (action: 'approve' | 'reject' | 'rework') => {
     setSelectedAction(action);
@@ -280,7 +305,7 @@ export default function QCSubmissionReview({
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <DynamicFormSubmission caseId={caseId} />
+                <DynamicFormSubmission caseId={caseId} caseStatus={caseStatus || undefined} />
               </CardContent>
             </Card>
 
