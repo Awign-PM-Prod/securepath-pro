@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { PayoutCalculationService } from './payoutCalculationService';
+import { pincodeTierService } from './pincodeTierService';
 
 export interface UpdateCaseData {
   client_case_id: string;
@@ -90,19 +91,47 @@ export class CaseUpdateService {
       // Update or create location
       let locationId = currentCase.location_id;
       if (caseData.address_line || caseData.city || caseData.state || caseData.pincode) {
-        // Check if location exists
-        const { data: existingLocation } = await supabase
+        // Check if location exists - use maybeSingle() to handle case when no location is found
+        const { data: existingLocation, error: locationCheckError } = await supabase
           .from('locations')
           .select('id')
           .eq('address_line', caseData.address_line)
           .eq('city', caseData.city)
           .eq('state', caseData.state)
           .eq('pincode', caseData.pincode)
-          .single();
+          .maybeSingle();
+
+        if (locationCheckError) {
+          throw new Error(`Failed to check existing location: ${locationCheckError.message}`);
+        }
 
         if (existingLocation) {
           locationId = existingLocation.id;
         } else {
+          // Get pincode tier before creating location
+          let pincodeTier: 'tier_1' | 'tier_2' | 'tier_3' = 'tier_3'; // Default fallback
+          try {
+            const pincodeTierData = await pincodeTierService.getPincodeTier(caseData.pincode);
+            if (pincodeTierData && pincodeTierData.tier) {
+              // Convert tier format: service returns 'tier1'|'tier2'|'tier3', DB expects 'tier_1'|'tier_2'|'tier_3'
+              const tier = pincodeTierData.tier;
+              if (tier === 'tier1' || tier === 'tier_1') {
+                pincodeTier = 'tier_1';
+              } else if (tier === 'tier2' || tier === 'tier_2') {
+                pincodeTier = 'tier_2';
+              } else if (tier === 'tier3' || tier === 'tier_3') {
+                pincodeTier = 'tier_3';
+              } else {
+                // If format is unexpected, default to tier_3
+                pincodeTier = 'tier_3';
+              }
+            }
+          } catch (tierError) {
+            // getPincodeTier uses .single() which throws if not found, so catch and use default
+            console.warn(`Failed to fetch pincode tier for ${caseData.pincode}, using default tier_3:`, tierError);
+            // Use default tier_3 if lookup fails
+          }
+
           // Create new location
           const { data: newLocation, error: locationError } = await supabase
             .from('locations')
@@ -114,7 +143,8 @@ export class CaseUpdateService {
               country: caseData.country,
               lat: caseData.lat,
               lng: caseData.lng,
-              location_url: caseData.location_url
+              location_url: caseData.location_url,
+              pincode_tier: pincodeTier
             })
             .select()
             .single();

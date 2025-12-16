@@ -71,7 +71,7 @@ export class PincodeTierService {
         .select('*')
         .eq('pincode', pincode)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;

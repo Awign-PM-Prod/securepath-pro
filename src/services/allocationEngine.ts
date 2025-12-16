@@ -28,6 +28,11 @@ export interface AllocationCandidate {
   vendor_performance_score?: number;
   vendor_quality_score?: number;
   final_score?: number;
+  // New fields for priority-based allocation
+  location_match_type?: 'pincode' | 'city' | 'tier';
+  experience_score?: number;
+  reliability_score?: number;
+  priority_boost?: number;
 }
 
 export interface AllocationConfig {
@@ -127,20 +132,39 @@ export class AllocationEngine {
 
   /**
    * Get allocation candidates for a case
+   * Implements 8-step priority-based allocation:
+   * 1. Pin-Code Wise Allocation
+   * 2. City-Wise Allocation
+   * 3. Agent Eligibility-Based Allocation
+   * 4. Agent Availability-Based Allocation
+   * 5. Current Capacity-Based Allocation
+   * 6. Experience and Rating-Based Allocation
+   * 7. Priority-Based Allocation
+   * 8. Historical Performance-Based Allocation
    */
-  async getCandidates(caseId: string, pincode: string, pincodeTier: string): Promise<AllocationCandidate[]> {
+  async getCandidates(
+    caseId: string, 
+    pincode: string, 
+    pincodeTier: string,
+    casePriority: 'low' | 'medium' | 'high' | 'urgent' = 'medium'
+  ): Promise<AllocationCandidate[]> {
     try {
       const { data, error } = await supabase.rpc('get_allocation_candidates', {
         p_case_id: caseId,
         p_pincode: pincode,
-        p_pincode_tier: pincodeTier
+        p_pincode_tier: pincodeTier,
+        p_case_priority: casePriority
       });
 
       if (error) throw error;
 
       return (data || []).map(candidate => ({
         ...candidate,
-        candidate_type: candidate.candidate_type as 'gig' | 'vendor'
+        candidate_type: candidate.candidate_type as 'gig' | 'vendor',
+        location_match_type: candidate.location_match_type as 'pincode' | 'city' | 'tier' | undefined,
+        experience_score: candidate.experience_score || 0,
+        reliability_score: candidate.reliability_score || 0,
+        priority_boost: candidate.priority_boost || 0
       }));
     } catch (error) {
       console.error('Failed to get allocation candidates:', error);
@@ -150,59 +174,84 @@ export class AllocationEngine {
 
   /**
    * Calculate final score for a candidate
+   * Uses priority-based scoring with 8-step allocation order
    */
-  private calculateScore(candidate: AllocationCandidate): number {
+  calculateScore(candidate: AllocationCandidate): number {
     if (!this.config) return 0;
 
     const weights = this.config.scoring_weights;
     
+    // Step 8: Historical Performance-Based Allocation
     // Calculate weighted performance score (excluding quality score)
     const performanceScore = 
       (candidate.completion_rate * weights.completion_rate) +
       (candidate.ontime_completion_rate * weights.ontime_completion_rate) +
       (candidate.acceptance_rate * weights.acceptance_rate);
 
+    // Step 1 & 2: Location match bonus (pincode > city > tier)
+    const locationBonus = candidate.location_match_type === 'pincode' ? 100 :
+                         candidate.location_match_type === 'city' ? 50 :
+                         candidate.location_match_type === 'tier' ? 10 : 0;
+
+    // Step 6: Experience and Rating-Based Allocation
+    const experienceBonus = (candidate.experience_score || 0) * 20;
+    const reliabilityBonus = (candidate.reliability_score || 0) * 30;
+
+    // Step 7: Priority-Based Allocation
+    const priorityBoost = candidate.priority_boost || 0;
+
+    // Step 8: Historical Performance
     // Quality score is used as primary sort, performance score as secondary
     // We'll combine them with quality score having much higher weight for sorting
-    // But keep the final score within database limits (less than 10)
-    const score = (candidate.quality_score * 10) + (performanceScore / 10);
+    const baseScore = (candidate.quality_score * 10) + (performanceScore / 10);
+    
+    // Final score combines all factors
+    const finalScore = baseScore + locationBonus + experienceBonus + reliabilityBonus + priorityBoost;
 
     console.log(`Scoring candidate ${candidate.candidate_id}:`, {
+      location_match: candidate.location_match_type,
+      location_bonus: locationBonus,
+      experience_score: candidate.experience_score,
+      experience_bonus: experienceBonus,
+      reliability_score: candidate.reliability_score,
+      reliability_bonus: reliabilityBonus,
+      priority_boost: priorityBoost,
       quality_score: candidate.quality_score,
       completion_rate: candidate.completion_rate,
       ontime_completion_rate: candidate.ontime_completion_rate,
       acceptance_rate: candidate.acceptance_rate,
-      weights: weights,
       performance_score: performanceScore,
-      final_score: score
+      base_score: baseScore,
+      final_score: finalScore
     });
 
-    return Math.round(score * 10000) / 10000; // Round to 4 decimal places
+    return Math.round(finalScore * 10000) / 10000; // Round to 4 decimal places
   }
 
   /**
-   * Filter candidates based on quality thresholds
+   * Filter candidates based on basic requirements (not performance thresholds)
+   * Performance metrics are used for ranking, not filtering
    */
   private filterCandidates(candidates: AllocationCandidate[]): AllocationCandidate[] {
-    if (!this.config) return candidates;
-
-    const thresholds = this.config.quality_thresholds;
-
+    // Only filter by capacity - performance metrics are used for ranking only
     return candidates.filter(candidate => 
-      candidate.quality_score >= thresholds.min_quality_score &&
-      candidate.completion_rate >= thresholds.min_completion_rate &&
-      candidate.acceptance_rate >= thresholds.min_acceptance_rate &&
       candidate.capacity_available > 0
     );
   }
 
   /**
    * Allocate a case to the best available candidate
+   * Implements 8-step priority-based allocation order
    */
-  async allocateCase(caseId: string, pincode: string, pincodeTier: string): Promise<AllocationResult> {
+  async allocateCase(
+    caseId: string, 
+    pincode: string, 
+    pincodeTier: string,
+    casePriority: 'low' | 'medium' | 'high' | 'urgent' = 'medium'
+  ): Promise<AllocationResult> {
     try {
-      // Get all candidates
-      const candidates = await this.getCandidates(caseId, pincode, pincodeTier);
+      // Get all candidates using priority-based allocation
+      const candidates = await this.getCandidates(caseId, pincode, pincodeTier, casePriority);
       
       if (candidates.length === 0) {
         return {
@@ -217,7 +266,8 @@ export class AllocationEngine {
         };
       }
 
-      // Filter candidates based on quality thresholds
+      // Filter candidates based on basic requirements (capacity only)
+      // Performance metrics are used for ranking, not filtering
       const eligibleCandidates = this.filterCandidates(candidates);
       
       if (eligibleCandidates.length === 0) {
@@ -229,7 +279,7 @@ export class AllocationEngine {
           score: 0,
           wave_number: 1,
           acceptance_deadline: '',
-          error: 'No candidates meet quality thresholds'
+          error: 'No candidates with available capacity found'
         };
       }
 
@@ -290,11 +340,21 @@ export class AllocationEngine {
       const acceptanceWindow = this.config.acceptance_window.minutes;
       const acceptanceDeadline = new Date(Date.now() + acceptanceWindow * 60 * 1000);
 
+      // If this is a vendor-based gig worker (not direct), allocate to the vendor instead
+      let actualCandidateId = candidate.candidate_id;
+      let actualCandidateType = candidate.candidate_type;
+      
+      if (candidate.candidate_type === 'gig' && !candidate.is_direct_gig && candidate.vendor_id) {
+        // Vendor-based gig worker: allocate to vendor instead
+        actualCandidateId = candidate.vendor_id;
+        actualCandidateType = 'vendor';
+      }
+
       // Use the new allocation function
       const { data: allocationResult, error: allocationError } = await supabase.rpc('allocate_case_to_candidate', {
         p_case_id: caseId,
-        p_candidate_id: candidate.candidate_id,
-        p_candidate_type: candidate.candidate_type,
+        p_candidate_id: actualCandidateId,
+        p_candidate_type: actualCandidateType,
         p_vendor_id: candidate.vendor_id
       });
 
@@ -315,8 +375,8 @@ export class AllocationEngine {
       return {
         success: true,
         case_id: caseId,
-        assignee_id: candidate.candidate_id,
-        assignee_type: candidate.candidate_type,
+        assignee_id: actualCandidateId,
+        assignee_type: actualCandidateType as 'gig' | 'vendor',
         vendor_id: candidate.vendor_id,
         score: candidate.final_score,
         wave_number: waveNumber,
@@ -507,11 +567,12 @@ export class AllocationEngine {
    */
   async reallocateCase(caseId: string): Promise<AllocationResult> {
     try {
-      // Get case details
+      // Get case details including priority
       const { data: caseData, error: caseError } = await supabase
         .from('cases')
         .select(`
           id,
+          priority,
           location:pincode,
           locations!inner(pincode_tier)
         `)
@@ -561,8 +622,14 @@ export class AllocationEngine {
 
       const excludedIds = previousCandidates?.map(p => p.candidate_id) || [];
       
-      // Get new candidates
-      const candidates = await this.getCandidates(caseId, caseData.location, caseData.locations.pincode_tier);
+      // Get new candidates with case priority
+      const casePriority = (caseData.priority as 'low' | 'medium' | 'high' | 'urgent') || 'medium';
+      const candidates = await this.getCandidates(
+        caseId, 
+        caseData.location, 
+        caseData.locations.pincode_tier,
+        casePriority
+      );
       const availableCandidates = candidates.filter(c => !excludedIds.includes(c.candidate_id));
       
       if (availableCandidates.length === 0) {

@@ -52,16 +52,17 @@ export class CSVParserService {
     };
 
     try {
-      // Parse CSV content
-      const lines = csvContent.split('\n').filter(line => line.trim());
-      if (lines.length < 2) {
+      // Parse CSV content properly handling multi-line quoted fields
+      const rows = this.parseCSVRows(csvContent);
+      
+      if (rows.length < 2) {
         result.errors.push('CSV must have at least a header row and one data row');
         result.success = false;
         return result;
       }
 
-      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-      const dataRows = lines.slice(1);
+      const headers = rows[0].map(h => h.trim().replace(/^"|"$/g, ''));
+      const dataRows = rows.slice(1);
 
       // Validate headers
       const requiredHeaders = [
@@ -91,18 +92,39 @@ export class CSVParserService {
 
       const contractTypeMap = new Map<string, any>();
       contractTypes.forEach(ct => {
-        contractTypeMap.set(ct.type_key, ct);
+        // Store with normalized key (lowercase, trimmed) for case-insensitive lookup
+        if (ct.type_key) {
+          const normalizedKey = ct.type_key.toLowerCase().trim();
+          contractTypeMap.set(normalizedKey, ct);
+        }
       });
+
+      // Helper function to check if a row is empty (all values are empty/whitespace)
+      const isEmptyRow = (values: string[]): boolean => {
+        return values.every(val => !val || val.trim() === '');
+      };
 
       // Parse each row (synchronously - no async operations needed)
       for (let i = 0; i < dataRows.length; i++) {
-        const row = dataRows[i];
-        const values = this.parseCSVRow(row);
+        const values = dataRows[i];
+        
+        // Skip empty rows (rows where all values are empty/whitespace)
+        if (isEmptyRow(values)) {
+          // Stop processing if we encounter an empty row (assume end of data)
+          break;
+        }
         
         if (values.length !== headers.length) {
           const rowData: Record<string, string> = {};
           headers.forEach((header, index) => {
-            rowData[header] = values[index] || '';
+            let value = values[index] || '';
+            value = value.trim();
+            // Remove surrounding quotes if present
+            if ((value.startsWith('"') && value.endsWith('"')) || 
+                (value.startsWith("'") && value.endsWith("'"))) {
+              value = value.slice(1, -1);
+            }
+            rowData[header] = value;
           });
           result.invalidRows.push({
             rowNumber: i + 2,
@@ -115,7 +137,15 @@ export class CSVParserService {
 
         const rowData: any = {};
         headers.forEach((header, index) => {
-          rowData[header] = values[index];
+          // Remove surrounding quotes and trim
+          let value = values[index] || '';
+          value = value.trim();
+          // Remove surrounding quotes if present
+          if ((value.startsWith('"') && value.endsWith('"')) || 
+              (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+          }
+          rowData[header] = value;
         });
 
         // Validate and convert row (synchronous - no await needed)
@@ -126,7 +156,7 @@ export class CSVParserService {
           // Store invalid row with original data and errors
           const invalidRowData: Record<string, string> = {};
           headers.forEach((header) => {
-            invalidRowData[header] = String(rowData[header] || '');
+            invalidRowData[header] = String(rowData[header] || '').trim();
           });
           result.invalidRows.push({
             rowNumber: i + 2,
@@ -150,7 +180,72 @@ export class CSVParserService {
   }
 
   /**
-   * Parse a single CSV row
+   * Parse entire CSV content into rows, properly handling multi-line quoted fields
+   */
+  private static parseCSVRows(csvContent: string): string[][] {
+    const rows: string[][] = [];
+    const currentRow: string[] = [];
+    let currentField = '';
+    let inQuotes = false;
+    let i = 0;
+
+    while (i < csvContent.length) {
+      const char = csvContent[i];
+      const nextChar = csvContent[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          // Escaped quote (double quote)
+          currentField += '"';
+          i += 2;
+          continue;
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+          i++;
+          continue;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // End of field
+        currentRow.push(currentField);
+        currentField = '';
+        i++;
+        continue;
+      } else if (!inQuotes && (char === '\n' || (char === '\r' && nextChar === '\n'))) {
+        // End of row (only if not inside quotes)
+        currentRow.push(currentField);
+        // Only add non-empty rows
+        if (currentRow.some(field => field.trim().length > 0)) {
+          rows.push([...currentRow]);
+        }
+        currentRow.length = 0;
+        currentField = '';
+        if (char === '\r' && nextChar === '\n') {
+          i += 2; // Skip \r\n
+        } else {
+          i++; // Skip \n
+        }
+        continue;
+      } else {
+        // Regular character (including newlines inside quoted fields)
+        currentField += char;
+        i++;
+      }
+    }
+
+    // Handle last field and row if CSV doesn't end with newline
+    if (currentField.length > 0 || currentRow.length > 0) {
+      currentRow.push(currentField);
+      if (currentRow.some(field => field.trim().length > 0)) {
+        rows.push([...currentRow]);
+      }
+    }
+
+    return rows;
+  }
+
+  /**
+   * Parse a single CSV row (for backward compatibility)
    */
   private static parseCSVRow(row: string): string[] {
     const result: string[] = [];
@@ -253,9 +348,13 @@ export class CSVParserService {
     }
 
     // Validate contract type using map (O(1) lookup) - only if contract_type is not blank
-    const contractType = contractTypeMap.get(rowData.contract_type);
+    // Normalize contract type for case-insensitive lookup
+    const contractTypeValue = String(rowData.contract_type || '').trim().toLowerCase();
+    const contractType = contractTypeMap.get(contractTypeValue);
     if (!contractType && !isBlank(rowData.contract_type)) {
-      errors.push(`Invalid contract type '${rowData.contract_type}'`);
+      // Get available contract types for better error message
+      const availableTypes = contractTypes.map(ct => ct.type_key).filter(Boolean).join(', ');
+      errors.push(`Invalid contract type '${rowData.contract_type}'. Available types: ${availableTypes}`);
     }
 
     // Validate priority - only if priority is not blank
@@ -309,7 +408,7 @@ export class CSVParserService {
     // Create parsed data with trimmed values
     const parsedData: ParsedCaseData = {
       client_id: client!.id,
-      contract_type: String(rowData.contract_type).trim(),
+      contract_type: contractType!.type_key, // Use the actual type_key from database
       candidate_name: String(rowData.candidate_name).trim(),
       company_name: trimValue(rowData.company_name),
       phone_primary: String(rowData.phone_primary).trim(),

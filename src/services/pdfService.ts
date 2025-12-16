@@ -500,12 +500,19 @@ export class PDFService {
         );
 
         // Create table with Question and Answer columns
-        const questionColWidth = contentWidth * 0.4; // 40% for questions (increased from 35%)
-        const answerColWidth = contentWidth * 0.6; // 60% for answers (reduced from 65%)
+        // Add small gap between columns to prevent overflow
+        const columnGap = 2; // 2mm gap between columns
+        const questionColWidth = contentWidth * 0.38; // 38% for questions (reduced from 40% to account for gap)
+        const answerColWidth = contentWidth * 0.60; // 60% for answers
         const questionColX = margin;
-        const answerColX = margin + questionColWidth; // No gap - columns are directly connected
+        const answerColX = margin + questionColWidth + columnGap; // Add gap between columns
         const rowHeight = 8; // Base row height
         const headerHeight = 10;
+        // Text padding: 3mm on each side = 6mm total, plus extra buffer for character width calculation inaccuracies
+        const textPadding = 3; // Padding from cell edge
+        const textWidthBuffer = 4; // Extra buffer for jsPDF character width calculation inaccuracies
+        const questionTextWidth = questionColWidth - (textPadding * 2) - textWidthBuffer;
+        const answerTextWidth = answerColWidth - (textPadding * 2) - textWidthBuffer;
 
         // Process text fields first
         if (textFields.length > 0) {
@@ -545,8 +552,8 @@ export class PDFService {
               // Question text
               doc.setFontSize(9);
               doc.setFont('helvetica', 'bold');
-              const questionLines = doc.splitTextToSize(fieldTitle, questionColWidth - 10);
-              doc.text(questionLines, questionColX + 3, yPosition);
+              const questionLines = doc.splitTextToSize(fieldTitle, questionTextWidth);
+              doc.text(questionLines, questionColX + textPadding, yPosition);
               
               // Answer - embed signature image
               if (signatureUrl) {
@@ -572,18 +579,21 @@ export class PDFService {
                     // Fallback to text if image can't be loaded
                     doc.setFontSize(8);
                     doc.setFont('helvetica', 'normal');
-                    doc.text('Signature image unavailable', answerColX + 3, yPosition);
+                    const errorLines = doc.splitTextToSize('Signature image unavailable', answerTextWidth);
+                    doc.text(errorLines, answerColX + textPadding, yPosition);
                   }
                 } catch (error) {
                   console.error('Error embedding signature in PDF table:', error);
                   doc.setFontSize(8);
                   doc.setFont('helvetica', 'normal');
-                  doc.text('Signature image unavailable', answerColX + 3, yPosition);
+                  const errorLines = doc.splitTextToSize('Signature image unavailable', answerTextWidth);
+                  doc.text(errorLines, answerColX + textPadding, yPosition);
                 }
               } else {
                 doc.setFontSize(9);
                 doc.setFont('helvetica', 'normal');
-                doc.text('Not provided', answerColX + 3, yPosition);
+                const notProvidedLines = doc.splitTextToSize('Not provided', answerTextWidth);
+                doc.text(notProvidedLines, answerColX + textPadding, yPosition);
               }
               
               // Row borders
@@ -598,9 +608,10 @@ export class PDFService {
               // Regular text field handling
               const formattedAnswer = this.formatValueForPDF(answer, field.field_type, submission, field.field_key, field.field_title);
               
-              // Estimate height needed for wrapped text - use narrower widths to prevent overlap
-              const questionLines = doc.splitTextToSize(fieldTitle, questionColWidth - 10); // Reduced width with padding
-              const answerLines = doc.splitTextToSize(formattedAnswer, answerColWidth - 10); // Reduced width with padding
+              // Estimate height needed for wrapped text - use conservative widths to prevent overflow
+              // Account for padding (3mm each side) and buffer for character width calculation inaccuracies
+              const questionLines = doc.splitTextToSize(fieldTitle, questionTextWidth);
+              const answerLines = doc.splitTextToSize(formattedAnswer, answerTextWidth);
               const actualRowHeight = Math.max(questionLines.length, answerLines.length) * lineHeight + 4;
               
               // Alternate row background
@@ -613,12 +624,12 @@ export class PDFService {
               // Question text - no row number
               doc.setFontSize(9);
               doc.setFont('helvetica', 'bold');
-              doc.text(questionLines, questionColX + 3, yPosition);
+              doc.text(questionLines, questionColX + textPadding, yPosition);
               
               // Answer text - start with proper spacing from column border
               doc.setFontSize(9);
               doc.setFont('helvetica', 'normal');
-              doc.text(answerLines, answerColX + 3, yPosition);
+              doc.text(answerLines, answerColX + textPadding, yPosition);
               
               // Row borders
               doc.setDrawColor(200, 200, 200);
@@ -640,8 +651,8 @@ export class PDFService {
           const summaryLines = aiSummary.split('\n').filter(line => line.trim().length > 0);
           const formattedSummary = summaryLines.length > 0 ? summaryLines.join('\n') : aiSummary;
           
-          // Estimate height needed for summary text
-          const summaryAnswerLines = doc.splitTextToSize(formattedSummary, answerColWidth - 10);
+          // Estimate height needed for summary text - use conservative width
+          const summaryAnswerLines = doc.splitTextToSize(formattedSummary, answerTextWidth);
           const summaryRowHeight = Math.max(summaryAnswerLines.length * lineHeight + 8, rowHeight);
           
           // Alternate row background (use same pattern as other rows)
@@ -655,13 +666,13 @@ export class PDFService {
           // Question text - "Summary"
           doc.setFontSize(9);
           doc.setFont('helvetica', 'bold');
-          const summaryQuestionLines = doc.splitTextToSize('Summary', questionColWidth - 10);
-          doc.text(summaryQuestionLines, questionColX + 3, yPosition);
+          const summaryQuestionLines = doc.splitTextToSize('Summary', questionTextWidth);
+          doc.text(summaryQuestionLines, questionColX + textPadding, yPosition);
           
           // Answer text - AI generated summary
           doc.setFontSize(9);
           doc.setFont('helvetica', 'normal');
-          doc.text(summaryAnswerLines, answerColX + 3, yPosition);
+          doc.text(summaryAnswerLines, answerColX + textPadding, yPosition);
           
           // Row borders
           doc.setDrawColor(200, 200, 200);
@@ -1061,6 +1072,149 @@ export class PDFService {
   }
 
   /**
+   * Sanitize text to remove invalid UTF-8 characters and encoding artifacts
+   * This fixes issues with corrupted text like "ÿý" characters in addresses
+   */
+  private static sanitizeText(text: string): string {
+    if (!text || typeof text !== 'string') {
+      return text;
+    }
+    
+    try {
+      // First, try to fix any encoding issues by ensuring proper UTF-8
+      // Remove BOM (Byte Order Mark) characters and other invalid UTF-8 sequences
+      let sanitized = text
+        // Remove BOM and zero-width characters
+        .replace(/[\uFEFF\u200B-\u200D\u2060]/g, '')
+        // Remove control characters except newlines, tabs, and carriage returns
+        .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+        // Remove invalid UTF-8 replacement characters and problematic sequences
+        // 0xFF (ÿ) and 0xFD (ý) are often encoding errors
+        .replace(/[\xFF\xFD]/g, '')
+        // Remove other problematic characters that might cause encoding issues
+        .replace(/[\uFFFE\uFFFF]/g, '')
+        // Remove any remaining non-printable characters that might cause issues
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+        // Normalize whitespace (replace multiple spaces with single space, but preserve intentional spacing)
+        .replace(/[ \t]+/g, ' ')
+        // Trim leading/trailing whitespace
+        .trim();
+      
+      // Additional check: if the text contains suspicious patterns that might indicate corruption
+      // Replace any remaining invalid character sequences
+      sanitized = sanitized.replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, '');
+      
+      return sanitized;
+    } catch (error) {
+      // If sanitization fails, return a cleaned version using basic string operations
+      console.warn('Text sanitization error:', error);
+      return text.replace(/[\x00-\x1F\x7F-\x9F\xFF\xFD]/g, '').trim();
+    }
+  }
+
+  /**
+   * Convert any value to a plain string, handling arrays, objects, and special cases
+   */
+  private static convertToString(value: any): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    
+    // If it's already a string, return it
+    if (typeof value === 'string') {
+      return value;
+    }
+    
+    // If it's an array, join the elements
+    if (Array.isArray(value)) {
+      return value.map(item => this.convertToString(item)).join(', ');
+    }
+    
+    // If it's an object, try to extract meaningful string representation
+    if (typeof value === 'object') {
+      // Check for common object patterns
+      if ('label' in value) {
+        return String(value.label);
+      }
+      if ('value' in value) {
+        return String(value.value);
+      }
+      if ('text' in value) {
+        return String(value.text);
+      }
+      // Try JSON stringify as last resort
+      try {
+        return JSON.stringify(value);
+      } catch (e) {
+        return String(value);
+      }
+    }
+    
+    // For numbers, booleans, etc., convert to string
+    return String(value);
+  }
+
+  /**
+   * Convert any value to a plain string, handling arrays, objects, and special cases
+   * This is especially important for address fields that might be stored in various formats
+   */
+  private static convertToPlainString(value: any): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    
+    // If it's already a string, return it
+    if (typeof value === 'string') {
+      return value;
+    }
+    
+    // If it's an array, join the elements
+    if (Array.isArray(value)) {
+      return value.map(item => {
+        if (typeof item === 'string') return item;
+        if (typeof item === 'object' && item !== null) {
+          if ('label' in item) return String(item.label);
+          if ('value' in item) return String(item.value);
+          if ('text' in item) return String(item.text);
+        }
+        return String(item);
+      }).filter(item => item).join(', ');
+    }
+    
+    // If it's an object, try to extract meaningful string representation
+    if (typeof value === 'object') {
+      // Check for common object patterns
+      if ('label' in value) {
+        return String(value.label);
+      }
+      if ('value' in value) {
+        return String(value.value);
+      }
+      if ('text' in value) {
+        return String(value.text);
+      }
+      // Try JSON stringify as last resort
+      try {
+        const jsonStr = JSON.stringify(value);
+        // If it's a simple object, try to extract values
+        if (jsonStr.startsWith('{') && jsonStr.includes(':')) {
+          const obj = value as Record<string, any>;
+          const values = Object.values(obj).filter(v => v !== null && v !== undefined);
+          if (values.length > 0) {
+            return values.map(v => String(v)).join(', ');
+          }
+        }
+        return jsonStr;
+      } catch (e) {
+        return String(value);
+      }
+    }
+    
+    // For numbers, booleans, etc., convert to string
+    return String(value);
+  }
+
+  /**
    * Format a value for PDF output based on field type
    */
   private static formatValueForPDF(
@@ -1079,19 +1233,47 @@ export class PDFService {
       return 'Not verified';
     }
 
+    // Special handling for address fields - convert to plain string first
+    const fieldKeyLower = (fieldKey || '').toLowerCase();
+    const fieldTitleLower = (fieldTitle || '').toLowerCase();
+    const isAddressField = fieldKeyLower.includes('address') || 
+                          fieldTitleLower.includes('address') ||
+                          fieldKeyLower === 'address_line' ||
+                          fieldKeyLower === 'current_residential_address' ||
+                          fieldKeyLower === 'applicant_address' ||
+                          fieldKeyLower === 'residential_address';
+    
+    if (isAddressField) {
+      // Convert address to plain string first, then sanitize
+      // Handle case where value might be stored incorrectly (array, object, or corrupted string)
+      let addressString = this.convertToPlainString(value);
+      
+      // Additional cleanup: remove any remaining invalid byte sequences
+      // Replace common encoding artifacts
+      addressString = addressString
+        .replace(/\xFF\xFD/g, '')  // Remove FF FD sequence (ÿý)
+        .replace(/\xFF/g, '')      // Remove any remaining FF bytes
+        .replace(/\xFD/g, '')      // Remove any remaining FD bytes
+        .replace(/[\uFF00-\uFFEF]/g, '') // Remove full-width characters that might be encoding errors
+        .replace(/\s+/g, ' ')      // Normalize whitespace
+        .trim();
+      
+      return this.sanitizeText(addressString);
+    }
+
     switch (fieldType) {
       case 'multiple_choice': {
         if (Array.isArray(value)) {
           return value.map(item => {
             if (typeof item === 'object' && item !== null && 'label' in item) {
-              return item.label;
+              return this.sanitizeText(String(item.label));
             }
-            return String(item);
+            return this.sanitizeText(String(item));
           }).join(', ');
         } else if (typeof value === 'object' && value !== null && 'label' in value) {
-          return value.label;
+          return this.sanitizeText(String(value.label));
         }
-        return String(value);
+        return this.sanitizeText(String(value));
       }
 
       case 'signature': {
@@ -1118,7 +1300,15 @@ export class PDFService {
           return 'No files uploaded';
         }
         
-        return fieldFiles.map(file => file.file_url).join('\n');
+        // Sanitize and truncate long URLs to prevent overflow (max 60 characters per URL)
+        return fieldFiles.map(file => {
+          const url = file.file_url || '';
+          const sanitizedUrl = this.sanitizeText(url);
+          if (sanitizedUrl.length > 60) {
+            return sanitizedUrl.substring(0, 57) + '...';
+          }
+          return sanitizedUrl;
+        }).join('\n');
       }
 
       case 'date': {
@@ -1199,14 +1389,14 @@ export class PDFService {
             if (isNaN(date.getTime())) {
               return 'Not verified';
             }
-            return date.toLocaleString(); // e.g., "1/15/2024, 2:30:00 PM"
+            return this.sanitizeText(date.toLocaleString()); // e.g., "1/15/2024, 2:30:00 PM"
           } else {
             // Regular date field or datetime field without time - show date only
             const date = new Date(value);
             if (isNaN(date.getTime())) {
               return 'Not verified';
             }
-            return date.toLocaleDateString();
+            return this.sanitizeText(date.toLocaleDateString());
           }
         } catch (e) {
           return 'Not verified';
@@ -1226,7 +1416,7 @@ export class PDFService {
         // For radio fields, check if it's an object with label/value
         if (typeof value === 'object' && value !== null) {
           if ('label' in value) {
-            return value.label;
+            return this.sanitizeText(String(value.label));
           }
           if ('value' in value) {
             const val = value.value;
@@ -1236,30 +1426,19 @@ export class PDFService {
             if (val === true || val === 'yes' || val === 'Yes' || val === 'true') {
               return 'Yes';
             }
-            return String(val);
+            return this.sanitizeText(String(val));
           }
         }
         // Otherwise return "Yes" only if value is explicitly true/yes
         return (value === true || value === 'yes' || value === 'Yes' || value === 'true') ? 'Yes' : 'Not verified';
 
       case 'number':
-        return String(value);
+        return this.sanitizeText(String(value));
 
       default: {
-        if (typeof value === 'object' && value !== null) {
-          if ('label' in value) {
-            return value.label;
-          }
-          if ('value' in value) {
-            return value.value;
-          }
-          try {
-            return JSON.stringify(value);
-          } catch (e) {
-            return '[Object]';
-          }
-        }
-        return String(value);
+        // For text fields and other types, convert to plain string first
+        const plainString = this.convertToPlainString(value);
+        return this.sanitizeText(plainString);
       }
     }
   }

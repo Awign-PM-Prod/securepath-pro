@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { notificationService } from './notificationService';
 import { caseNotificationService } from './caseNotificationService';
-import { allocationEngine, AllocationResult } from './allocationEngine';
+import { allocationEngine, AllocationResult, AllocationCandidate } from './allocationEngine';
 
 export interface AllocationRequest {
   caseId: string;
@@ -53,6 +53,131 @@ export interface BulkAllocationResult {
 
 export class AllocationService {
   /**
+   * Preview allocation candidates for cases without actually allocating
+   * Returns the best candidate for each case
+   */
+  async previewAllocation(caseIds: string[]): Promise<Array<{
+    caseId: string;
+    caseNumber: string;
+    candidate: AllocationCandidate | null;
+    error?: string;
+  }>> {
+    const previews: Array<{
+      caseId: string;
+      caseNumber: string;
+      candidate: AllocationCandidate | null;
+      error?: string;
+    }> = [];
+
+    for (const caseId of caseIds) {
+      try {
+        // Get case details
+        const { data: caseData, error: caseError } = await supabase
+          .from('cases')
+          .select(`
+            id,
+            case_number,
+            priority,
+            location:locations(
+              pincode,
+              pincode_tier
+            ),
+            client:clients(
+              id,
+              client_contracts(id, contract_type)
+            )
+          `)
+          .eq('id', caseId)
+          .eq('is_active', true)
+          .single();
+
+        if (caseError || !caseData) {
+          previews.push({
+            caseId,
+            caseNumber: 'Unknown',
+            candidate: null,
+            error: `Failed to fetch case: ${caseError?.message || 'Case not found'}`
+          });
+          continue;
+        }
+
+        const pincode = (caseData.location as any)?.pincode;
+        const pincodeTier = (caseData.location as any)?.pincode_tier || 'tier3';
+        const casePriority = (caseData.priority as 'low' | 'medium' | 'high' | 'urgent') || 'medium';
+
+        if (!pincode || !pincodeTier) {
+          previews.push({
+            caseId,
+            caseNumber: caseData.case_number || 'Unknown',
+            candidate: null,
+            error: 'Case missing pincode or tier information'
+          });
+          continue;
+        }
+
+        // Get best candidate without allocating
+        const candidates = await allocationEngine.getCandidates(
+          caseId,
+          pincode,
+          pincodeTier,
+          casePriority
+        );
+
+        if (candidates.length === 0) {
+          previews.push({
+            caseId,
+            caseNumber: caseData.case_number || 'Unknown',
+            candidate: null,
+            error: 'No eligible candidates found'
+          });
+          continue;
+        }
+
+        // Filter by capacity only - performance metrics used for ranking, not filtering
+        const eligibleCandidates = candidates.filter(c => 
+          c.capacity_available > 0
+        );
+
+        if (eligibleCandidates.length === 0) {
+          previews.push({
+            caseId,
+            caseNumber: caseData.case_number || 'Unknown',
+            candidate: null,
+            error: 'No candidates with available capacity found'
+          });
+          continue;
+        }
+
+        // Calculate scores and get best candidate
+        const scoredCandidates = eligibleCandidates.map(candidate => ({
+          ...candidate,
+          final_score: allocationEngine.calculateScore(candidate)
+        }));
+
+        scoredCandidates.sort((a, b) => (b.final_score || 0) - (a.final_score || 0));
+        const bestCandidate = scoredCandidates[0];
+
+        previews.push({
+          caseId,
+          caseNumber: caseData.case_number || 'Unknown',
+          candidate: bestCandidate,
+          casePincode: pincode,
+        });
+
+      } catch (error) {
+        previews.push({
+          caseId,
+          caseNumber: 'Unknown',
+          candidate: null,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    return previews;
+  }
+
+  /**
    * Allocate multiple cases in bulk
    */
   async allocateCases(caseIds: string[]): Promise<BulkAllocationResult> {
@@ -66,11 +191,12 @@ export class AllocationService {
     // Process cases sequentially to avoid capacity conflicts
     for (const caseId of caseIds) {
       try {
-        // Get case details with proper joins
+        // Get case details with proper joins including priority
         const { data: caseData, error: caseError } = await supabase
           .from('cases')
           .select(`
             id,
+            priority,
             location:locations(
               pincode,
               pincode_tier
@@ -100,12 +226,15 @@ export class AllocationService {
           throw new Error('Case missing client contract information');
         }
 
-        // Allocate the case
+        // Get case priority
+        const casePriority = (caseData as any).priority || 'medium';
+        
+        // Allocate the case with priority
         const result = await this.allocateCase({
           caseId,
           pincode,
           pincodeTier,
-          priority: 'medium'
+          priority: casePriority as 'low' | 'medium' | 'high' | 'urgent'
         });
 
         console.log(`Allocation result for case ${caseId}:`, result);
@@ -146,11 +275,13 @@ export class AllocationService {
     try {
       console.log('Starting allocation for case:', request.caseId);
       
-      // Use the allocation engine to find the best candidate
+      // Use the allocation engine to find the best candidate with priority
+      const casePriority = request.priority || 'medium';
       const result = await allocationEngine.allocateCase(
         request.caseId,
         request.pincode,
-        request.pincodeTier
+        request.pincodeTier,
+        casePriority
       );
 
       console.log('Allocation engine result:', result);
@@ -909,11 +1040,12 @@ export class AllocationService {
    */
   private async triggerReallocation(caseId: string) {
     try {
-      // Get case details for reallocation
+      // Get case details for reallocation including priority
       const { data: caseData, error: caseError } = await supabase
         .from('cases')
         .select(`
           *,
+          priority,
           locations(pincode),
           client_contracts(contract_type)
         `)
@@ -928,12 +1060,15 @@ export class AllocationService {
       // Get pincode tier
       const pincodeTier = await this.getPincodeTier(caseData.locations.pincode);
 
-      // Attempt reallocation
+      // Get case priority
+      const casePriority = (caseData.priority as 'low' | 'medium' | 'high' | 'urgent') || 'medium';
+
+      // Attempt reallocation with priority
       const result = await this.allocateCase({
         caseId: caseId,
         pincode: caseData.locations.pincode,
         pincodeTier: pincodeTier,
-        priority: 'medium'
+        priority: casePriority
       });
 
       if (!result.success) {

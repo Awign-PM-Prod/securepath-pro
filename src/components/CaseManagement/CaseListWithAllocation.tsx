@@ -19,8 +19,10 @@ import { useToast } from '@/hooks/use-toast';
 import { allocationService } from '@/services/allocationService';
 import { allocationSummaryService, AllocationSummaryData } from '@/services/allocationSummaryService';
 import AllocationSummary from '@/components/Allocation/AllocationSummary';
+import AllocationConfirmationDialog from '@/components/Allocation/AllocationConfirmationDialog';
 import BulkCaseUpload from '@/components/BulkCaseUpload';
 import { supabase } from '@/integrations/supabase/client';
+import { AllocationCandidate } from '@/services/allocationEngine';
 
 interface Case {
   id: string;
@@ -193,6 +195,13 @@ export default function CaseListWithAllocation({
   const [isDownloading, setIsDownloading] = useState(false);
   const [sortBy, setSortBy] = useState<'due_at_asc' | 'due_at_desc' | 'none'>('none');
   const [qcStats, setQcStats] = useState({ all: 0, approved: 0, rejected: 0, rework: 0 });
+  const [allocationPreview, setAllocationPreview] = useState<Array<{
+    caseId: string;
+    caseNumber: string;
+    candidate: AllocationCandidate | null;
+    error?: string;
+  }>>([]);
+  const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
   const { toast } = useToast();
 
   // Helper function to check if a case matches the search term across all metadata
@@ -570,9 +579,34 @@ export default function CaseListWithAllocation({
   };
 
   const handleAutoAllocate = async () => {
+    if (selectedAllocatableCases.length === 0) {
+      toast({
+        title: 'No Cases Selected',
+        description: 'Please select at least one case to allocate',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setIsAllocating(true);
+    try {
+      // Get preview of allocation candidates
+      const previews = await allocationService.previewAllocation(selectedAllocatableCases);
+      setAllocationPreview(previews);
+      setIsConfirmationDialogOpen(true);
+    } catch (error) {
+      console.error('Failed to preview allocation:', error);
+      const { getErrorToast } = await import('@/utils/errorMessages');
+      toast(getErrorToast(error));
+    } finally {
+      setIsAllocating(false);
+    }
+  };
+
+  const handleConfirmAllocation = async () => {
+    setIsAllocating(true);
     setAllocationResults(null);
+    setIsConfirmationDialogOpen(false);
 
     try {
       const results = await allocationService.allocateCases(selectedAllocatableCases);
@@ -612,6 +646,11 @@ export default function CaseListWithAllocation({
     } finally {
       setIsAllocating(false);
     }
+  };
+
+  const handleCancelAllocation = () => {
+    setIsConfirmationDialogOpen(false);
+    setAllocationPreview([]);
   };
 
   const handleManualAllocate = async () => {
@@ -1923,6 +1962,17 @@ export default function CaseListWithAllocation({
             </div>
           </div>
         )}
+
+        {/* Allocation Confirmation Dialog */}
+        <AllocationConfirmationDialog
+          open={isConfirmationDialogOpen}
+          onOpenChange={setIsConfirmationDialogOpen}
+          previews={allocationPreview}
+          onConfirm={handleConfirmAllocation}
+          onCancel={handleCancelAllocation}
+          onPreviewsChange={setAllocationPreview}
+          isAllocating={isAllocating}
+        />
 
         {/* Allocation Dialog */}
         <Dialog open={isAllocationDialogOpen} onOpenChange={setIsAllocationDialogOpen}>
