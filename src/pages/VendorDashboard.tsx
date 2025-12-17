@@ -4,7 +4,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -37,7 +36,8 @@ import {
   Calendar,
   UserPlus,
   FileText,
-  User
+  User,
+  ArrowLeft
 } from 'lucide-react';
 import DynamicFormSubmission from '@/components/CaseManagement/DynamicFormSubmission';
 
@@ -142,6 +142,7 @@ const VendorDashboard: React.FC = () => {
   const [unassignedCases, setUnassignedCases] = useState<Case[]>([]);
   const [reworkCases, setReworkCases] = useState<Case[]>([]);
   const [isMobile, setIsMobile] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
   // Assignment dialog state
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
@@ -1798,67 +1799,77 @@ const VendorDashboard: React.FC = () => {
         </Card>
       </div>
 
-      <Tabs defaultValue="pending" className={`space-y-4 ${isMobile ? 'mx-2' : ''}`}>
-        <TabsList className={`grid w-full ${isMobile ? 'grid-cols-5 gap-1 h-12' : 'grid-cols-5'} ${isMobile ? 'overflow-x-auto' : ''}`}>
-          <TabsTrigger 
-            value="pending" 
-            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+      {/* Category Cards View */}
+      {!selectedCategory && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <Card 
+            className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-blue-500"
+            onClick={() => setSelectedCategory('pending')}
           >
-            <span className={isMobile ? 'text-xs font-medium' : ''}>
-              {isMobile ? 'Pending' : 'Pending Cases'}
-            </span>
-            <span className={isMobile ? 'text-xs font-bold text-blue-600' : ''}>
-              ({pendingCases.length})
-            </span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="in-progress" 
-            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+            <CardContent className="p-6 text-center">
+              <div className="text-3xl font-bold text-blue-600 mb-2">{pendingCases.length}</div>
+              <div className="text-sm font-medium text-gray-700">Pending</div>
+            </CardContent>
+          </Card>
+          
+          <Card 
+            className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-orange-500"
+            onClick={() => setSelectedCategory('in-progress')}
           >
-            <span className={isMobile ? 'text-xs font-medium' : ''}>
-              {isMobile ? 'Progress' : 'In Progress'}
-            </span>
-            <span className={isMobile ? 'text-xs font-bold text-orange-600' : ''}>
-              ({inProgressCases.length})
-            </span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="unassigned" 
-            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+            <CardContent className="p-6 text-center">
+              <div className="text-3xl font-bold text-orange-600 mb-2">{inProgressCases.length}</div>
+              <div className="text-sm font-medium text-gray-700">In Progress</div>
+            </CardContent>
+          </Card>
+          
+          <Card 
+            className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-green-500"
+            onClick={() => setSelectedCategory('unassigned')}
           >
-            <span className={isMobile ? 'text-xs font-medium' : ''}>
-              {isMobile ? 'Available' : 'Unassigned Cases'}
-            </span>
-            <span className={isMobile ? 'text-xs font-bold text-green-600' : ''}>
-              ({unassignedCases.length})
-            </span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="gig-workers" 
-            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
+            <CardContent className="p-6 text-center">
+              <div className="text-3xl font-bold text-green-600 mb-2">{unassignedCases.length}</div>
+              <div className="text-sm font-medium text-gray-700">Unassigned</div>
+            </CardContent>
+          </Card>
+          
+          <Card 
+            className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-red-500"
+            onClick={() => setSelectedCategory('rework')}
           >
-            <span className={isMobile ? 'text-xs font-medium' : ''}>
-              {isMobile ? 'Workers' : 'Gig Workers'}
-            </span>
-            <span className={isMobile ? 'text-xs font-bold text-purple-600' : ''}>
-              ({gigWorkers.length})
-            </span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="rework" 
-            className={isMobile ? 'text-xs px-1 min-w-0 h-10 text-center flex flex-col items-center justify-center py-1' : ''}
-          >
-            <span className={isMobile ? 'text-xs font-medium' : ''}>
-              {isMobile ? 'Rework' : 'Rework Cases'}
-            </span>
-            <span className={isMobile ? 'text-xs font-bold text-red-600' : ''}>
-              ({reworkCases.length})
-            </span>
-          </TabsTrigger>
-        </TabsList>
+            <CardContent className="p-6 text-center">
+              <div className="text-3xl font-bold text-red-600 mb-2">{reworkCases.length}</div>
+              <div className="text-sm font-medium text-gray-700">Rework</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-        {/* Pending Cases Tab */}
-        <TabsContent value="pending" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+      {/* Cases View for Selected Category */}
+      {selectedCategory && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedCategory(null)}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+              <h2 className="text-xl font-semibold">
+                {selectedCategory === 'pending' && 'Pending Cases'}
+                {selectedCategory === 'in-progress' && 'In Progress Cases'}
+                {selectedCategory === 'unassigned' && 'Unassigned Cases'}
+                {selectedCategory === 'rework' && 'Rework Cases'}
+              </h2>
+            </div>
+          </div>
+
+          {/* Pending Cases */}
+          {selectedCategory === 'pending' && (
+            <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
           <Card className={isMobile ? 'shadow-sm border-0' : ''}>
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <div className="flex items-center justify-between">
@@ -2052,10 +2063,12 @@ const VendorDashboard: React.FC = () => {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+          </div>
+          )}
 
-        {/* In Progress Cases Tab */}
-        <TabsContent value="in-progress" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          {/* In Progress Cases */}
+          {selectedCategory === 'in-progress' && (
+            <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
           <Card className={isMobile ? 'shadow-sm border-0' : ''}>
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <CardTitle className={isMobile ? 'text-lg' : ''}>In Progress Cases</CardTitle>
@@ -2197,10 +2210,12 @@ const VendorDashboard: React.FC = () => {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+          </div>
+          )}
 
-        {/* Unassigned Cases Tab */}
-        <TabsContent value="unassigned" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          {/* Unassigned Cases */}
+          {selectedCategory === 'unassigned' && (
+            <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
           <Card className={isMobile ? 'shadow-sm border-0' : ''}>
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <div className="flex items-center justify-between">
@@ -2317,162 +2332,12 @@ const VendorDashboard: React.FC = () => {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+          </div>
+          )}
 
-        {/* Gig Workers Tab */}
-        <TabsContent value="gig-workers" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
-          <Card className={isMobile ? 'shadow-sm border-0' : ''}>
-            <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
-              <CardTitle className={isMobile ? 'text-lg' : ''}>Gig Workers</CardTitle>
-              <CardDescription className={isMobile ? 'text-sm' : ''}>
-                Manage your gig workers and their capacity
-              </CardDescription>
-            </CardHeader>
-            <CardContent className={isMobile ? 'px-2' : ''}>
-              {gigWorkers.length === 0 ? (
-                <div className={`text-center py-8 text-muted-foreground ${isMobile ? 'mx-2' : ''}`}>
-                  No gig workers found
-                </div>
-              ) : (
-                <>
-                  {isMobile ? (
-                    // Mobile: Card layout for gig workers
-                    <div className="space-y-3 px-1">
-                      {gigWorkers.map((worker) => (
-                        <Card key={worker.id} className="mb-3 shadow-sm border-0 bg-white">
-                          <CardHeader className="pb-2 px-4 pt-4">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1 min-w-0 pr-2">
-                                <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
-                                  {worker.first_name} {worker.last_name}
-                                </CardTitle>
-                                <CardDescription className="text-sm text-gray-600 mt-1">
-                                  {worker.email}
-                                </CardDescription>
-                              </div>
-                              <div className="flex flex-col items-end gap-1.5">
-                                <Badge variant={worker.is_available ? 'default' : 'secondary'}>
-                                  {worker.is_available ? 'Available' : 'Busy'}
-                                </Badge>
-                              </div>
-                            </div>
-                          </CardHeader>
-                          <CardContent className="px-4 pb-4 space-y-3">
-                            {/* Contact Info */}
-                            <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                              <div className="flex items-center gap-2">
-                                <Phone className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                                <span className="font-semibold text-sm text-gray-900">{worker.phone}</span>
-                              </div>
-                              <div className="flex items-center gap-2 text-sm text-gray-600">
-                                <MapPin className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
-                                <span className="break-all">{worker.city}, {worker.state}</span>
-                              </div>
-                            </div>
-
-                            {/* Capacity */}
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium">Capacity</span>
-                                <span className="text-sm font-bold text-blue-600">
-                                  {worker.capacity_available}/{worker.max_daily_capacity}
-                                </span>
-                              </div>
-                              <div className="w-full bg-gray-200 rounded-full h-2">
-                                <div 
-                                  className="bg-blue-600 h-2 rounded-full" 
-                                  style={{ 
-                                    width: `${(worker.capacity_available / worker.max_daily_capacity) * 100}%` 
-                                  }}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Performance */}
-                            <div className="bg-blue-50 rounded-lg p-3">
-                              <div className="text-xs font-medium text-blue-900 mb-2">Performance</div>
-                              <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div>Quality: {(worker.quality_score * 100).toFixed(1)}%</div>
-                                <div>Completion: {(worker.completion_rate * 100).toFixed(1)}%</div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  ) : (
-                    // Desktop: Table layout
-                    <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Capacity</TableHead>
-                      <TableHead>Vendor Association</TableHead>
-                      <TableHead>Performance</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {gigWorkers.map((worker) => (
-                      <TableRow key={worker.id}>
-                        <TableCell>
-                          {worker.first_name} {worker.last_name}
-                        </TableCell>
-                        <TableCell>{worker.email}</TableCell>
-                        <TableCell>{worker.phone}</TableCell>
-                        <TableCell>
-                          {worker.city}, {worker.state}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-2">
-                            <span>{worker.capacity_available}/{worker.max_daily_capacity}</span>
-                            <div className="w-16 bg-gray-200 rounded-full h-2">
-                              <div 
-                                className="bg-blue-600 h-2 rounded-full" 
-                                style={{ 
-                                  width: `${(worker.capacity_available / worker.max_daily_capacity) * 100}%` 
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <VendorAssociationBadge 
-                            gigWorker={{
-                              vendor_id: worker.vendor_id,
-                              is_direct_gig: worker.is_direct_gig,
-                              vendor_name: worker.vendor_name
-                            }} 
-                            size="sm"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div>Quality: {(worker.quality_score * 100).toFixed(1)}%</div>
-                            <div>Completion: {(worker.completion_rate * 100).toFixed(1)}%</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={worker.is_available ? 'default' : 'secondary'}>
-                            {worker.is_available ? 'Available' : 'Busy'}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Rework Cases Tab */}
-        <TabsContent value="rework" className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
+          {/* Rework Cases */}
+          {selectedCategory === 'rework' && (
+            <div className={`space-y-4 ${isMobile ? 'px-1' : ''}`}>
           <Card className={isMobile ? 'shadow-sm border-0' : ''}>
             <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
               <div className="flex items-center justify-between">
@@ -2730,8 +2595,162 @@ const VendorDashboard: React.FC = () => {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+          </div>
+          )}
+        </div>
+      )}
+
+      {/* Gig Workers Section - Always visible */}
+      <div className={`space-y-4 ${isMobile ? 'mx-2' : ''}`}>
+        <Card className={isMobile ? 'shadow-sm border-0' : ''}>
+          <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
+            <CardTitle className={isMobile ? 'text-lg' : ''}>Gig Workers</CardTitle>
+            <CardDescription className={isMobile ? 'text-sm' : ''}>
+              Manage your gig workers and their capacity
+            </CardDescription>
+          </CardHeader>
+          <CardContent className={isMobile ? 'px-2' : ''}>
+            {gigWorkers.length === 0 ? (
+              <div className={`text-center py-8 text-muted-foreground ${isMobile ? 'mx-2' : ''}`}>
+                No gig workers found
+              </div>
+            ) : (
+              <>
+                {isMobile ? (
+                  // Mobile: Card layout for gig workers
+                  <div className="space-y-3 px-1">
+                    {gigWorkers.map((worker) => (
+                      <Card key={worker.id} className="mb-3 shadow-sm border-0 bg-white">
+                        <CardHeader className="pb-2 px-4 pt-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0 pr-2">
+                              <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
+                                {worker.first_name} {worker.last_name}
+                              </CardTitle>
+                              <CardDescription className="text-sm text-gray-600 mt-1">
+                                {worker.email}
+                              </CardDescription>
+                            </div>
+                            <div className="flex flex-col items-end gap-1.5">
+                              <Badge variant={worker.is_available ? 'default' : 'secondary'}>
+                                {worker.is_available ? 'Available' : 'Busy'}
+                              </Badge>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="px-4 pb-4 space-y-3">
+                          {/* Contact Info */}
+                          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                              <span className="font-semibold text-sm text-gray-900">{worker.phone}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <MapPin className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+                              <span className="break-all">{worker.city}, {worker.state}</span>
+                            </div>
+                          </div>
+
+                          {/* Capacity */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">Capacity</span>
+                              <span className="text-sm font-bold text-blue-600">
+                                {worker.capacity_available}/{worker.max_daily_capacity}
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className="bg-blue-600 h-2 rounded-full" 
+                                style={{ 
+                                  width: `${(worker.capacity_available / worker.max_daily_capacity) * 100}%` 
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Performance */}
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <div className="text-xs font-medium text-blue-900 mb-2">Performance</div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>Quality: {(worker.quality_score * 100).toFixed(1)}%</div>
+                              <div>Completion: {(worker.completion_rate * 100).toFixed(1)}%</div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  // Desktop: Table layout
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Location</TableHead>
+                        <TableHead>Capacity</TableHead>
+                        <TableHead>Vendor Association</TableHead>
+                        <TableHead>Performance</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {gigWorkers.map((worker) => (
+                        <TableRow key={worker.id}>
+                          <TableCell>
+                            {worker.first_name} {worker.last_name}
+                          </TableCell>
+                          <TableCell>{worker.email}</TableCell>
+                          <TableCell>{worker.phone}</TableCell>
+                          <TableCell>
+                            {worker.city}, {worker.state}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              <span>{worker.capacity_available}/{worker.max_daily_capacity}</span>
+                              <div className="w-16 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-600 h-2 rounded-full" 
+                                  style={{ 
+                                    width: `${(worker.capacity_available / worker.max_daily_capacity) * 100}%` 
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <VendorAssociationBadge 
+                              gigWorker={{
+                                vendor_id: worker.vendor_id,
+                                is_direct_gig: worker.is_direct_gig,
+                                vendor_name: worker.vendor_name
+                              }} 
+                              size="sm"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <div>Quality: {(worker.quality_score * 100).toFixed(1)}%</div>
+                              <div>Completion: {(worker.completion_rate * 100).toFixed(1)}%</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={worker.is_available ? 'default' : 'secondary'}>
+                              {worker.is_available ? 'Available' : 'Busy'}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Assignment Dialog */}
       <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
