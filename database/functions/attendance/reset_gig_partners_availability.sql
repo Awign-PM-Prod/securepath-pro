@@ -42,3 +42,5 @@ $$;
 GRANT EXECUTE ON FUNCTION public.reset_gig_partners_availability() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.reset_gig_partners_availability() TO service_role;
 
+
+

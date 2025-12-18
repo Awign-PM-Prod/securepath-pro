@@ -23,6 +23,7 @@ import AllocationConfirmationDialog from '@/components/Allocation/AllocationConf
 import BulkCaseUpload from '@/components/BulkCaseUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { AllocationCandidate } from '@/services/allocationEngine';
+import { useClients } from '@/hooks/useClients';
 
 interface Case {
   id: string;
@@ -209,6 +210,9 @@ export default function CaseListWithAllocation({
   }>>([]);
   const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
   const { toast } = useToast();
+  
+  // Load all clients for the filter dropdown (not just clients from current page cases)
+  const { data: allClients = [], isLoading: isLoadingClients } = useClients();
 
   // Helper function to check if a case matches the search term across all metadata
   // Moved before filteredCasesForStats to avoid dependency issues
@@ -1506,14 +1510,13 @@ export default function CaseListWithAllocation({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Clients</SelectItem>
-                {Array.from(new Set(cases.map(c => c.client.id))).map(clientId => {
-                  const client = cases.find(c => c.client.id === clientId)?.client;
-                  return (
-                    <SelectItem key={clientId} value={clientId}>
-                      {client?.name || 'Unknown Client'}
+                {allClients
+                  .filter(client => client.is_active) // Only show active clients
+                  .map(client => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
                     </SelectItem>
-                  );
-                })}
+                  ))}
               </SelectContent>
             </Select>
             

@@ -191,3 +191,5 @@ Potential improvements:
 4. Add email/SMS notifications for attendance reminders
 5. Add configurable reset time per gig worker or group
 
+
+

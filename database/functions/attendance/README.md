@@ -208,3 +208,5 @@ LIMIT 10;
 3. Verify the `checkAvailability` function is being called
 4. Check network tab to see if the API call is successful
 
+
+
