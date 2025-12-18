@@ -71,12 +71,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       const lastSeenAt = gigWorker.last_seen_at ? new Date(gigWorker.last_seen_at) : null;
       
-      // Only update if last sign-in was today (or null/never signed in)
-      // If last sign-in was yesterday or earlier, don't update (attendance popup will handle it)
-      const shouldUpdate = !lastSeenAt || lastSeenAt >= today;
+      // Only update if last sign-in was today
+      // If last sign-in was NULL (never signed in), yesterday, or earlier - don't update (attendance popup will handle it)
+      const shouldUpdate = lastSeenAt && lastSeenAt >= today;
       
       if (!shouldUpdate) {
-        // Last sign-in was yesterday or earlier - don't update, attendance popup will handle it
+        // Last sign-in was NULL, yesterday, or earlier - don't update, attendance popup will handle it
         return;
       }
 
