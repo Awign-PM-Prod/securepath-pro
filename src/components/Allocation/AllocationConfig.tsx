@@ -86,6 +86,8 @@ export default function AllocationConfig() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [hasScoringWeightsChanges, setHasScoringWeightsChanges] = useState(false);
+  const [changedWeightFields, setChangedWeightFields] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   useEffect(() => {
@@ -115,6 +117,8 @@ export default function AllocationConfig() {
       if (Object.keys(loadedConfig).length > 0) {
         setConfig(prev => ({ ...prev, ...loadedConfig }));
       }
+      setHasScoringWeightsChanges(false);
+      setChangedWeightFields(new Set());
     } catch (error) {
       console.error('Failed to load config:', error);
       toast({
@@ -141,12 +145,18 @@ export default function AllocationConfig() {
   const handleSliderChange = (section: keyof AllocationConfig, field: string, value: number[]) => {
     const newValue = value[0] / 100; // Convert percentage to decimal
     handleConfigChange(section, field, newValue);
+    if (section === 'scoring_weights') {
+      setHasScoringWeightsChanges(true);
+      // Track all fields that have been changed
+      setChangedWeightFields(prev => new Set(prev).add(field));
+    }
   };
 
   const validateWeights = () => {
     const weights = config.scoring_weights;
     const total = weights.quality_score + weights.completion_rate + weights.ontime_completion_rate + weights.acceptance_rate;
-    return Math.abs(total - 1.0) < 0.01; // Allow small floating point errors
+    // Check if total is exactly 100% (allowing for small floating point errors)
+    return Math.abs(total - 1.0) < 0.001;
   };
 
   const normalizeWeights = () => {
@@ -155,15 +165,133 @@ export default function AllocationConfig() {
     
     if (total === 0) return;
 
-    setConfig(prev => ({
-      ...prev,
-      scoring_weights: {
-        quality_score: weights.quality_score / total,
-        completion_rate: weights.completion_rate / total,
-        ontime_completion_rate: weights.ontime_completion_rate / total,
-        acceptance_rate: weights.acceptance_rate / total,
-      }
-    }));
+    // If no fields were recently changed, normalize all fields proportionally
+    if (changedWeightFields.size === 0) {
+      setConfig(prev => ({
+        ...prev,
+        scoring_weights: {
+          quality_score: weights.quality_score / total,
+          completion_rate: weights.completion_rate / total,
+          ontime_completion_rate: weights.ontime_completion_rate / total,
+          acceptance_rate: weights.acceptance_rate / total,
+        }
+      }));
+      // Clear tracking after normalization
+      setChangedWeightFields(new Set());
+      return;
+    }
+
+    // Keep all changed fields static, adjust others proportionally
+    const allFields = ['quality_score', 'completion_rate', 'ontime_completion_rate', 'acceptance_rate'];
+    const staticFields = Array.from(changedWeightFields);
+    const dynamicFields = allFields.filter(field => !changedWeightFields.has(field));
+
+    // Calculate the sum of static fields
+    const staticFieldsSum = staticFields.reduce((sum, field) => {
+      return sum + weights[field as keyof typeof weights];
+    }, 0);
+
+    const remainingTotal = 1.0 - staticFieldsSum; // What should remain for the dynamic fields
+    
+    if (remainingTotal <= 0) {
+      const fieldNames = staticFields.map(f => f.replace(/_/g, ' ')).join(', ');
+      toast({
+        title: 'Cannot Normalize',
+        description: `The ${fieldNames} value(s) are too high (total: ${(staticFieldsSum * 100).toFixed(1)}%). Please reduce them first.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Calculate the sum of the dynamic fields
+    const dynamicFieldsSum = dynamicFields.reduce((sum, field) => {
+      return sum + weights[field as keyof typeof weights];
+    }, 0);
+
+    if (dynamicFieldsSum === 0) {
+      // If all dynamic fields are 0, distribute remainingTotal equally
+      const equalValue = dynamicFields.length > 0 ? remainingTotal / dynamicFields.length : 0;
+      setConfig(prev => ({
+        ...prev,
+        scoring_weights: {
+          quality_score: changedWeightFields.has('quality_score') 
+            ? weights.quality_score 
+            : equalValue,
+          completion_rate: changedWeightFields.has('completion_rate') 
+            ? weights.completion_rate 
+            : equalValue,
+          ontime_completion_rate: changedWeightFields.has('ontime_completion_rate') 
+            ? weights.ontime_completion_rate 
+            : equalValue,
+          acceptance_rate: changedWeightFields.has('acceptance_rate') 
+            ? weights.acceptance_rate 
+            : equalValue,
+        }
+      }));
+    } else {
+      // Adjust dynamic fields proportionally
+      const scaleFactor = remainingTotal / dynamicFieldsSum;
+      setConfig(prev => ({
+        ...prev,
+        scoring_weights: {
+          quality_score: changedWeightFields.has('quality_score') 
+            ? weights.quality_score 
+            : weights.quality_score * scaleFactor,
+          completion_rate: changedWeightFields.has('completion_rate') 
+            ? weights.completion_rate 
+            : weights.completion_rate * scaleFactor,
+          ontime_completion_rate: changedWeightFields.has('ontime_completion_rate') 
+            ? weights.ontime_completion_rate 
+            : weights.ontime_completion_rate * scaleFactor,
+          acceptance_rate: changedWeightFields.has('acceptance_rate') 
+            ? weights.acceptance_rate 
+            : weights.acceptance_rate * scaleFactor,
+        }
+      }));
+    }
+    
+    // Clear the tracking after normalization - only fields changed after this will be tracked
+    setChangedWeightFields(new Set());
+  };
+
+  const saveScoringWeights = async () => {
+    if (!validateWeights()) {
+      toast({
+        title: 'Invalid Configuration',
+        description: 'Scoring weights must add up to exactly 100%',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+      const { error } = await supabase
+        .from('allocation_config')
+        .upsert({
+          config_key: 'scoring_weights',
+          config_value: config.scoring_weights,
+          updated_by: userId
+        }, { onConflict: 'config_key' });
+
+      if (error) throw error;
+
+      setHasScoringWeightsChanges(false);
+      toast({
+        title: 'Scoring Weights Saved',
+        description: 'Scoring weights have been updated successfully. These weights will be used to calculate total_score for all gig workers.',
+      });
+    } catch (error) {
+      console.error('Failed to save scoring weights:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save scoring weights',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const saveConfig = async () => {
@@ -192,6 +320,7 @@ export default function AllocationConfig() {
       if (error) throw error;
 
       setHasChanges(false);
+      setHasScoringWeightsChanges(false);
       toast({
         title: 'Configuration Saved',
         description: 'Allocation settings have been updated successfully',
@@ -211,6 +340,8 @@ export default function AllocationConfig() {
   const resetConfig = () => {
     loadConfig();
     setHasChanges(false);
+    setHasScoringWeightsChanges(false);
+    setChangedWeightFields(new Set());
   };
 
   if (isLoading) {
@@ -261,7 +392,7 @@ export default function AllocationConfig() {
                 Scoring Weights
               </CardTitle>
               <CardDescription>
-                Configure how different factors are weighted in the allocation algorithm
+                Configure the percentage weights used to calculate total_score for each gig worker. The sum of all four weights must equal 100%.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -341,7 +472,7 @@ export default function AllocationConfig() {
                 </p>
               </div>
 
-              <div className="border-t pt-4">
+              <div className="border-t pt-4 space-y-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium">Total Weight</span>
                   <Badge variant={validateWeights() ? "default" : "destructive"}>
@@ -352,12 +483,22 @@ export default function AllocationConfig() {
                 {!validateWeights() && (
                   <div className="flex items-center gap-2 text-sm text-destructive">
                     <AlertCircle className="h-4 w-4" />
-                    <span>Weights must add up to 100%</span>
+                    <span>Weights must add up to exactly 100%</span>
                     <Button variant="outline" size="sm" onClick={normalizeWeights}>
                       Normalize
                     </Button>
                   </div>
                 )}
+                <div className="flex justify-end pt-2">
+                  <Button 
+                    onClick={saveScoringWeights} 
+                    disabled={!hasScoringWeightsChanges || !validateWeights() || isSaving}
+                    className="min-w-[120px]"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

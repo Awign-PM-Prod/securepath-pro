@@ -199,7 +199,13 @@ export default function CaseListWithAllocation({
     caseId: string;
     caseNumber: string;
     candidate: AllocationCandidate | null;
+    casePincode?: string;
+    applicantName?: string;
+    addressLine?: string;
+    city?: string;
+    state?: string;
     error?: string;
+    isManualSelection?: boolean;
   }>>([]);
   const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
   const { toast } = useToast();
@@ -666,7 +672,8 @@ export default function CaseListWithAllocation({
     setIsLoadingGigWorkers(true);
     setIsLoadingVendors(true);
     try {
-      // Load available gig workers
+      // Load available gig workers (only those who signed in today)
+      const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
       const { data: gigWorkers, error: gigError } = await supabase
         .from('gig_partners')
         .select(`
@@ -693,6 +700,7 @@ export default function CaseListWithAllocation({
         .eq('is_available', true)
         .eq('is_direct_gig', true)
         .gt('capacity_available', 0)
+        .gte('last_seen_at', today) // Only include gig workers who signed in today
         .order('capacity_available', { ascending: false });
 
       if (gigError) throw gigError;

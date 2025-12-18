@@ -702,6 +702,15 @@ export default function GigWorkerManagement() {
     console.log('Opening edit dialog for worker:', worker);
     console.log('Worker profiles data:', worker.profiles);
     
+    // Determine availability based on last_seen_at
+    // If last_seen_at is today -> available = true
+    // If last_seen_at is yesterday or earlier (or null) -> available = false
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    
+    const lastSeenAt = worker.last_seen_at ? new Date(worker.last_seen_at) : null;
+    const isAvailableToday = lastSeenAt && lastSeenAt >= today;
+    
     setEditingWorker(worker);
     setFormData({
       first_name: worker.profiles?.first_name || '',
@@ -719,7 +728,7 @@ export default function GigWorkerManagement() {
       vendor_id: worker.vendor_id || 'direct',
       is_direct_gig: worker.is_direct_gig,
       is_active: worker.is_active,
-      is_available: worker.is_available
+      is_available: isAvailableToday // Set based on last_seen_at
     });
     setIsEditDialogOpen(true);
   };

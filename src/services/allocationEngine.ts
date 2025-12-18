@@ -32,6 +32,7 @@ export interface AllocationCandidate {
   location_match_type?: 'pincode' | 'city' | 'tier';
   experience_score?: number;
   reliability_score?: number;
+  total_score?: number; // Overall performance score calculated from 4 metrics using allocation_config weights
   priority_boost?: number;
 }
 
@@ -177,16 +178,11 @@ export class AllocationEngine {
    * Uses priority-based scoring with 8-step allocation order
    */
   calculateScore(candidate: AllocationCandidate): number {
-    if (!this.config) return 0;
+    if (!this.config || !candidate) return 0;
 
-    const weights = this.config.scoring_weights;
-    
     // Step 8: Historical Performance-Based Allocation
-    // Calculate weighted performance score (excluding quality score)
-    const performanceScore = 
-      (candidate.completion_rate * weights.completion_rate) +
-      (candidate.ontime_completion_rate * weights.ontime_completion_rate) +
-      (candidate.acceptance_rate * weights.acceptance_rate);
+    // Use total_score which already includes all 4 metrics weighted according to allocation_config
+    const totalScore = candidate.total_score ?? 0;
 
     // Step 1 & 2: Location match bonus (pincode > city > tier)
     const locationBonus = candidate.location_match_type === 'pincode' ? 100 :
@@ -195,32 +191,24 @@ export class AllocationEngine {
 
     // Step 6: Experience and Rating-Based Allocation
     const experienceBonus = (candidate.experience_score || 0) * 20;
-    const reliabilityBonus = (candidate.reliability_score || 0) * 30;
 
     // Step 7: Priority-Based Allocation
     const priorityBoost = candidate.priority_boost || 0;
 
     // Step 8: Historical Performance
-    // Quality score is used as primary sort, performance score as secondary
-    // We'll combine them with quality score having much higher weight for sorting
-    const baseScore = (candidate.quality_score * 10) + (performanceScore / 10);
+    // Use total_score as the base performance metric (already weighted by allocation_config)
+    const baseScore = totalScore * 100; // Scale to 0-100 range
     
     // Final score combines all factors
-    const finalScore = baseScore + locationBonus + experienceBonus + reliabilityBonus + priorityBoost;
+    const finalScore = baseScore + locationBonus + experienceBonus + priorityBoost;
 
     console.log(`Scoring candidate ${candidate.candidate_id}:`, {
       location_match: candidate.location_match_type,
       location_bonus: locationBonus,
       experience_score: candidate.experience_score,
       experience_bonus: experienceBonus,
-      reliability_score: candidate.reliability_score,
-      reliability_bonus: reliabilityBonus,
       priority_boost: priorityBoost,
-      quality_score: candidate.quality_score,
-      completion_rate: candidate.completion_rate,
-      ontime_completion_rate: candidate.ontime_completion_rate,
-      acceptance_rate: candidate.acceptance_rate,
-      performance_score: performanceScore,
+      total_score: totalScore,
       base_score: baseScore,
       final_score: finalScore
     });

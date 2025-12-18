@@ -59,19 +59,52 @@ interface AllocationStats {
   capacity_utilization: number;
 }
 
+interface AllocationLog {
+  id: string;
+  case_id: string;
+  candidate_id: string;
+  allocated_at: string;
+  accepted_at: string | null;
+  decision: string;
+  wave_number: number;
+  case_number: string;
+  candidate_name: string;
+  worker_name: string;
+  worker_email: string;
+}
+
 export default function AllocationDashboard() {
   const [capacityData, setCapacityData] = useState<CapacityData[]>([]);
   const [allocationStats, setAllocationStats] = useState<AllocationStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAutoAllocationEnabled, setIsAutoAllocationEnabled] = useState(true);
+  const [isAutoAllocationEnabled, setIsAutoAllocationEnabled] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
   const [totalCapacity, setTotalCapacity] = useState(0);
+  const [activeTab, setActiveTab] = useState<string>('capacity');
+  const [allocationLogs, setAllocationLogs] = useState<AllocationLog[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [currentPageLogs, setCurrentPageLogs] = useState(1);
+  const [totalLogs, setTotalLogs] = useState(0);
+  const [pageSizeLogs] = useState(10);
   const { toast } = useToast();
 
   useEffect(() => {
     loadData();
   }, [currentPage]);
+
+  useEffect(() => {
+    if (activeTab === 'allocation') {
+      // Reset to page 1 when switching to allocation tab
+      setCurrentPageLogs(1);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'allocation') {
+      loadAllocationLogs();
+    }
+  }, [activeTab, currentPageLogs]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -93,16 +126,20 @@ export default function AllocationDashboard() {
   };
 
   const loadCapacityData = async () => {
-    // Calculate pagination range
-    const from = (currentPage - 1) * pageSize;
-    const to = from + pageSize - 1;
-
-    const { data, error, count } = await supabase
-      .from('capacity_tracking')
-      .select(`
-        *,
-        gig_partners!inner(
-          profiles(first_name, last_name, email),
+    try {
+      // Get all active gig workers directly from gig_partners
+      const { data: allGigWorkers, error: workersError } = await supabase
+        .from('gig_partners')
+        .select(`
+          id,
+          max_daily_capacity,
+          capacity_available,
+          active_cases_count,
+          profiles!inner(
+            first_name,
+            last_name,
+            email
+          ),
           quality_score,
           completion_rate,
           ontime_completion_rate,
@@ -110,65 +147,152 @@ export default function AllocationDashboard() {
           coverage_pincodes,
           is_active,
           is_available
-        )
-      `, { count: 'exact' })
-      .eq('is_active', true)
-      .order('current_capacity_available', { ascending: false })
-      .range(from, to);
+        `)
+        .eq('is_active', true)
+        .order('capacity_available', { ascending: false });
 
-    if (error) {
+      if (workersError) {
+        console.error('Error loading gig workers:', workersError);
+        throw new Error('Failed to load gig workers');
+      }
+
+      if (!allGigWorkers || allGigWorkers.length === 0) {
+        setCapacityData([]);
+        setTotalCapacity(0);
+        return;
+      }
+
+      // Get case counts for each gig worker from cases table
+      const workerIds = allGigWorkers.map(w => w.id);
+      const { data: casesData, error: casesError } = await supabase
+        .from('cases')
+        .select('current_assignee_id, status')
+        .in('current_assignee_id', workerIds)
+        .eq('current_assignee_type', 'gig')
+        .in('status', ['allocated', 'auto_allocated', 'accepted', 'in_progress', 'submitted', 'qc_passed', 'completed']);
+
+      if (casesError) {
+        console.error('Error loading cases:', casesError);
+        // Continue without case counts if this fails
+      }
+
+      // Group cases by assignee and status
+      const casesByWorker = new Map<string, {
+        allocated: number;
+        accepted: number;
+        in_progress: number;
+        submitted: number;
+        completed: number;
+      }>();
+
+      (casesData || []).forEach((caseItem: any) => {
+        const workerId = caseItem.current_assignee_id;
+        if (!casesByWorker.has(workerId)) {
+          casesByWorker.set(workerId, {
+            allocated: 0,
+            accepted: 0,
+            in_progress: 0,
+            submitted: 0,
+            completed: 0
+          });
+        }
+        const counts = casesByWorker.get(workerId)!;
+        const status = caseItem.status;
+        if (status === 'allocated' || status === 'auto_allocated') counts.allocated++;
+        else if (status === 'accepted') counts.accepted++;
+        else if (status === 'in_progress') counts.in_progress++;
+        else if (status === 'submitted') counts.submitted++;
+        else if (status === 'qc_passed' || status === 'completed') counts.completed++;
+      });
+
+      // Map gig workers to CapacityData format
+      const capacityData: CapacityData[] = allGigWorkers.map((worker: any) => {
+        const caseCounts = casesByWorker.get(worker.id) || {
+          allocated: 0,
+          accepted: 0,
+          in_progress: 0,
+          submitted: 0,
+          completed: 0
+        };
+
+        return {
+          gig_partner_id: worker.id,
+          max_daily_capacity: worker.max_daily_capacity || 0,
+          current_capacity_available: worker.capacity_available || 0,
+          cases_allocated: caseCounts.allocated,
+          cases_accepted: caseCounts.accepted,
+          cases_in_progress: caseCounts.in_progress,
+          cases_submitted: caseCounts.submitted,
+          cases_completed: caseCounts.completed,
+          gig_partners: {
+            profiles: {
+              first_name: worker.profiles?.first_name || '',
+              last_name: worker.profiles?.last_name || '',
+              email: worker.profiles?.email || ''
+            },
+            quality_score: worker.quality_score || 0,
+            completion_rate: worker.completion_rate || 0,
+            ontime_completion_rate: worker.ontime_completion_rate || 0,
+            acceptance_rate: worker.acceptance_rate || 0,
+            coverage_pincodes: worker.coverage_pincodes || [],
+            is_active: worker.is_active || false,
+            is_available: worker.is_available || false
+          }
+        };
+      });
+
+      // Sort by capacity available (descending)
+      capacityData.sort((a, b) => (b.current_capacity_available || 0) - (a.current_capacity_available || 0));
+
+      // Calculate pagination
+      const totalCount = capacityData.length;
+      const from = (currentPage - 1) * pageSize;
+      const to = from + pageSize;
+      const paginatedData = capacityData.slice(from, to);
+
+      setCapacityData(paginatedData);
+      setTotalCapacity(totalCount);
+    } catch (error) {
       console.error('Error loading capacity data:', error);
-      throw new Error('Failed to load capacity data');
+      setCapacityData([]);
+      setTotalCapacity(0);
     }
-
-    setCapacityData(data || []);
-    setTotalCapacity(count || 0);
   };
 
   const loadAllocationStats = async () => {
     try {
-      // Get today's date range
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      // Query all cases to calculate stats
+      const { data: allCases, error: casesError } = await supabase
+        .from('cases')
+        .select('id, status')
+        .eq('is_active', true);
 
-      // Query allocation_logs for today's allocations
-      const { data: allocationLogs, error: logsError } = await supabase
-        .from('allocation_logs')
-        .select('decision, allocated_at, accepted_at')
-        .gte('allocated_at', today.toISOString())
-        .lt('allocated_at', tomorrow.toISOString());
-
-      if (logsError) {
-        console.error('Error loading allocation logs:', logsError);
-        throw logsError;
+      if (casesError) {
+        console.error('Error loading cases:', casesError);
+        throw casesError;
       }
 
-      // Calculate stats from allocation_logs
-      const total_allocations = allocationLogs?.length || 0;
-      const successful_allocations = allocationLogs?.filter(log => log.decision === 'accepted').length || 0;
-      const pending_allocations = allocationLogs?.filter(log => log.decision === 'allocated').length || 0;
-      const failed_allocations = allocationLogs?.filter(log => 
-        log.decision === 'rejected' || log.decision === 'timeout'
+      // Total Allocations: All cases except status "new"
+      const total_allocations = allCases?.filter(c => c.status !== 'new').length || 0;
+
+      // Successful: All cases except "new" and "allocated" (cases that have been accepted and are in progress, submitted, etc.)
+      const successful_allocations = allCases?.filter(c => 
+        c.status !== 'new' && c.status !== 'allocated'
       ).length || 0;
 
-      // Calculate average acceptance time (in minutes)
-      const acceptedLogs = allocationLogs?.filter(log => 
-        log.decision === 'accepted' && log.allocated_at && log.accepted_at
-      ) || [];
-      
-      let average_acceptance_time = 0;
-      if (acceptedLogs.length > 0) {
-        const totalTime = acceptedLogs.reduce((sum, log) => {
-          const allocated = new Date(log.allocated_at).getTime();
-          const accepted = new Date(log.accepted_at!).getTime();
-          return sum + (accepted - allocated);
-        }, 0);
-        average_acceptance_time = Math.round(totalTime / acceptedLogs.length / (1000 * 60)); // Convert to minutes
-      }
+      // Pending: Cases with status "allocated"
+      const pending_allocations = allCases?.filter(c => c.status === 'allocated').length || 0;
+
+      // Failed allocations (rejected or cancelled cases)
+      const failed_allocations = allCases?.filter(c => 
+        c.status === 'rejected' || c.status === 'cancelled'
+      ).length || 0;
+
+      // Calculate average acceptance time (placeholder - would need allocation_logs for this)
+      const average_acceptance_time = 0;
 
       // Calculate capacity utilization from capacity_tracking
+      // This shows percentage of gig worker capacities currently in use
       const { data: allCapacityData, error: capacityError } = await supabase
         .from('capacity_tracking')
         .select('max_daily_capacity, current_capacity_available')
@@ -223,6 +347,137 @@ export default function AllocationDashboard() {
     }
   };
 
+  const loadAllocationLogs = async () => {
+    setIsLoadingLogs(true);
+    try {
+      // Calculate pagination range
+      const from = (currentPageLogs - 1) * pageSizeLogs;
+      const to = from + pageSizeLogs - 1;
+
+      // Use the same cutoff date as cases (November 2nd, 2025)
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+
+      // Get allocation logs with case info
+      // Note: We fetch and filter client-side because Supabase doesn't support filtering on nested relationship fields
+      // Limit to 1000 most recent logs to avoid performance issues
+      const { data: allLogsData, error: logsError } = await supabase
+        .from('allocation_logs')
+        .select(`
+          id,
+          case_id,
+          candidate_id,
+          allocated_at,
+          accepted_at,
+          decision,
+          wave_number,
+          cases!inner(
+            case_number,
+            candidate_name,
+            created_at,
+            is_active
+          )
+        `)
+        .eq('candidate_type', 'gig')
+        .order('allocated_at', { ascending: false })
+        .limit(1000);
+
+      if (logsError) {
+        console.error('Error loading allocation logs:', logsError);
+        throw logsError;
+      }
+
+      if (!allLogsData || allLogsData.length === 0) {
+        setAllocationLogs([]);
+        setTotalLogs(0);
+        return;
+      }
+
+      // Filter logs by case created_at (same cutoff date as cases) and is_active
+      const filteredLogs = allLogsData.filter((log: any) => {
+        const caseData = log.cases;
+        if (!caseData || !caseData.is_active) return false;
+        const caseCreatedAt = caseData.created_at;
+        if (!caseCreatedAt) return false;
+        const caseDate = new Date(caseCreatedAt);
+        return caseDate >= cutoffDate;
+      });
+
+      // Set total count
+      setTotalLogs(filteredLogs.length);
+
+      // Apply pagination to filtered results
+      const paginatedLogs = filteredLogs.slice(from, to + 1);
+
+      if (logsError) {
+        console.error('Error loading allocation logs:', logsError);
+        throw logsError;
+      }
+
+      if (paginatedLogs.length === 0) {
+        setAllocationLogs([]);
+        return;
+      }
+
+      // Get unique candidate IDs
+      const candidateIds = [...new Set(paginatedLogs.map((log: any) => log.candidate_id))];
+
+      // Fetch gig worker info separately
+      const { data: workersData, error: workersError } = await supabase
+        .from('gig_partners')
+        .select(`
+          id,
+          profiles!inner(
+            first_name,
+            last_name,
+            email
+          )
+        `)
+        .in('id', candidateIds);
+
+      if (workersError) {
+        console.error('Error loading gig workers:', workersError);
+        // Continue without worker info if this fails
+      }
+
+      // Create a map of worker data
+      const workersMap = new Map();
+      (workersData || []).forEach((worker: any) => {
+        workersMap.set(worker.id, worker);
+      });
+
+      // Combine the data
+      const logs: AllocationLog[] = paginatedLogs.map((log: any) => {
+        const worker = workersMap.get(log.candidate_id);
+        return {
+          id: log.id,
+          case_id: log.case_id,
+          candidate_id: log.candidate_id,
+          allocated_at: log.allocated_at,
+          accepted_at: log.accepted_at,
+          decision: log.decision,
+          wave_number: log.wave_number,
+          case_number: log.cases?.case_number || 'N/A',
+          candidate_name: log.cases?.candidate_name || 'N/A',
+          worker_name: worker?.profiles 
+            ? `${worker.profiles.first_name || ''} ${worker.profiles.last_name || ''}`.trim() || 'N/A'
+            : 'N/A',
+          worker_email: worker?.profiles?.email || 'N/A'
+        };
+      });
+
+      setAllocationLogs(logs);
+    } catch (error) {
+      console.error('Failed to load allocation logs:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load allocation logs',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
   const handleRefreshCapacity = async () => {
     setIsLoading(true);
     try {
@@ -230,6 +485,9 @@ export default function AllocationDashboard() {
         loadCapacityData(),
         loadAllocationStats()
       ]);
+      if (activeTab === 'allocation') {
+        await loadAllocationLogs();
+      }
       toast({
         title: 'Success',
         description: 'Data refreshed',
@@ -290,31 +548,40 @@ export default function AllocationDashboard() {
             Monitor and manage case allocation across gig workers
           </p>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex items-center space-x-4">
           <Button variant="outline" onClick={handleRefreshCapacity}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <Button variant="outline" onClick={handleManualAllocation}>
-            <Play className="h-4 w-4 mr-2" />
-            Manual Allocate
-          </Button>
-          <Button 
-            variant={isAutoAllocationEnabled ? "default" : "outline"}
-            onClick={() => setIsAutoAllocationEnabled(!isAutoAllocationEnabled)}
-          >
-            {isAutoAllocationEnabled ? (
-              <>
-                <Pause className="h-4 w-4 mr-2" />
-                Auto Allocation ON
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 mr-2" />
-                Auto Allocation OFF
-              </>
-            )}
-          </Button>
+          
+          {/* Allocation Mode Toggle */}
+          <div className="flex items-center space-x-2">
+            <span className="text-sm font-medium text-muted-foreground">Allocation Mode:</span>
+            <div className="relative inline-flex items-center bg-muted rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setIsAutoAllocationEnabled(false)}
+                className={`relative px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                  !isAutoAllocationEnabled
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Manual Allocation
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAutoAllocationEnabled(true)}
+                className={`relative px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                  isAutoAllocationEnabled
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Auto Allocation
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -329,7 +596,6 @@ export default function AllocationDashboard() {
             <CardContent>
               <div className="text-2xl font-bold">{allocationStats.total_allocations}</div>
               <p className="text-xs text-muted-foreground">
-                Cases allocated today
               </p>
             </CardContent>
           </Card>
@@ -344,7 +610,7 @@ export default function AllocationDashboard() {
                 {allocationStats.successful_allocations}
               </div>
               <p className="text-xs text-muted-foreground">
-                Accepted by workers
+                Cases in progress or beyond
               </p>
             </CardContent>
           </Card>
@@ -359,7 +625,7 @@ export default function AllocationDashboard() {
                 {allocationStats.pending_allocations}
               </div>
               <p className="text-xs text-muted-foreground">
-                Awaiting response
+                Cases awaiting acceptance
               </p>
             </CardContent>
           </Card>
@@ -379,12 +645,11 @@ export default function AllocationDashboard() {
         </div>
       )}
 
-      <Tabs defaultValue="capacity" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="capacity">Capacity Overview</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="allocation">Allocation Logs</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         {/* Capacity Overview Tab */}
@@ -685,42 +950,137 @@ export default function AllocationDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-8">
-                <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">Allocation Logs</h3>
-                <p className="text-muted-foreground mb-4">
-                  Allocation logs and history will be displayed here
-                </p>
-                <Button variant="outline">
-                  <Settings className="h-4 w-4 mr-2" />
-                  Configure Logging
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Settings Tab */}
-        <TabsContent value="settings" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Allocation Settings</CardTitle>
-              <CardDescription>
-                Configure allocation engine parameters and rules
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <Settings className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">Allocation Configuration</h3>
-                <p className="text-muted-foreground mb-4">
-                  Configure scoring weights, acceptance windows, and capacity rules
-                </p>
-                <Button variant="outline">
-                  <Settings className="h-4 w-4 mr-2" />
-                  Open Settings
-                </Button>
-              </div>
+              {isLoadingLogs ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p>Loading allocation logs...</p>
+                </div>
+              ) : allocationLogs.length === 0 ? (
+                <div className="text-center py-8">
+                  <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No Allocation Logs</h3>
+                  <p className="text-muted-foreground">
+                    No allocation logs found. Logs will appear here when cases are allocated to gig workers.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Case Number</TableHead>
+                        <TableHead>Candidate Name</TableHead>
+                        <TableHead>Gig Worker</TableHead>
+                        <TableHead>Allocated At</TableHead>
+                        <TableHead>Accepted At</TableHead>
+                        <TableHead>Decision</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allocationLogs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="font-medium">{log.case_number}</TableCell>
+                          <TableCell>{log.candidate_name}</TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{log.worker_name}</div>
+                              <div className="text-sm text-muted-foreground">{log.worker_email}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {new Date(log.allocated_at).toLocaleString('en-IN', {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                              hour12: true
+                            }).replace(/\s(am|pm)/gi, (match) => match.toUpperCase())}
+                          </TableCell>
+                          <TableCell>
+                            {log.accepted_at ? (
+                              new Date(log.accepted_at).toLocaleString('en-IN', {
+                                dateStyle: 'short',
+                                timeStyle: 'short',
+                                hour12: true
+                              }).replace(/\s(am|pm)/gi, (match) => match.toUpperCase())
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant={
+                                log.decision === 'accepted' ? 'default' :
+                                log.decision === 'rejected' ? 'destructive' :
+                                log.decision === 'timeout' ? 'secondary' :
+                                'outline'
+                              }
+                            >
+                              {log.decision}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  
+                  {/* Pagination */}
+                  {totalLogs > pageSizeLogs && (
+                    <div className="flex items-center justify-between mt-6 pt-6 border-t">
+                      <div className="text-sm text-muted-foreground">
+                        Showing {((currentPageLogs - 1) * pageSizeLogs) + 1} to {Math.min(currentPageLogs * pageSizeLogs, totalLogs)} of {totalLogs} logs
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPageLogs(prev => Math.max(prev - 1, 1))}
+                          disabled={currentPageLogs === 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Previous
+                        </Button>
+                        
+                        <div className="flex items-center space-x-1">
+                          {Array.from({ length: Math.min(5, Math.ceil(totalLogs / pageSizeLogs)) }, (_, i) => {
+                            const totalPages = Math.ceil(totalLogs / pageSizeLogs);
+                            let pageNum;
+                            if (totalPages <= 5) {
+                              pageNum = i + 1;
+                            } else if (currentPageLogs <= 3) {
+                              pageNum = i + 1;
+                            } else if (currentPageLogs >= totalPages - 2) {
+                              pageNum = totalPages - 4 + i;
+                            } else {
+                              pageNum = currentPageLogs - 2 + i;
+                            }
+                            
+                            return (
+                              <Button
+                                key={pageNum}
+                                variant={currentPageLogs === pageNum ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setCurrentPageLogs(pageNum)}
+                                className="w-8 h-8 p-0"
+                              >
+                                {pageNum}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                        
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPageLogs(prev => Math.min(prev + 1, Math.ceil(totalLogs / pageSizeLogs)))}
+                          disabled={currentPageLogs >= Math.ceil(totalLogs / pageSizeLogs)}
+                        >
+                          Next
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

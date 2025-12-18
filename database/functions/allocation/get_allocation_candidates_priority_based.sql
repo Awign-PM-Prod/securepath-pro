@@ -38,7 +38,6 @@ RETURNS TABLE (
     is_direct_gig BOOLEAN,
     is_active BOOLEAN,
     is_available BOOLEAN,
-    performance_score NUMERIC,
     distance_km NUMERIC,
     vendor_name TEXT,
     vendor_performance_score NUMERIC,
@@ -46,7 +45,7 @@ RETURNS TABLE (
     -- New fields for priority-based allocation
     location_match_type TEXT, -- 'pincode', 'city', 'tier'
     experience_score NUMERIC,
-    reliability_score NUMERIC,
+    total_score NUMERIC, -- Overall performance score (calculated from 4 metrics using allocation_config weights)
     priority_boost NUMERIC
 ) 
 SECURITY DEFINER
@@ -60,7 +59,30 @@ DECLARE
     case_priority_level TEXT;
     -- Escalation count (placeholder - would need escalation tracking table)
     escalation_penalty NUMERIC := 0;
+    -- Quality thresholds from allocation_config
+    min_quality_score_threshold NUMERIC;
+    min_completion_rate_threshold NUMERIC;
+    min_acceptance_rate_threshold NUMERIC;
 BEGIN
+    -- Get quality thresholds from allocation_config
+    SELECT 
+        (config_value->>'min_quality_score')::NUMERIC,
+        (config_value->>'min_completion_rate')::NUMERIC,
+        (config_value->>'min_acceptance_rate')::NUMERIC
+    INTO 
+        min_quality_score_threshold,
+        min_completion_rate_threshold,
+        min_acceptance_rate_threshold
+    FROM public.allocation_config
+    WHERE config_key = 'quality_thresholds'
+      AND is_active = true
+    LIMIT 1;
+    
+    -- Use default thresholds if not configured
+    min_quality_score_threshold := COALESCE(min_quality_score_threshold, 0.30);
+    min_completion_rate_threshold := COALESCE(min_completion_rate_threshold, 0.30);
+    min_acceptance_rate_threshold := COALESCE(min_acceptance_rate_threshold, 0.30);
+    
     -- Get case location details
     SELECT c.location_id, l.pincode, l.city, l.state, l.pincode_tier::TEXT, c.priority::TEXT
     INTO case_location_id, case_pincode, case_city, case_state, case_tier, case_priority_level
@@ -124,17 +146,13 @@ BEGIN
                 WHEN gp.total_cases_completed >= 5 THEN 0.2
                 ELSE 0.1
             END as experience_score,
-            -- Step 8: Reliability score (combination of acceptance, completion, on-time, quality)
-            (COALESCE(gp.acceptance_rate, 0) * 0.25 +
-             COALESCE(gp.completion_rate, 0) * 0.30 +
-             COALESCE(gp.ontime_completion_rate, 0) * 0.25 +
-             COALESCE(gp.quality_score, 0) * 0.20) as reliability_score,
-            -- Step 7: Priority boost for high-priority cases (prioritize best agents)
+            -- Step 8: Use total_score instead of individual metrics
+            -- total_score already includes all 4 metrics weighted according to allocation_config
+            COALESCE(gp.total_score, 0.00) as total_score,
+            -- Step 7: Priority boost for high-priority cases (prioritize best agents based on total_score)
             CASE 
                 WHEN case_priority_level IN ('urgent', 'high') THEN 
-                    (COALESCE(gp.quality_score, 0) * 0.5 + 
-                     COALESCE(gp.completion_rate, 0) * 0.3 + 
-                     COALESCE(gp.ontime_completion_rate, 0) * 0.2) * 2.0
+                    COALESCE(gp.total_score, 0.00) * 2.0
                 ELSE 0.0
             END as priority_boost
         FROM gig_partners gp
@@ -147,6 +165,8 @@ BEGIN
             -- Step 4: Agent Availability-Based Allocation
             AND gp.is_active = true 
             AND gp.is_available = true
+            -- Only include gig workers who signed in today (last_seen_at >= today)
+            AND gp.last_seen_at >= CURRENT_DATE
             -- Include both direct and vendor-based gig workers
             -- Step 5: Current Capacity-Based Allocation
             AND gp.capacity_available > 0
@@ -161,8 +181,10 @@ BEGIN
                 -- Tier-based fallback
                 OR gp.coverage_pincodes @> ARRAY[case_tier]
             )
-            -- Note: Performance/quality thresholds removed - all eligible workers can be allocated
-            -- Performance metrics are still used for ranking/scoring, but not for filtering
+            -- Quality Thresholds Filter: Exclude workers below minimum thresholds
+            AND COALESCE(gp.quality_score, 0.00) >= min_quality_score_threshold
+            AND COALESCE(gp.completion_rate, 0.00) >= min_completion_rate_threshold
+            AND COALESCE(gp.acceptance_rate, 0.00) >= min_acceptance_rate_threshold
     ),
     candidate_scored AS (
         SELECT 
@@ -170,11 +192,6 @@ BEGIN
             v.name as vendor_name,
             v.performance_score as vendor_performance_score,
             v.quality_score as vendor_quality_score,
-            -- Step 8: Historical Performance-Based Allocation
-            -- Performance score calculation (40% completion + 40% on-time + 20% acceptance)
-            (COALESCE(cb.completion_rate, 0) * 0.4 + 
-             COALESCE(cb.ontime_completion_rate, 0) * 0.4 + 
-             COALESCE(cb.acceptance_rate, 0) * 0.2) as performance_score,
             -- Calculate distance (placeholder - would need geocoding)
             0.0::NUMERIC as distance_km
         FROM candidate_base cb
@@ -203,24 +220,21 @@ BEGIN
         cs.is_direct_gig,
         cs.is_active,
         cs.is_available,
-        cs.performance_score,
         cs.distance_km,
         cs.vendor_name,
         cs.vendor_performance_score,
         cs.vendor_quality_score,
         cs.location_match_type,
         cs.experience_score,
-        cs.reliability_score,
+        cs.total_score,
         cs.priority_boost
     FROM candidate_scored cs
     -- Order by priority-based scoring:
     -- 1. Location match type (pincode > city > tier)
     -- 2. Priority boost (for urgent/high priority cases)
     -- 3. Experience score (higher experience preferred)
-    -- 4. Reliability score (more reliable agents preferred)
-    -- 5. Performance score (historical performance)
-    -- 6. Quality score (QC pass rate)
-    -- 7. Capacity available (more capacity preferred for load balancing)
+    -- 4. Total score (overall performance - includes all 4 metrics weighted by allocation_config)
+    -- 5. Capacity available (more capacity preferred for load balancing)
     ORDER BY 
         CASE cs.location_match_type 
             WHEN 'pincode' THEN 1 
@@ -230,9 +244,7 @@ BEGIN
         END,
         cs.priority_boost DESC,
         cs.experience_score DESC,
-        cs.reliability_score DESC,
-        cs.performance_score DESC,
-        cs.quality_score DESC,
+        cs.total_score DESC,
         cs.capacity_available DESC;
     
     -- Also return vendors (simplified for now)

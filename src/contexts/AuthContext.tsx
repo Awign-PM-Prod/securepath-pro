@@ -43,6 +43,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Update last_seen_at for gig workers when they sign in
+  // Only updates if last sign-in was today, otherwise attendance popup will handle it
+  const updateGigWorkerLastSeen = async (userId: string): Promise<void> => {
+    try {
+      // First, check the current last_seen_at
+      const { data: gigWorker, error: fetchError } = await supabase
+        .from('gig_partners')
+        .select('last_seen_at')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .single();
+
+      if (fetchError) {
+        // Only log if it's not a "no rows found" error (user might not be a gig worker)
+        if (fetchError.code !== 'PGRST116') {
+          console.error('Error fetching gig worker last_seen_at:', fetchError);
+        }
+        return;
+      }
+
+      if (!gigWorker) return;
+
+      // Check if last_seen_at is today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const lastSeenAt = gigWorker.last_seen_at ? new Date(gigWorker.last_seen_at) : null;
+      
+      // Only update if last sign-in was today (or null/never signed in)
+      // If last sign-in was yesterday or earlier, don't update (attendance popup will handle it)
+      const shouldUpdate = !lastSeenAt || lastSeenAt >= today;
+      
+      if (!shouldUpdate) {
+        // Last sign-in was yesterday or earlier - don't update, attendance popup will handle it
+        return;
+      }
+
+      // Update last_seen_at in gig_partners table for this user
+      const { error } = await supabase
+        .from('gig_partners')
+        .update({ 
+          last_seen_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (error) {
+        // Only log if it's not a "no rows found" error
+        if (error.code !== 'PGRST116') {
+          console.error('Error updating gig worker last_seen_at:', error);
+        }
+      }
+    } catch (error) {
+      // Silently fail - this is not critical functionality
+      console.warn('Exception updating gig worker last_seen_at:', error);
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
     let hasInitialized = false;
@@ -89,6 +148,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email: session.user.email!,
               profile
             });
+            
+            // Update last_seen_at if user is a gig worker
+            if (profile.role === 'gig_worker') {
+              updateGigWorkerLastSeen(session.user.id);
+            }
           } else {
             // Only set user to null if session is also invalid
             // If session is valid but profile fetch failed, keep the session

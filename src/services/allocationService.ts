@@ -53,20 +53,121 @@ export interface BulkAllocationResult {
 
 export class AllocationService {
   /**
+   * Determine rejection reasons for a candidate compared to the best candidate
+   */
+  private getRejectionReasons(
+    candidate: AllocationCandidate,
+    bestCandidate: AllocationCandidate,
+    bestScore: number,
+    candidateScore: number
+  ): string[] {
+    if (!candidate || !bestCandidate) {
+      return ['Invalid candidate data'];
+    }
+
+    const reasons: string[] = [];
+
+    // Score comparison
+    if (candidateScore < bestScore) {
+      const scoreDiff = bestScore - candidateScore;
+      reasons.push(`Lower final score (${scoreDiff.toFixed(2)} points lower)`);
+    }
+
+    // Quality score comparison
+    const candidateQuality = candidate.quality_score ?? 0;
+    const bestQuality = bestCandidate.quality_score ?? 0;
+    if (candidateQuality < bestQuality) {
+      const diff = ((bestQuality - candidateQuality) * 100).toFixed(1);
+      reasons.push(`Lower quality score (${diff}% lower)`);
+    }
+
+    // Performance score comparison
+    const candidatePerformance = candidate.performance_score ?? 0;
+    const bestPerformance = bestCandidate.performance_score ?? 0;
+    if (candidatePerformance < bestPerformance) {
+      const diff = ((bestPerformance - candidatePerformance) * 100).toFixed(1);
+      reasons.push(`Lower performance score (${diff}% lower)`);
+    }
+
+    // Location match comparison
+    const locationPriority: Record<string, number> = { pincode: 3, city: 2, tier: 1 };
+    const candidateLocationPriority = candidate.location_match_type ? locationPriority[candidate.location_match_type] || 0 : 0;
+    const bestLocationPriority = bestCandidate.location_match_type ? locationPriority[bestCandidate.location_match_type] || 0 : 0;
+    if (candidateLocationPriority < bestLocationPriority) {
+      reasons.push(`Less precise location match (${candidate.location_match_type || 'none'} vs ${bestCandidate.location_match_type || 'none'})`);
+    }
+
+    // Experience comparison
+    const candidateExperience = candidate.experience_score ?? 0;
+    const bestExperience = bestCandidate.experience_score ?? 0;
+    if (candidateExperience < bestExperience) {
+      const candidateCases = candidate.total_cases_completed ?? 0;
+      const bestCases = bestCandidate.total_cases_completed ?? 0;
+      reasons.push(`Less experience (${candidateCases} vs ${bestCases} cases completed)`);
+    }
+
+    // Reliability comparison
+    if ((candidate.reliability_score || 0) < (bestCandidate.reliability_score || 0)) {
+      const diff = (((bestCandidate.reliability_score || 0) - (candidate.reliability_score || 0)) * 100).toFixed(1);
+      reasons.push(`Lower reliability score (${diff}% lower)`);
+    }
+
+    // Capacity comparison (if significantly different)
+    const candidateMaxCapacity = candidate.max_daily_capacity ?? 0;
+    const candidateActiveCases = candidate.active_cases_count ?? 0;
+    const bestMaxCapacity = bestCandidate.max_daily_capacity ?? 0;
+    const bestActiveCases = bestCandidate.active_cases_count ?? 0;
+    
+    const capacityUtilizationCandidate = candidateMaxCapacity > 0 
+      ? (candidateActiveCases / candidateMaxCapacity) * 100 
+      : 0;
+    const capacityUtilizationBest = bestMaxCapacity > 0 
+      ? (bestActiveCases / bestMaxCapacity) * 100 
+      : 0;
+    if (capacityUtilizationCandidate > capacityUtilizationBest + 10) {
+      reasons.push(`Higher capacity utilization (${capacityUtilizationCandidate.toFixed(1)}% vs ${capacityUtilizationBest.toFixed(1)}%)`);
+    }
+
+    return reasons.length > 0 ? reasons : ['Lower overall ranking'];
+  }
+
+  /**
    * Preview allocation candidates for cases without actually allocating
-   * Returns the best candidate for each case
+   * Returns the best candidate for each case along with alternative candidates and rejection reasons
    */
   async previewAllocation(caseIds: string[]): Promise<Array<{
     caseId: string;
     caseNumber: string;
     candidate: AllocationCandidate | null;
+    casePincode?: string;
+    applicantName?: string;
+    city?: string;
+    state?: string;
+    addressLine?: string;
     error?: string;
+    isManualSelection?: boolean;
+    alternativeCandidates?: Array<{
+      candidate: AllocationCandidate;
+      final_score: number;
+      rejectionReasons: string[];
+    }>;
   }>> {
     const previews: Array<{
       caseId: string;
       caseNumber: string;
       candidate: AllocationCandidate | null;
+      casePincode?: string;
+      applicantName?: string;
+      city?: string;
+      state?: string;
+      addressLine?: string;
       error?: string;
+      isManualSelection?: boolean;
+      alternativeCandidates?: Array<{
+        candidate: AllocationCandidate;
+        final_score: number;
+        rejectionReasons: string[];
+      }>;
     }> = [];
 
     for (const caseId of caseIds) {
@@ -77,10 +178,14 @@ export class AllocationService {
           .select(`
             id,
             case_number,
+            candidate_name,
             priority,
             location:locations(
               pincode,
-              pincode_tier
+              pincode_tier,
+              city,
+              state,
+              address_line
             ),
             client:clients(
               id,
@@ -104,12 +209,21 @@ export class AllocationService {
         const pincode = (caseData.location as any)?.pincode;
         const pincodeTier = (caseData.location as any)?.pincode_tier || 'tier3';
         const casePriority = (caseData.priority as 'low' | 'medium' | 'high' | 'urgent') || 'medium';
+        const applicantName = (caseData as any)?.candidate_name as string | undefined;
+        const city = (caseData.location as any)?.city as string | undefined;
+        const state = (caseData.location as any)?.state as string | undefined;
+        const addressLine = (caseData.location as any)?.address_line as string | undefined;
 
         if (!pincode || !pincodeTier) {
           previews.push({
             caseId,
             caseNumber: caseData.case_number || 'Unknown',
             candidate: null,
+            casePincode: pincode,
+            applicantName,
+            city,
+            state,
+            addressLine,
             error: 'Case missing pincode or tier information'
           });
           continue;
@@ -128,6 +242,11 @@ export class AllocationService {
             caseId,
             caseNumber: caseData.case_number || 'Unknown',
             candidate: null,
+            casePincode: pincode,
+            applicantName,
+            city,
+            state,
+            addressLine,
             error: 'No eligible candidates found'
           });
           continue;
@@ -143,25 +262,108 @@ export class AllocationService {
             caseId,
             caseNumber: caseData.case_number || 'Unknown',
             candidate: null,
+            casePincode: pincode,
+            applicantName,
+            city,
+            state,
+            addressLine,
             error: 'No candidates with available capacity found'
           });
           continue;
         }
 
         // Calculate scores and get best candidate
-        const scoredCandidates = eligibleCandidates.map(candidate => ({
-          ...candidate,
-          final_score: allocationEngine.calculateScore(candidate)
-        }));
+        // Filter out any invalid candidates first
+        const validCandidates = eligibleCandidates.filter(c => c && c.candidate_id);
+        
+        if (validCandidates.length === 0) {
+          previews.push({
+            caseId,
+            caseNumber: caseData.case_number || 'Unknown',
+            candidate: null,
+            casePincode: pincode,
+            applicantName,
+            city,
+            state,
+            addressLine,
+            error: 'No valid candidates found after validation'
+          });
+          continue;
+        }
+
+        const scoredCandidates = validCandidates
+          .map(candidate => {
+            try {
+              return {
+                ...candidate,
+                final_score: allocationEngine.calculateScore(candidate)
+              };
+            } catch (error) {
+              console.error('Error calculating score for candidate:', candidate?.candidate_id, error);
+              return null;
+            }
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null);
+
+        if (scoredCandidates.length === 0) {
+          previews.push({
+            caseId,
+            caseNumber: caseData.case_number || 'Unknown',
+            candidate: null,
+            casePincode: pincode,
+            applicantName,
+            city,
+            state,
+            addressLine,
+            error: 'Failed to calculate scores for candidates'
+          });
+          continue;
+        }
 
         scoredCandidates.sort((a, b) => (b.final_score || 0) - (a.final_score || 0));
         const bestCandidate = scoredCandidates[0];
+        
+        if (!bestCandidate) {
+          previews.push({
+            caseId,
+            caseNumber: caseData.case_number || 'Unknown',
+            candidate: null,
+            casePincode: pincode,
+            applicantName,
+            city,
+            state,
+            addressLine,
+            error: 'No best candidate found'
+          });
+          continue;
+        }
+        
+        const bestScore = bestCandidate.final_score || 0;
+
+        // Get alternative candidates (top 5 excluding the best)
+        const alternativeCandidates = scoredCandidates
+          .slice(1, 6) // Get next 5 candidates
+          .map(candidate => ({
+            candidate,
+            final_score: candidate.final_score || 0,
+            rejectionReasons: this.getRejectionReasons(
+              candidate,
+              bestCandidate,
+              bestScore,
+              candidate.final_score || 0
+            )
+          }));
 
         previews.push({
           caseId,
           caseNumber: caseData.case_number || 'Unknown',
           candidate: bestCandidate,
           casePincode: pincode,
+          applicantName,
+          city,
+          state,
+          addressLine,
+          alternativeCandidates: alternativeCandidates.length > 0 ? alternativeCandidates : undefined
         });
 
       } catch (error) {
@@ -330,9 +532,10 @@ export class AllocationService {
     
     try {
       // Verify the gig worker exists and has capacity
+      const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
       const { data: gigWorker, error: gigWorkerError } = await supabase
         .from('gig_partners')
-        .select('id, max_daily_capacity, is_active')
+        .select('id, max_daily_capacity, is_active, is_available, last_seen_at')
         .eq('id', request.gigWorkerId)
         .single();
 
@@ -347,6 +550,22 @@ export class AllocationService {
         return {
           success: false,
           error: 'Gig worker is not active'
+        };
+      }
+
+      if (!gigWorker.is_available) {
+        return {
+          success: false,
+          error: 'Gig worker is not available. They need to mark their attendance first.'
+        };
+      }
+
+      // Check if gig worker signed in today
+      const lastSeenDate = gigWorker.last_seen_at ? new Date(gigWorker.last_seen_at).toISOString().split('T')[0] : null;
+      if (!lastSeenDate || lastSeenDate < today) {
+        return {
+          success: false,
+          error: 'Gig worker must sign in today to be eligible for case allocation.'
         };
       }
 

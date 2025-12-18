@@ -126,6 +126,8 @@ export default function GigWorkerDashboard() {
   const [isNegativeForm, setIsNegativeForm] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [isAttendanceDialogOpen, setIsAttendanceDialogOpen] = useState(false);
+  const [isMarkingAttendance, setIsMarkingAttendance] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
   
@@ -159,8 +161,56 @@ export default function GigWorkerDashboard() {
   useEffect(() => {
     if (gigWorkerId) {
       loadAllocatedCases();
+      checkAvailability();
     }
   }, [gigWorkerId]);
+
+  // Check availability status and show popup if needed
+  const checkAvailability = async () => {
+    if (!gigWorkerId) return;
+    
+    try {
+      const result = await gigWorkerService.checkAvailability(gigWorkerId);
+      if (result.success && result.isAvailable === false) {
+        setIsAttendanceDialogOpen(true);
+      }
+    } catch (error) {
+      console.error('Error checking availability:', error);
+      // Don't show error toast - availability check failure shouldn't block the user
+    }
+  };
+
+  // Handle marking attendance
+  const handleMarkAttendance = async () => {
+    if (!gigWorkerId) return;
+    
+    setIsMarkingAttendance(true);
+    try {
+      const result = await gigWorkerService.markAttendance(gigWorkerId);
+      if (result.success) {
+        setIsAttendanceDialogOpen(false);
+        toast({
+          title: 'Attendance Marked',
+          description: 'Your attendance has been marked successfully. You are now available for case assignments.',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'Failed to mark attendance',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error marking attendance:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to mark attendance. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsMarkingAttendance(false);
+    }
+  };
 
   // Mobile detection and responsive behavior
   useEffect(() => {
@@ -2740,6 +2790,45 @@ export default function GigWorkerDashboard() {
                 Close
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Attendance Marking Dialog */}
+      <Dialog open={isAttendanceDialogOpen} onOpenChange={() => {}}>
+        <DialogContent className={isMobile ? 'max-w-[95vw] mx-2 my-2' : 'max-w-md'}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-primary" />
+              Mark Your Attendance
+            </DialogTitle>
+            <DialogDescription>
+              Please mark your attendance for today to become available for case assignments.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Your availability has been reset for the day. Click the button below to mark your attendance and become available for new case assignments.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleMarkAttendance}
+              disabled={isMarkingAttendance}
+              className="w-full"
+            >
+              {isMarkingAttendance ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Marking Attendance...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Mark Attendance
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

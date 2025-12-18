@@ -899,6 +899,71 @@ export class GigWorkerService {
       };
     }
   }
+
+  /**
+   * Mark attendance for a gig worker (set is_available to True and update last_seen_at)
+   */
+  async markAttendance(gigWorkerId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from('gig_partners')
+        .update({
+          is_available: true,
+          last_seen_at: new Date().toISOString(), // Update last_seen_at when marking attendance
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', gigWorkerId);
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error marking attendance:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  /**
+   * Check if gig worker needs to mark attendance
+   * Shows attendance popup if last_seen_at was yesterday or earlier
+   */
+  async checkAvailability(gigWorkerId: string): Promise<{ success: boolean; isAvailable?: boolean; error?: string }> {
+    try {
+      const { data: gigWorker, error } = await supabase
+        .from('gig_partners')
+        .select('last_seen_at')
+        .eq('id', gigWorkerId)
+        .single();
+
+      if (error) throw error;
+
+      // Check if last_seen_at is yesterday or earlier (needs attendance)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1); // Start of yesterday
+      
+      const lastSeenAt = gigWorker?.last_seen_at ? new Date(gigWorker.last_seen_at) : null;
+      
+      // Show attendance popup if:
+      // - last_seen_at is null (never signed in), OR
+      // - last_seen_at is before today (yesterday or earlier)
+      const needsAttendance = !lastSeenAt || lastSeenAt < today;
+      
+      // isAvailable = false means show attendance popup
+      return { success: true, isAvailable: !needsAttendance };
+    } catch (error) {
+      console.error('Error checking availability:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
 }
 
 // Export singleton instance

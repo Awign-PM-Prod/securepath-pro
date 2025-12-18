@@ -7,15 +7,27 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AllocationCandidate, allocationEngine } from '@/services/allocationEngine';
 import { supabase } from '@/integrations/supabase/client';
-import { User, MapPin, Phone, Mail, TrendingUp, Award, Clock, AlertCircle, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import { User, MapPin, Phone, Mail, TrendingUp, Award, Clock, AlertCircle, CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import { format } from 'date-fns';
+
+interface AlternativeCandidate {
+  candidate: AllocationCandidate;
+  final_score: number;
+  rejectionReasons: string[];
+}
 
 interface AllocationPreview {
   caseId: string;
   caseNumber: string;
   candidate: AllocationCandidate | null;
   casePincode?: string;
+  applicantName?: string;
+  addressLine?: string;
+  city?: string;
+  state?: string;
   error?: string;
+  isManualSelection?: boolean;
+  alternativeCandidates?: AlternativeCandidate[];
 }
 
 interface AllocationConfirmationDialogProps {
@@ -50,6 +62,7 @@ export default function AllocationConfirmationDialog({
   const [availableVendorGigWorkers, setAvailableVendorGigWorkers] = useState<AllocationCandidate[]>([]);
   const [selectedGigWorker, setSelectedGigWorker] = useState<string>('');
   const [isLoadingWorkers, setIsLoadingWorkers] = useState(false);
+  const [expandedAlternatives, setExpandedAlternatives] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setLocalPreviews(previews);
@@ -199,11 +212,14 @@ export default function AllocationConfirmationDialog({
     if (!selectedWorker) return;
 
     // Update previews for the affected cases
+    // If the case had an error (no eligible candidates), mark it as manual selection
     const updatedPreviews = localPreviews.map(preview => {
       if (changeGigWorkerDialog.caseIds.includes(preview.caseId)) {
         return {
           ...preview,
-          candidate: selectedWorker
+          candidate: selectedWorker,
+          error: undefined, // Remove error so it moves to regular candidates section
+          isManualSelection: preview.error ? true : preview.isManualSelection // Mark as manual if it had an error
         };
       }
       return preview;
@@ -272,11 +288,50 @@ export default function AllocationConfirmationDialog({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {errorCases.map((errorCase) => (
-                    <div key={errorCase.caseId} className="flex items-center justify-between p-2 bg-destructive/10 rounded">
-                      <span className="font-medium">{errorCase.caseNumber}</span>
-                      <span className="text-sm text-destructive">{errorCase.error}</span>
+                    <div
+                      key={errorCase.caseId}
+                      className="p-3 bg-destructive/5 rounded border border-destructive/20 flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">
+                          {errorCase.caseNumber}{' '}
+                          {errorCase.applicantName && (
+                            <span className="text-sm text-muted-foreground">
+                              - {errorCase.applicantName}
+                            </span>
+                          )}
+                        </div>
+                        {(errorCase.addressLine || errorCase.city || errorCase.state || errorCase.casePincode) && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {errorCase.addressLine && <span>{errorCase.addressLine}, </span>}
+                            {errorCase.city && <span>{errorCase.city}, </span>}
+                            {errorCase.state && <span>{errorCase.state} </span>}
+                            {errorCase.casePincode && <span>- {errorCase.casePincode}</span>}
+                          </div>
+                        )}
+                        {errorCase.error && (
+                          <div className="text-xs text-destructive mt-1">
+                            {errorCase.error}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 md:mt-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const caseIds = [errorCase.caseId];
+                            const casePincode = errorCase.casePincode || '';
+                            handleChangeGigWorker(caseIds, casePincode, '');
+                          }}
+                          disabled={isAllocating || isLoadingWorkers}
+                        >
+                          <User className="h-4 w-4 mr-2" />
+                          Assign Manually
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -285,7 +340,9 @@ export default function AllocationConfirmationDialog({
           )}
 
           {/* Candidates */}
-          {Array.from(casesByCandidate.entries()).map(([candidateId, { candidate, cases }]) => (
+          {Array.from(casesByCandidate.entries())
+            .filter(([_, { candidate }]) => candidate !== null && candidate !== undefined)
+            .map(([candidateId, { candidate, cases }]) => (
             <Card key={candidateId}>
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -314,7 +371,14 @@ export default function AllocationConfirmationDialog({
                       )}
                     </CardDescription>
                   </div>
-                  {getLocationMatchBadge(candidate.location_match_type)}
+                  <div className="flex items-center gap-2">
+                    {getLocationMatchBadge(candidate.location_match_type)}
+                    {cases.some(c => c.isManualSelection) && (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        Selected Manually
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -381,9 +445,9 @@ export default function AllocationConfirmationDialog({
                       <TrendingUp className="h-4 w-4" />
                       Quality Score
                     </div>
-                    <div className="text-lg font-bold">{formatPercentage(candidate.quality_score)}</div>
+                    <div className="text-lg font-bold">{formatPercentage(candidate.quality_score ?? 0)}</div>
                     <div className="text-xs text-muted-foreground">
-                      {candidate.qc_pass_count} QC passes
+                      {candidate.qc_pass_count ?? 0} QC passes
                     </div>
                   </div>
 
@@ -392,9 +456,9 @@ export default function AllocationConfirmationDialog({
                       <CheckCircle className="h-4 w-4" />
                       Completion Rate
                     </div>
-                    <div className="text-lg font-bold">{formatPercentage(candidate.completion_rate)}</div>
+                    <div className="text-lg font-bold">{formatPercentage(candidate.completion_rate ?? 0)}</div>
                     <div className="text-xs text-muted-foreground">
-                      On-time: {formatPercentage(candidate.ontime_completion_rate)}
+                      On-time: {formatPercentage(candidate.ontime_completion_rate ?? 0)}
                     </div>
                   </div>
 
@@ -403,9 +467,9 @@ export default function AllocationConfirmationDialog({
                       <Award className="h-4 w-4" />
                       Acceptance Rate
                     </div>
-                    <div className="text-lg font-bold">{formatPercentage(candidate.acceptance_rate)}</div>
+                    <div className="text-lg font-bold">{formatPercentage(candidate.acceptance_rate ?? 0)}</div>
                     <div className="text-xs text-muted-foreground">
-                      Reliability: {formatPercentage(candidate.reliability_score || 0)}
+                      Reliability: {formatPercentage(candidate.reliability_score ?? 0)}
                     </div>
                   </div>
 
@@ -414,9 +478,9 @@ export default function AllocationConfirmationDialog({
                       <TrendingUp className="h-4 w-4" />
                       Performance Score
                     </div>
-                    <div className="text-lg font-bold">{formatPercentage(candidate.performance_score)}</div>
+                    <div className="text-lg font-bold">{formatPercentage(candidate.performance_score ?? 0)}</div>
                     <div className="text-xs text-muted-foreground">
-                      Final Score: {(candidate.final_score || 0).toFixed(2)}
+                      Final Score: {(candidate.final_score ?? 0).toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -447,6 +511,112 @@ export default function AllocationConfirmationDialog({
                     ))}
                   </div>
                 </div>
+
+                {/* Alternative Candidates - Show if any case has alternatives */}
+                {(() => {
+                  const firstCaseWithAlternatives = cases.find(c => c.alternativeCandidates && c.alternativeCandidates.length > 0);
+                  if (!firstCaseWithAlternatives?.alternativeCandidates) return null;
+                  
+                  return (
+                    <div className="mt-4 pt-4 border-t">
+                      <button
+                        onClick={() => {
+                          const newExpanded = new Set(expandedAlternatives);
+                          if (newExpanded.has(candidateId)) {
+                            newExpanded.delete(candidateId);
+                          } else {
+                            newExpanded.add(candidateId);
+                          }
+                          setExpandedAlternatives(newExpanded);
+                        }}
+                        className="flex items-center justify-between w-full text-left mb-2 hover:text-primary transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Info className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">
+                            Other Candidates ({firstCaseWithAlternatives.alternativeCandidates.length})
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            (Gig workers who could have been allocated)
+                          </span>
+                        </div>
+                        {expandedAlternatives.has(candidateId) ? (
+                          <ChevronUp className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        )}
+                      </button>
+                      {expandedAlternatives.has(candidateId) && (
+                        <div className="space-y-3 mt-2">
+                          {firstCaseWithAlternatives.alternativeCandidates.map((alt, index) => (
+                            <Card key={alt.candidate.candidate_id} className="bg-muted/50">
+                              <CardContent className="p-4">
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <User className="h-4 w-4 text-muted-foreground" />
+                                      <span className="font-medium">{alt.candidate.candidate_name}</span>
+                                      <Badge variant="outline" className="text-xs">
+                                        #{index + 2} Choice
+                                      </Badge>
+                                      {alt.candidate.is_direct_gig ? (
+                                        <Badge variant="secondary" className="text-xs">Direct</Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="text-xs">
+                                          {alt.candidate.vendor_name || 'Vendor-based'}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      Final Score: {alt.final_score.toFixed(2)} (vs {(candidate.final_score || 0).toFixed(2)})
+                                    </div>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground text-right">
+                                    <div>Capacity: {alt.candidate.capacity_available}/{alt.candidate.max_daily_capacity}</div>
+                                    {alt.candidate.location_match_type && (
+                                      <div className="mt-1">
+                                        {getLocationMatchBadge(alt.candidate.location_match_type)}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {/* Quick Stats */}
+                                <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+                                  <div>
+                                    <span className="text-muted-foreground">Quality:</span>{' '}
+                                    <span className="font-medium">{((alt.candidate.quality_score ?? 0) * 100).toFixed(1)}%</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">Completion:</span>{' '}
+                                    <span className="font-medium">{((alt.candidate.completion_rate ?? 0) * 100).toFixed(1)}%</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">Experience:</span>{' '}
+                                    <span className="font-medium">{alt.candidate.total_cases_completed ?? 0} cases</span>
+                                  </div>
+                                </div>
+
+                                {/* Rejection Reasons */}
+                                <div className="border-t pt-2">
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">Why not selected:</div>
+                                  <ul className="space-y-1">
+                                    {alt.rejectionReasons.map((reason, reasonIndex) => (
+                                      <li key={reasonIndex} className="text-xs text-muted-foreground flex items-start gap-1">
+                                        <span className="text-destructive mt-0.5">•</span>
+                                        <span>{reason}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           ))}
