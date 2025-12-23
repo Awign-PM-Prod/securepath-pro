@@ -1215,6 +1215,30 @@ export class PDFService {
   }
 
   /**
+   * Format date as DD/MM/YYYY
+   */
+  private static formatDateDDMMYYYY(date: Date): string {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  /**
+   * Format datetime as DD/MM/YYYY HH:MM AM/PM
+   */
+  private static formatDateTimeDDMMYYYY(date: Date): string {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours % 12 || 12;
+    return `${day}/${month}/${year} ${hours12}:${minutes} ${ampm}`;
+  }
+
+  /**
    * Format a value for PDF output based on field type
    */
   private static formatValueForPDF(
@@ -1384,19 +1408,19 @@ export class PDFService {
               date = new Date(dateValue);
             }
             
-            // Format with date and time using local timezone
+            // Format with date and time in DD/MM/YYYY HH:MM AM/PM format
             // Check if date is valid
             if (isNaN(date.getTime())) {
               return 'Not verified';
             }
-            return this.sanitizeText(date.toLocaleString()); // e.g., "1/15/2024, 2:30:00 PM"
+            return this.sanitizeText(this.formatDateTimeDDMMYYYY(date)); // e.g., "15/01/2024 2:30 PM"
           } else {
-            // Regular date field or datetime field without time - show date only
+            // Regular date field or datetime field without time - show date only in DD/MM/YYYY format
             const date = new Date(value);
             if (isNaN(date.getTime())) {
               return 'Not verified';
             }
-            return this.sanitizeText(date.toLocaleDateString());
+            return this.sanitizeText(this.formatDateDDMMYYYY(date)); // e.g., "15/01/2024"
           }
         } catch (e) {
           return 'Not verified';
