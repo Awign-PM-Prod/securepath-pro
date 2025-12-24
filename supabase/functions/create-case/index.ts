@@ -239,7 +239,13 @@ serve(async (req) => {
       phone_primary,
       phone_secondary,
       client_id, // Use from API key if available, otherwise from body
-      location,
+      // Location fields (individual attributes only)
+      address_line,
+      city,
+      state,
+      pincode,
+      lat,
+      lng,
       vendor_tat_start_date,
       due_at,
       base_rate_inr,
@@ -276,17 +282,27 @@ serve(async (req) => {
       )
     }
 
-    // Validate location
-    if (!location || !location.address_line || !location.city || !location.state || !location.pincode) {
+    // Validate location fields (individual attributes only)
+    if (!address_line || !city || !state || !pincode) {
       return new Response(
         JSON.stringify({ 
-          error: 'location is required with address_line, city, state, and pincode'
+          error: 'Location fields are required: address_line, city, state, and pincode must be provided as individual attributes'
         }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
+    }
+
+    // Prepare location data
+    const locationData = {
+      address_line: address_line,
+      city: city,
+      state: state,
+      pincode: pincode,
+      lat: lat || null,
+      lng: lng || null
     }
 
     // Validate dates
@@ -321,10 +337,10 @@ serve(async (req) => {
     const { data: existingLocation } = await supabaseService
       .from('locations')
       .select('id, pincode_tier')
-      .eq('pincode', location.pincode)
-      .eq('address_line', location.address_line)
-      .eq('city', location.city)
-      .eq('state', location.state)
+      .eq('pincode', locationData.pincode)
+      .eq('address_line', locationData.address_line)
+      .eq('city', locationData.city)
+      .eq('state', locationData.state)
       .limit(1)
       .maybeSingle()
 
@@ -335,7 +351,7 @@ serve(async (req) => {
       const { data: pincodeTierData } = await supabaseService
         .from('pincode_tiers')
         .select('tier')
-        .eq('pincode', location.pincode)
+        .eq('pincode', locationData.pincode)
         .eq('is_active', true)
         .maybeSingle()
 
@@ -345,13 +361,13 @@ serve(async (req) => {
       const { data: newLocation, error: locError } = await supabaseService
         .from('locations')
         .insert({
-          address_line: location.address_line,
-          city: location.city,
-          state: location.state,
-          pincode: location.pincode,
+          address_line: locationData.address_line,
+          city: locationData.city,
+          state: locationData.state,
+          pincode: locationData.pincode,
           country: 'India',
-          lat: location.lat || null,
-          lng: location.lng || null,
+          lat: locationData.lat || null,
+          lng: locationData.lng || null,
           pincode_tier: pincodeTier
         })
         .select('id')
