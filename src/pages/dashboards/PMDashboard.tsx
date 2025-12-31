@@ -46,7 +46,6 @@ interface PMDashboardStats {
   };
   
   // Activity Statistics
-  totalSubmissions: number;
   totalQCReviews: number;
   totalAllocations: number;
   
@@ -55,6 +54,10 @@ interface PMDashboardStats {
   casesCompletedLast7Days: number;
   submissionsLast7Days: number;
   qcReviewsLast7Days: number;
+  // Previous week data for comparison
+  casesCreatedPreviousWeek: number;
+  casesCompletedPreviousWeek: number;
+  qcReviewsPreviousWeek: number;
   
   // Active Entities
   activeVendors: number;
@@ -86,13 +89,15 @@ export default function PMDashboard() {
       completed: 0,
       cancelled: 0,
     },
-    totalSubmissions: 0,
     totalQCReviews: 0,
     totalAllocations: 0,
     casesCreatedLast7Days: 0,
     casesCompletedLast7Days: 0,
     submissionsLast7Days: 0,
     qcReviewsLast7Days: 0,
+    casesCreatedPreviousWeek: 0,
+    casesCompletedPreviousWeek: 0,
+    qcReviewsPreviousWeek: 0,
     activeVendors: 0,
     activeGigWorkers: 0,
     activeClients: 0,
@@ -107,6 +112,11 @@ export default function PMDashboard() {
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         const sevenDaysAgoISO = sevenDaysAgo.toISOString();
 
+        // Calculate dates for previous week (14-7 days ago)
+        const fourteenDaysAgo = new Date();
+        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+        const fourteenDaysAgoISO = fourteenDaysAgo.toISOString();
+
         // Fetch all statistics in parallel
         const [
           // User counts by role
@@ -120,14 +130,16 @@ export default function PMDashboard() {
           totalCasesResult,
           casesByStatusResult,
           // Activity statistics
-          submissionsResult,
           qcReviewsResult,
           allocationsResult,
           // Recent activity (last 7 days)
           casesCreated7DaysResult,
           casesCompleted7DaysResult,
-          submissions7DaysResult,
           qcReviews7DaysResult,
+          // Previous week data (14-7 days ago)
+          casesCreatedPreviousWeekResult,
+          casesCompletedPreviousWeekResult,
+          qcReviewsPreviousWeekResult,
           // Active entities
           activeVendorsResult,
           activeGigWorkersResult,
@@ -144,14 +156,16 @@ export default function PMDashboard() {
           supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true),
           supabase.from('cases').select('status').eq('is_active', true),
           // Activity statistics
-          supabase.from('submissions').select('*', { count: 'exact', head: true }),
           supabase.from('qc_reviews').select('*', { count: 'exact', head: true }),
           supabase.from('allocation_logs').select('*', { count: 'exact', head: true }),
-          // Recent activity
+          // Recent activity (last 7 days)
           supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).gte('created_at', sevenDaysAgoISO),
           supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).in('status', ['completed', 'qc_passed']).gte('updated_at', sevenDaysAgoISO),
-          supabase.from('submissions').select('*', { count: 'exact', head: true }).gte('created_at', sevenDaysAgoISO),
           supabase.from('qc_reviews').select('*', { count: 'exact', head: true }).gte('reviewed_at', sevenDaysAgoISO),
+          // Previous week data (14-7 days ago)
+          supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).gte('created_at', fourteenDaysAgoISO).lt('created_at', sevenDaysAgoISO),
+          supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).in('status', ['completed', 'qc_passed']).gte('updated_at', fourteenDaysAgoISO).lt('updated_at', sevenDaysAgoISO),
+          supabase.from('qc_reviews').select('*', { count: 'exact', head: true }).gte('reviewed_at', fourteenDaysAgoISO).lt('reviewed_at', sevenDaysAgoISO),
           // Active entities
           supabase.from('vendors').select('*', { count: 'exact', head: true }).eq('is_active', true),
           supabase.from('gig_partners').select('*', { count: 'exact', head: true }).eq('is_active', true),
@@ -200,13 +214,15 @@ export default function PMDashboard() {
           clients: clientsResult.count || 0,
           totalCases: totalCasesResult.count || 0,
           casesByStatus,
-          totalSubmissions: submissionsResult.count || 0,
           totalQCReviews: qcReviewsResult.count || 0,
           totalAllocations: allocationsResult.count || 0,
           casesCreatedLast7Days: casesCreated7DaysResult.count || 0,
           casesCompletedLast7Days: casesCompleted7DaysResult.count || 0,
-          submissionsLast7Days: submissions7DaysResult.count || 0,
+          submissionsLast7Days: 0,
           qcReviewsLast7Days: qcReviews7DaysResult.count || 0,
+          casesCreatedPreviousWeek: casesCreatedPreviousWeekResult.count || 0,
+          casesCompletedPreviousWeek: casesCompletedPreviousWeekResult.count || 0,
+          qcReviewsPreviousWeek: qcReviewsPreviousWeekResult.count || 0,
           activeVendors: activeVendorsResult.count || 0,
           activeGigWorkers: activeGigWorkersResult.count || 0,
           activeClients: activeClientsResult.count || 0,
@@ -224,6 +240,14 @@ export default function PMDashboard() {
   const formatNumber = (num: number) => {
     if (isLoading) return '-';
     return num.toLocaleString();
+  };
+
+  const calculatePercentageChange = (current: number, previous: number): { value: number; isIncrease: boolean } => {
+    if (previous === 0) {
+      return current > 0 ? { value: 100, isIncrease: true } : { value: 0, isIncrease: false };
+    }
+    const change = ((current - previous) / previous) * 100;
+    return { value: Math.abs(change), isIncrease: change >= 0 };
   };
 
   return (
@@ -415,15 +439,15 @@ export default function PMDashboard() {
           <Activity className="h-5 w-5" />
           Activity Statistics
         </h2>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Submissions</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Allocations</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(stats.totalSubmissions)}</div>
-              <p className="text-xs text-muted-foreground">All submissions</p>
+              <div className="text-2xl font-bold">{formatNumber(stats.totalAllocations)}</div>
+              <p className="text-xs text-muted-foreground">Case allocations</p>
             </CardContent>
           </Card>
 
@@ -437,17 +461,6 @@ export default function PMDashboard() {
               <p className="text-xs text-muted-foreground">Total reviews</p>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Allocations</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(stats.totalAllocations)}</div>
-              <p className="text-xs text-muted-foreground">Case allocations</p>
-            </CardContent>
-          </Card>
         </div>
       </div>
 
@@ -457,7 +470,7 @@ export default function PMDashboard() {
           <TrendingUp className="h-5 w-5" />
           Recent Activity (Last 7 Days)
         </h2>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Cases Created</CardTitle>
@@ -465,7 +478,20 @@ export default function PMDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(stats.casesCreatedLast7Days)}</div>
-              <p className="text-xs text-muted-foreground">New cases this week</p>
+              {(() => {
+                const change = calculatePercentageChange(stats.casesCreatedLast7Days, stats.casesCreatedPreviousWeek);
+                if (change.value === 0 && stats.casesCreatedLast7Days === 0) {
+                  return <p className="text-xs text-muted-foreground">New cases this week</p>;
+                }
+                return (
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs text-muted-foreground">New cases this week</p>
+                    <span className={`text-xs font-medium ${change.isIncrease ? 'text-green-600' : 'text-red-600'}`}>
+                      {change.isIncrease ? '↑' : '↓'} {change.value.toFixed(1)}%
+                    </span>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -476,18 +502,20 @@ export default function PMDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(stats.casesCompletedLast7Days)}</div>
-              <p className="text-xs text-muted-foreground">Completed this week</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Submissions</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatNumber(stats.submissionsLast7Days)}</div>
-              <p className="text-xs text-muted-foreground">This week</p>
+              {(() => {
+                const change = calculatePercentageChange(stats.casesCompletedLast7Days, stats.casesCompletedPreviousWeek);
+                if (change.value === 0 && stats.casesCompletedLast7Days === 0) {
+                  return <p className="text-xs text-muted-foreground">Completed this week</p>;
+                }
+                return (
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs text-muted-foreground">Completed this week</p>
+                    <span className={`text-xs font-medium ${change.isIncrease ? 'text-green-600' : 'text-red-600'}`}>
+                      {change.isIncrease ? '↑' : '↓'} {change.value.toFixed(1)}%
+                    </span>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -498,7 +526,20 @@ export default function PMDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(stats.qcReviewsLast7Days)}</div>
-              <p className="text-xs text-muted-foreground">This week</p>
+              {(() => {
+                const change = calculatePercentageChange(stats.qcReviewsLast7Days, stats.qcReviewsPreviousWeek);
+                if (change.value === 0 && stats.qcReviewsLast7Days === 0) {
+                  return <p className="text-xs text-muted-foreground">This week</p>;
+                }
+                return (
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs text-muted-foreground">This week</p>
+                    <span className={`text-xs font-medium ${change.isIncrease ? 'text-green-600' : 'text-red-600'}`}>
+                      {change.isIncrease ? '↑' : '↓'} {change.value.toFixed(1)}%
+                    </span>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
