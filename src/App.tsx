@@ -22,6 +22,7 @@ import SuperAdminDashboard from "./pages/dashboards/SuperAdminDashboard";
 import OpsDashboard from "./pages/dashboards/OpsDashboard";
 import VendorTeamDashboard from "./pages/dashboards/VendorTeamDashboard";
 import QCDashboard from "./pages/dashboards/QCDashboard";
+import PMDashboard from "./pages/dashboards/PMDashboard";
 import VendorDashboard from "./pages/VendorDashboard";
 import GigWorkerDashboard from "./pages/GigWorkerDashboard";
 import GigWorkerAuth from "./pages/GigWorkerAuth";
@@ -114,6 +115,14 @@ const App = () => {
                   </ProtectedRoute>
                 }>
                   <Route index element={<SuperAdminDashboard />} />
+                </Route>
+
+                <Route path="/pm-dashboard" element={
+                  <ProtectedRoute allowedRoles={['super_admin']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<PMDashboard />} />
                 </Route>
 
                 <Route path="/ops" element={
