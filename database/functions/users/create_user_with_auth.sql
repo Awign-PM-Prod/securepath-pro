@@ -48,6 +48,11 @@ BEGIN
     IF user_role NOT IN ('vendor', 'gig_worker') THEN
       RETURN jsonb_build_object('success', false, 'error', 'Insufficient permissions to create ' || user_role || ' users');
     END IF;
+  ELSIF current_user_role = 'supply_team' THEN
+    -- Supply team can create vendors and gig workers
+    IF user_role NOT IN ('vendor', 'gig_worker') THEN
+      RETURN jsonb_build_object('success', false, 'error', 'Insufficient permissions to create ' || user_role || ' users');
+    END IF;
   ELSIF current_user_role = 'vendor' THEN
     -- Vendors can create gig workers
     IF user_role != 'gig_worker' THEN

@@ -13,6 +13,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Search, Download, FileSpreadsheet, FileText, User, Phone, MapPin, Clock, Building, Calendar as CalendarIcon, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { isRecreatedCase } from '@/utils/caseUtils';
 import { CSVService, FormSubmissionData } from '@/services/csvService';
 import { PDFService, type CaseDataForPDF } from '@/services/pdfService';
@@ -134,13 +136,10 @@ export default function Reports() {
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const { toast } = useToast();
 
-  // Filter states
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
-  const [submissionStartDate, setSubmissionStartDate] = useState<string>('');
-  const [submissionEndDate, setSubmissionEndDate] = useState<string>('');
-  const [approvalStartDate, setApprovalStartDate] = useState<string>('');
-  const [approvalEndDate, setApprovalEndDate] = useState<string>('');
+  // Filter states - using date ranges instead of separate start/end dates
+  const [creationDateRange, setCreationDateRange] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
+  const [submissionDateRange, setSubmissionDateRange] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
+  const [approvalDateRange, setApprovalDateRange] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
   const [selectedClient, setSelectedClient] = useState<string>('all');
   
   // Options for filters
@@ -153,8 +152,7 @@ export default function Reports() {
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set());
   
   // Filters for case selection dialog
-  const [selectionStartDate, setSelectionStartDate] = useState<string>('');
-  const [selectionEndDate, setSelectionEndDate] = useState<string>('');
+  const [selectionDateRange, setSelectionDateRange] = useState<{ from: Date | undefined; to: Date | undefined } | undefined>(undefined);
   const [selectionClient, setSelectionClient] = useState<string>('all');
   const [selectionSearchTerm, setSelectionSearchTerm] = useState<string>('');
 
@@ -163,10 +161,35 @@ export default function Reports() {
   const [pageSize] = useState(10);
   const [totalCases, setTotalCases] = useState(0);
 
+  // Helper function to check if a date range is complete (both from and to are set)
+  const isDateRangeComplete = (range: { from: Date | undefined; to: Date | undefined } | undefined): boolean => {
+    return !!(range?.from && range?.to);
+  };
+
+  // Create stable references for complete date ranges to use in dependencies
+  const completeCreationDateRange = useMemo(() => {
+    return isDateRangeComplete(creationDateRange) ? creationDateRange : undefined;
+  }, [creationDateRange?.from?.getTime(), creationDateRange?.to?.getTime()]);
+
+  const completeSubmissionDateRange = useMemo(() => {
+    return isDateRangeComplete(submissionDateRange) ? submissionDateRange : undefined;
+  }, [submissionDateRange?.from?.getTime(), submissionDateRange?.to?.getTime()]);
+
+  const completeApprovalDateRange = useMemo(() => {
+    return isDateRangeComplete(approvalDateRange) ? approvalDateRange : undefined;
+  }, [approvalDateRange?.from?.getTime(), approvalDateRange?.to?.getTime()]);
+
+  // Check if any filters are active (only count complete date ranges)
+  const hasActiveDateFilters = 
+    completeCreationDateRange ||
+    completeSubmissionDateRange ||
+    completeApprovalDateRange;
+  const hasActiveFilters = hasActiveDateFilters || selectedClient !== 'all';
+
   useEffect(() => {
     loadSubmittedCases();
     loadFilterOptions();
-  }, [currentPage, searchQuery]); // Reload cases when page or search query changes
+  }, [currentPage, searchQuery, completeCreationDateRange, completeSubmissionDateRange, completeApprovalDateRange, selectedClient]); // Reload cases only when complete date ranges are selected
 
   // Handle search button click
   const handleSearch = () => {
@@ -201,7 +224,7 @@ export default function Reports() {
     if (currentPage !== 1) {
       setCurrentPage(1);
     }
-  }, [searchQuery, startDate, endDate, submissionStartDate, submissionEndDate, approvalStartDate, approvalEndDate, selectedClient]);
+  }, [searchQuery, completeCreationDateRange, completeSubmissionDateRange, completeApprovalDateRange, selectedClient]);
 
   const loadFilterOptions = async () => {
     try {
@@ -214,8 +237,10 @@ export default function Reports() {
 
       if (clientsError) {
         console.error('Error loading clients:', clientsError);
+        setClients([]);
       } else {
-        setClients(clientsData || []);
+        // Filter out any null or invalid clients
+        setClients((clientsData || []).filter(client => client && client.id && client.name));
       }
     } catch (error) {
       console.error('Error loading filter options:', error);
@@ -230,9 +255,9 @@ export default function Reports() {
       const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
       const cutoffDateISOString = cutoffDate.toISOString();
       
-      // When there's a search query, load ALL cases (not paginated) so we can filter them properly
-      // When there's no search query, use normal pagination
-      const shouldLoadAll = !!searchQuery;
+      // When there's a search query or active filters, load ALL cases (not paginated) so we can filter them properly
+      // When there's no search query or filters, use normal pagination
+      const shouldLoadAll = !!searchQuery || hasActiveFilters;
       
       let query = supabase
         .from('cases')
@@ -442,14 +467,14 @@ export default function Reports() {
       caseItem.case_number,
       caseItem.client_case_id,
       caseItem.candidate_name,
-      caseItem.client.name,
-      caseItem.client.email,
+      caseItem.client?.name || '',
+      caseItem.client?.email || '',
       caseItem.phone_primary,
       caseItem.phone_secondary || '',
-      caseItem.location.city,
-      caseItem.location.state,
-      caseItem.location.pincode,
-      caseItem.location.address_line || '',
+      caseItem.location?.city || '',
+      caseItem.location?.state || '',
+      caseItem.location?.pincode || '',
+      caseItem.location?.address_line || '',
       caseItem.tat_hours?.toString() || '',
       caseItem.contract_type,
       contractTypeLabel, // Also search by display label
@@ -460,7 +485,7 @@ export default function Reports() {
       format(new Date(caseItem.created_at), 'yyyy-MM-dd'),
       caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm') : '',
       caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'yyyy-MM-dd') : '',
-      `Tier ${getTierNumber(caseItem.location.pincode_tier)}`,
+      `Tier ${getTierNumber(caseItem.location?.pincode_tier)}`,
     ];
     
     return searchableFields.some(field => 
@@ -472,51 +497,43 @@ export default function Reports() {
     // Search filter - now searches all metadata
     const matchesSearch = caseMatchesSearch(caseItem, searchQuery);
 
-    // Creation date range filter
+    // Creation date range filter - only apply if range is complete
     let matchesDateRange = true;
-    if (startDate || endDate) {
+    if (completeCreationDateRange?.from && completeCreationDateRange?.to) {
       const caseDate = new Date(caseItem.created_at);
       caseDate.setHours(0, 0, 0, 0);
       
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        if (caseDate < start) matchesDateRange = false;
-      }
+      const start = new Date(completeCreationDateRange.from);
+      start.setHours(0, 0, 0, 0);
+      if (caseDate < start) matchesDateRange = false;
       
-      if (endDate && matchesDateRange) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        if (caseDate > end) matchesDateRange = false;
-      }
+      const end = new Date(completeCreationDateRange.to);
+      end.setHours(23, 59, 59, 999);
+      if (caseDate > end) matchesDateRange = false;
     }
 
-    // Submission date range filter
+    // Submission date range filter - only apply if range is complete
     let matchesSubmissionDateRange = true;
-    if (submissionStartDate || submissionEndDate) {
+    if (completeSubmissionDateRange?.from && completeSubmissionDateRange?.to) {
       if (!caseItem.submitted_at) {
         matchesSubmissionDateRange = false;
       } else {
         const submissionDate = new Date(caseItem.submitted_at);
         submissionDate.setHours(0, 0, 0, 0);
         
-        if (submissionStartDate) {
-          const start = new Date(submissionStartDate);
-          start.setHours(0, 0, 0, 0);
-          if (submissionDate < start) matchesSubmissionDateRange = false;
-        }
+        const start = new Date(completeSubmissionDateRange.from);
+        start.setHours(0, 0, 0, 0);
+        if (submissionDate < start) matchesSubmissionDateRange = false;
         
-        if (submissionEndDate && matchesSubmissionDateRange) {
-          const end = new Date(submissionEndDate);
-          end.setHours(23, 59, 59, 999);
-          if (submissionDate > end) matchesSubmissionDateRange = false;
-        }
+        const end = new Date(completeSubmissionDateRange.to);
+        end.setHours(23, 59, 59, 999);
+        if (submissionDate > end) matchesSubmissionDateRange = false;
       }
     }
 
-    // Approval date range filter (for QC Approved cases)
+    // Approval date range filter - only apply if range is complete
     let matchesApprovalDateRange = true;
-    if (approvalStartDate || approvalEndDate) {
+    if (completeApprovalDateRange?.from && completeApprovalDateRange?.to) {
       // Only filter by approval date if case is approved (QC_Response === 'Approved' or status === 'qc_passed')
       const isApproved = caseItem.QC_Response === 'Approved' || caseItem.status === 'qc_passed';
       if (!isApproved || !caseItem.status_updated_at) {
@@ -525,22 +542,18 @@ export default function Reports() {
         const approvalDate = new Date(caseItem.status_updated_at);
         approvalDate.setHours(0, 0, 0, 0);
         
-        if (approvalStartDate) {
-          const start = new Date(approvalStartDate);
-          start.setHours(0, 0, 0, 0);
-          if (approvalDate < start) matchesApprovalDateRange = false;
-        }
+        const start = new Date(completeApprovalDateRange.from);
+        start.setHours(0, 0, 0, 0);
+        if (approvalDate < start) matchesApprovalDateRange = false;
         
-        if (approvalEndDate && matchesApprovalDateRange) {
-          const end = new Date(approvalEndDate);
-          end.setHours(23, 59, 59, 999);
-          if (approvalDate > end) matchesApprovalDateRange = false;
-        }
+        const end = new Date(completeApprovalDateRange.to);
+        end.setHours(23, 59, 59, 999);
+        if (approvalDate > end) matchesApprovalDateRange = false;
       }
     }
 
     // Client filter
-    const matchesClient = selectedClient === 'all' || caseItem.client.id === selectedClient;
+    const matchesClient = selectedClient === 'all' || caseItem.client?.id === selectedClient;
 
     return matchesSearch && matchesDateRange && matchesSubmissionDateRange && matchesApprovalDateRange && matchesClient;
   });
@@ -562,99 +575,10 @@ export default function Reports() {
   }, [searchQuery, filteredCases.length]);
 
   const clearFilters = () => {
-    setStartDate('');
-    setEndDate('');
-    setSubmissionStartDate('');
-    setSubmissionEndDate('');
-    setApprovalStartDate('');
-    setApprovalEndDate('');
+    setCreationDateRange(undefined);
+    setSubmissionDateRange(undefined);
+    setApprovalDateRange(undefined);
     setSelectedClient('all');
-  };
-
-  const hasActiveFilters = startDate || endDate || submissionStartDate || submissionEndDate || approvalStartDate || approvalEndDate || selectedClient !== 'all';
-
-  // Get today's date in YYYY-MM-DD format for max date validation
-  const getTodayString = () => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  };
-
-  const handleStartDateChange = (value: string) => {
-    setStartDate(value);
-    // If end date is before new start date, clear it
-    if (endDate && value && endDate < value) {
-      setEndDate('');
-      toast({
-        title: 'Date Range Updated',
-        description: 'End date has been cleared because it was before the start date',
-        variant: 'default',
-      });
-    }
-  };
-
-  const handleEndDateChange = (value: string) => {
-    // Validate that end date is not before start date
-    if (startDate && value && value < startDate) {
-      toast({
-        title: 'Invalid Date',
-        description: 'End date cannot be before start date',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setEndDate(value);
-  };
-
-  const handleSubmissionStartDateChange = (value: string) => {
-    setSubmissionStartDate(value);
-    // If end date is before new start date, clear it
-    if (submissionEndDate && value && submissionEndDate < value) {
-      setSubmissionEndDate('');
-      toast({
-        title: 'Date Range Updated',
-        description: 'Submission end date has been cleared because it was before the start date',
-        variant: 'default',
-      });
-    }
-  };
-
-  const handleSubmissionEndDateChange = (value: string) => {
-    // Validate that end date is not before start date
-    if (submissionStartDate && value && value < submissionStartDate) {
-      toast({
-        title: 'Invalid Date',
-        description: 'Submission end date cannot be before start date',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setSubmissionEndDate(value);
-  };
-
-  const handleApprovalStartDateChange = (value: string) => {
-    setApprovalStartDate(value);
-    // If end date is before new start date, clear it
-    if (approvalEndDate && value && approvalEndDate < value) {
-      setApprovalEndDate('');
-      toast({
-        title: 'Date Range Updated',
-        description: 'Approval end date has been cleared because it was before the start date',
-        variant: 'default',
-      });
-    }
-  };
-
-  const handleApprovalEndDateChange = (value: string) => {
-    // Validate that end date is not before start date
-    if (approvalStartDate && value && value < approvalStartDate) {
-      toast({
-        title: 'Invalid Date',
-        description: 'Approval end date cannot be before start date',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setApprovalEndDate(value);
   };
 
   // Bulk download handlers
@@ -877,29 +801,29 @@ export default function Reports() {
 
       // Date range filter
       let matchesDateRange = true;
-      if (selectionStartDate || selectionEndDate) {
+      if (selectionDateRange?.from || selectionDateRange?.to) {
         const caseDate = new Date(caseItem.created_at);
         caseDate.setHours(0, 0, 0, 0);
         
-        if (selectionStartDate) {
-          const start = new Date(selectionStartDate);
+        if (selectionDateRange.from) {
+          const start = new Date(selectionDateRange.from);
           start.setHours(0, 0, 0, 0);
           if (caseDate < start) matchesDateRange = false;
         }
         
-        if (selectionEndDate && matchesDateRange) {
-          const end = new Date(selectionEndDate);
+        if (selectionDateRange.to && matchesDateRange) {
+          const end = new Date(selectionDateRange.to);
           end.setHours(23, 59, 59, 999);
           if (caseDate > end) matchesDateRange = false;
         }
       }
 
       // Client filter
-      const matchesClient = selectionClient === 'all' || caseItem.client.id === selectionClient;
+      const matchesClient = selectionClient === 'all' || caseItem.client?.id === selectionClient;
 
       return matchesSearch && matchesDateRange && matchesClient;
     });
-  }, [cases, selectionSearchTerm, selectionStartDate, selectionEndDate, selectionClient]);
+  }, [cases, selectionSearchTerm, selectionDateRange, selectionClient]);
 
   const handleToggleCaseSelection = (caseId: string) => {
     const newSelected = new Set(selectedCaseIds);
@@ -920,24 +844,6 @@ export default function Reports() {
   };
 
 
-  const handleSelectionStartDateChange = (value: string) => {
-    setSelectionStartDate(value);
-    if (selectionEndDate && value && selectionEndDate < value) {
-      setSelectionEndDate('');
-    }
-  };
-
-  const handleSelectionEndDateChange = (value: string) => {
-    if (selectionStartDate && value && value < selectionStartDate) {
-      toast({
-        title: 'Invalid Date',
-        description: 'End date cannot be before start date',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setSelectionEndDate(value);
-  };
 
   // Generate CSV with case number for bulk download
   const generateBulkCSV = async (submissions: Array<FormSubmissionData & { case_number?: string; _contract_type?: string; _is_positive?: boolean }>): Promise<string> => {
@@ -1467,29 +1373,133 @@ export default function Reports() {
 
             {/* Filter Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Creation Date Range - Start Date */}
+              {/* Creation Date Range */}
               <div className="space-y-2">
-                <Label htmlFor="start-date">Creation Start Date</Label>
-                <Input
-                  id="start-date"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => handleStartDateChange(e.target.value)}
-                  max={getTodayString()}
-                />
+                <Label>Creation Date Range</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={`w-full justify-start text-left font-normal ${creationDateRange?.from || creationDateRange?.to ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                    >
+                      <CalendarIcon className="h-4 w-4 mr-2" />
+                      {creationDateRange?.from && creationDateRange?.to
+                        ? `${format(creationDateRange.from, "MMM dd, yyyy")} - ${format(creationDateRange.to, "MMM dd, yyyy")}`
+                        : creationDateRange?.from
+                        ? `From ${format(creationDateRange.from, "MMM dd, yyyy")}`
+                        : creationDateRange?.to
+                        ? `Until ${format(creationDateRange.to, "MMM dd, yyyy")}`
+                        : "Select date range"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="range"
+                      selected={creationDateRange ? { from: creationDateRange.from, to: creationDateRange.to } : undefined}
+                      onSelect={(range) => {
+                        if (range) {
+                          setCreationDateRange({ from: range.from, to: range.to });
+                        } else {
+                          setCreationDateRange(undefined);
+                        }
+                      }}
+                      disabled={(date) => {
+                        const today = new Date();
+                        const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                        const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                        return dateOnly > todayDateOnly;
+                      }}
+                      numberOfMonths={2}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
 
-              {/* Creation Date Range - End Date */}
+              {/* Submission Date Range */}
               <div className="space-y-2">
-                <Label htmlFor="end-date">Creation End Date</Label>
-                <Input
-                  id="end-date"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => handleEndDateChange(e.target.value)}
-                  min={startDate || undefined}
-                  max={getTodayString()}
-                />
+                <Label>Submission Date Range</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={`w-full justify-start text-left font-normal ${submissionDateRange?.from || submissionDateRange?.to ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                    >
+                      <CalendarIcon className="h-4 w-4 mr-2" />
+                      {submissionDateRange?.from && submissionDateRange?.to
+                        ? `${format(submissionDateRange.from, "MMM dd, yyyy")} - ${format(submissionDateRange.to, "MMM dd, yyyy")}`
+                        : submissionDateRange?.from
+                        ? `From ${format(submissionDateRange.from, "MMM dd, yyyy")}`
+                        : submissionDateRange?.to
+                        ? `Until ${format(submissionDateRange.to, "MMM dd, yyyy")}`
+                        : "Select date range"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="range"
+                      selected={submissionDateRange ? { from: submissionDateRange.from, to: submissionDateRange.to } : undefined}
+                      onSelect={(range) => {
+                        if (range) {
+                          setSubmissionDateRange({ from: range.from, to: range.to });
+                        } else {
+                          setSubmissionDateRange(undefined);
+                        }
+                      }}
+                      disabled={(date) => {
+                        const today = new Date();
+                        const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                        const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                        return dateOnly > todayDateOnly;
+                      }}
+                      numberOfMonths={2}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Approval Date Range */}
+              <div className="space-y-2">
+                <Label>Approval Date Range</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={`w-full justify-start text-left font-normal ${approvalDateRange?.from || approvalDateRange?.to ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                    >
+                      <CalendarIcon className="h-4 w-4 mr-2" />
+                      {approvalDateRange?.from && approvalDateRange?.to
+                        ? `${format(approvalDateRange.from, "MMM dd, yyyy")} - ${format(approvalDateRange.to, "MMM dd, yyyy")}`
+                        : approvalDateRange?.from
+                        ? `From ${format(approvalDateRange.from, "MMM dd, yyyy")}`
+                        : approvalDateRange?.to
+                        ? `Until ${format(approvalDateRange.to, "MMM dd, yyyy")}`
+                        : "Select date range"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="range"
+                      selected={approvalDateRange ? { from: approvalDateRange.from, to: approvalDateRange.to } : undefined}
+                      onSelect={(range) => {
+                        if (range) {
+                          setApprovalDateRange({ from: range.from, to: range.to });
+                        } else {
+                          setApprovalDateRange(undefined);
+                        }
+                      }}
+                      disabled={(date) => {
+                        const today = new Date();
+                        const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                        const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                        return dateOnly > todayDateOnly;
+                      }}
+                      numberOfMonths={2}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
 
               {/* Client Filter */}
@@ -1501,7 +1511,7 @@ export default function Reports() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Clients</SelectItem>
-                    {clients.map((client) => (
+                    {clients.filter(client => client && client.id && client.name).map((client) => (
                       <SelectItem key={client.id} value={client.id}>
                         {client.name}
                       </SelectItem>
@@ -1509,75 +1519,20 @@ export default function Reports() {
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Clear Filters Button */}
-              <div className="space-y-2">
-                <Label>&nbsp;</Label>
-                {hasActiveFilters && (
-                  <Button
-                    variant="outline"
-                    onClick={clearFilters}
-                    className="w-full"
-                  >
-                    <X className="h-4 w-4 mr-2" />
-                    Clear Filters
-                  </Button>
-                )}
-              </div>
             </div>
 
-            {/* Second Filter Row - Submission and Approval Date Ranges */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Submission Date Range - Start Date */}
-              <div className="space-y-2">
-                <Label htmlFor="submission-start-date">Submission Start Date</Label>
-                <Input
-                  id="submission-start-date"
-                  type="date"
-                  value={submissionStartDate}
-                  onChange={(e) => handleSubmissionStartDateChange(e.target.value)}
-                  max={getTodayString()}
-                />
+            {/* Clear Filters Button Row */}
+            {hasActiveFilters && (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={clearFilters}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Clear Filters
+                </Button>
               </div>
-
-              {/* Submission Date Range - End Date */}
-              <div className="space-y-2">
-                <Label htmlFor="submission-end-date">Submission End Date</Label>
-                <Input
-                  id="submission-end-date"
-                  type="date"
-                  value={submissionEndDate}
-                  onChange={(e) => handleSubmissionEndDateChange(e.target.value)}
-                  min={submissionStartDate || undefined}
-                  max={getTodayString()}
-                />
-              </div>
-
-              {/* Approval Date Range - Start Date */}
-              <div className="space-y-2">
-                <Label htmlFor="approval-start-date">Approval Start Date</Label>
-                <Input
-                  id="approval-start-date"
-                  type="date"
-                  value={approvalStartDate}
-                  onChange={(e) => handleApprovalStartDateChange(e.target.value)}
-                  max={getTodayString()}
-                />
-              </div>
-
-              {/* Approval Date Range - End Date */}
-              <div className="space-y-2">
-                <Label htmlFor="approval-end-date">Approval End Date</Label>
-                <Input
-                  id="approval-end-date"
-                  type="date"
-                  value={approvalEndDate}
-                  onChange={(e) => handleApprovalEndDateChange(e.target.value)}
-                  min={approvalStartDate || undefined}
-                  max={getTodayString()}
-                />
-              </div>
-            </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -1646,8 +1601,8 @@ export default function Reports() {
                       <Building className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Client</p>
-                        <p className="font-medium">{highlightText(caseItem.client.name, searchQuery)}</p>
-                        <p className="text-xs text-muted-foreground">{highlightText(caseItem.client.email, searchQuery)}</p>
+                        <p className="font-medium">{highlightText(caseItem.client?.name || 'Unknown', searchQuery)}</p>
+                        <p className="text-xs text-muted-foreground">{highlightText(caseItem.client?.email || '', searchQuery)}</p>
                       </div>
                     </div>
 
@@ -1663,22 +1618,22 @@ export default function Reports() {
                       <MapPin className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-muted-foreground">Location</p>
-                        {caseItem.location.location_url ? (
+                        {caseItem.location?.location_url ? (
                           <a
                             href={caseItem.location.location_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                           >
-                            {highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchQuery)}
+                            {highlightText(`${caseItem.location?.city || ''}, ${caseItem.location?.state || ''}`, searchQuery)}
                           </a>
                         ) : (
-                          <p className="font-medium">{highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchQuery)}</p>
+                          <p className="font-medium">{highlightText(`${caseItem.location?.city || ''}, ${caseItem.location?.state || ''}`, searchQuery)}</p>
                         )}
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{highlightText(caseItem.location.pincode, searchQuery)}</span>
+                          <span className="text-xs text-muted-foreground">{highlightText(caseItem.location?.pincode || '', searchQuery)}</span>
                           <Badge variant="outline" className="text-xs">
-                            {highlightText(`Tier ${getTierNumber(caseItem.location.pincode_tier)}`, searchQuery)}
+                            {highlightText(`Tier ${getTierNumber(caseItem.location?.pincode_tier)}`, searchQuery)}
                           </Badge>
                         </div>
                       </div>
@@ -1849,28 +1804,47 @@ export default function Reports() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="selection-start-date">Start Date</Label>
-                  <Input
-                    id="selection-start-date"
-                    type="date"
-                    value={selectionStartDate}
-                    onChange={(e) => handleSelectionStartDateChange(e.target.value)}
-                    max={getTodayString()}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="selection-end-date">End Date</Label>
-                  <Input
-                    id="selection-end-date"
-                    type="date"
-                    value={selectionEndDate}
-                    onChange={(e) => handleSelectionEndDateChange(e.target.value)}
-                    min={selectionStartDate || undefined}
-                    max={getTodayString()}
-                  />
+                  <Label>Date Range</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={`w-full justify-start text-left font-normal ${selectionDateRange?.from || selectionDateRange?.to ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                      >
+                        <CalendarIcon className="h-4 w-4 mr-2" />
+                        {selectionDateRange?.from && selectionDateRange?.to
+                          ? `${format(selectionDateRange.from, "MMM dd, yyyy")} - ${format(selectionDateRange.to, "MMM dd, yyyy")}`
+                          : selectionDateRange?.from
+                          ? `From ${format(selectionDateRange.from, "MMM dd, yyyy")}`
+                          : selectionDateRange?.to
+                          ? `Until ${format(selectionDateRange.to, "MMM dd, yyyy")}`
+                          : "Select date range"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="range"
+                        selected={selectionDateRange ? { from: selectionDateRange.from, to: selectionDateRange.to } : undefined}
+                        onSelect={(range) => {
+                          if (range) {
+                            setSelectionDateRange({ from: range.from, to: range.to });
+                          } else {
+                            setSelectionDateRange(undefined);
+                          }
+                        }}
+                        disabled={(date) => {
+                          const today = new Date();
+                          const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                          const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                          return dateOnly > todayDateOnly;
+                        }}
+                        numberOfMonths={2}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="space-y-2">
@@ -1931,8 +1905,8 @@ export default function Reports() {
                         <p className="text-sm text-muted-foreground">{caseItem.client_case_id}</p>
                         <p className="text-sm font-medium">{caseItem.candidate_name}</p>
                         <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
-                          <span>{caseItem.client.name}</span>
-                          <span>{caseItem.location.city}, {caseItem.location.state}</span>
+                          <span>{caseItem.client?.name || 'Unknown'}</span>
+                          <span>{caseItem.location?.city || ''}, {caseItem.location?.state || ''}</span>
                           <span>{format(new Date(caseItem.created_at), 'MMM dd, yyyy')}</span>
                         </div>
                       </div>

@@ -52,7 +52,19 @@ export default function OTPAuth() {
   useEffect(() => {
     // Don't redirect if we're currently processing OTP verification
     if (isProcessingOTP.current || pendingFirstLoginRedirect.current) {
-      console.log('⏸️ Skipping auto-redirect - OTP verification in progress');
+      console.log('⏸️ Skipping auto-redirect - OTP verification in progress or first login redirect pending');
+      return;
+    }
+    
+    // Don't redirect if we're already on the setup-password page
+    if (window.location.pathname === '/setup-password') {
+      console.log('⏸️ Skipping auto-redirect - already on setup-password page');
+      return;
+    }
+    
+    // Don't redirect if we're on the OTP step (user is still verifying)
+    if (step === 'otp') {
+      console.log('⏸️ Skipping auto-redirect - user is on OTP step');
       return;
     }
     
@@ -61,7 +73,7 @@ export default function OTPAuth() {
       console.log('🔄 Redirecting authenticated user to:', redirectPath);
       navigate(redirectPath, { replace: true });
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate, step]);
 
   const phoneForm = useForm<PhoneForm>({
     resolver: zodResolver(phoneSchema),
@@ -79,6 +91,8 @@ export default function OTPAuth() {
         return '/ops';
       case 'vendor_team':
         return '/vendor-team';
+      case 'supply_team':
+        return '/supply';
       case 'qc_team':
         return '/qc';
       case 'vendor':
@@ -222,8 +236,14 @@ export default function OTPAuth() {
       }
 
       // Store is_first_login from response for later use
-      const isFirstLogin = sessionData?.is_first_login === true;
-      console.log('📥 Received is_first_login from server:', sessionData?.is_first_login, '→ parsed as:', isFirstLogin);
+      // Check multiple ways to ensure we catch the value correctly
+      const isFirstLogin = sessionData?.is_first_login === true || 
+                          sessionData?.is_first_login === 'true' ||
+                          String(sessionData?.is_first_login).toLowerCase() === 'true';
+      console.log('📥 Received is_first_login from server:', sessionData?.is_first_login);
+      console.log('📥 Type of is_first_login:', typeof sessionData?.is_first_login);
+      console.log('📥 Parsed isFirstLogin:', isFirstLogin);
+      console.log('📥 Will redirect to password setup?', isFirstLogin);
 
       // Get user profile with role for redirect
       // Use limit(1) instead of single() to handle cases where multiple profiles have the same phone
@@ -299,24 +319,59 @@ export default function OTPAuth() {
       // Only redirect to password setup if this is user's first login
       // isFirstLogin was already declared earlier from sessionData
       console.log('🔀 Checking redirect logic - isFirstLogin:', isFirstLogin);
+      console.log('🔀 sessionData.is_first_login:', sessionData?.is_first_login);
+      console.log('🔀 typeof isFirstLogin:', typeof isFirstLogin);
+      
       if (isFirstLogin) {
-        console.log('➡️ Redirecting to password setup (first login)');
-        // Set flag to prevent auto-redirect from overriding this
+        console.log('➡️ FIRST LOGIN DETECTED - Redirecting to password setup');
+        console.log('➡️ User:', profile.first_name, 'Role:', profile.role);
+        console.log('➡️ Session user ID:', session.user.id);
+        
+        // CRITICAL: Set flags FIRST to prevent useEffect from interfering
         pendingFirstLoginRedirect.current = true;
+        isProcessingOTP.current = false;
+        
+        // Clear loading state immediately
+        setIsLoading(false);
+        
+        // Reset step to prevent useEffect from checking step === 'otp'
+        setStep('phone');
+        
+        // Show toast (non-blocking) - but don't wait for it
         toast({
           title: 'Welcome!',
           description: `Welcome, ${profile.first_name}! Please set your password for future logins.`,
         });
-        // Use setTimeout to ensure navigation happens after state updates
-        setTimeout(() => {
-          navigate('/setup-password', { replace: true });
-          // Clear the flag after a delay to allow navigation to complete
-          setTimeout(() => {
-            isProcessingOTP.current = false;
-            pendingFirstLoginRedirect.current = false;
-          }, 1000);
-        }, 100);
+        
+        // Store redirect info in sessionStorage BEFORE redirect
+        sessionStorage.setItem('redirectAfterAuth', '/setup-password');
+        sessionStorage.setItem('isFirstLogin', 'true');
+        sessionStorage.setItem('firstLoginUserId', session.user.id);
+        
+        console.log('🚀 Executing redirect to /setup-password');
+        console.log('🚀 Current location:', window.location.href);
+        console.log('🚀 Flags set - pendingFirstLoginRedirect:', pendingFirstLoginRedirect.current);
+        console.log('🚀 Session user ID stored:', session.user.id);
+        
+        // CRITICAL: Use window.location.replace for immediate, unblockable redirect
+        // This replaces the current history entry and forces navigation
+        // Using replace instead of href prevents back button issues
+        try {
+          window.location.replace('/setup-password');
+          console.log('✅ window.location.replace called successfully');
+        } catch (e) {
+          console.error('❌ window.location.replace failed:', e);
+          // Fallback to href if replace fails
+          window.location.href = '/setup-password';
+        }
+        
+        // Return immediately - don't execute any code after this
+        // The redirect should happen synchronously above
         return;
+      } else {
+        console.log('➡️ NOT first login - proceeding to dashboard redirect');
+        console.log('➡️ isFirstLogin value was:', isFirstLogin);
+        console.log('➡️ sessionData.is_first_login was:', sessionData?.is_first_login);
       }
       
       console.log('➡️ Redirecting to dashboard (returning user)');
@@ -353,11 +408,9 @@ export default function OTPAuth() {
       // Clear processing flags on error
       isProcessingOTP.current = false;
       pendingFirstLoginRedirect.current = false;
-    } finally {
       setIsLoading(false);
-      // Note: Don't clear isProcessingOTP here if we're redirecting to password setup
-      // It will be cleared after the redirect completes
     }
+    // Note: Removed finally block to prevent interference with redirect
   };
 
   const handleResendOTP = async () => {

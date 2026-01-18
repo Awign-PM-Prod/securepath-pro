@@ -23,6 +23,7 @@ import OpsDashboard from "./pages/dashboards/OpsDashboard";
 import VendorTeamDashboard from "./pages/dashboards/VendorTeamDashboard";
 import QCDashboard from "./pages/dashboards/QCDashboard";
 import PMDashboard from "./pages/dashboards/PMDashboard";
+import SupplyDashboard from "./pages/dashboards/SupplyDashboard";
 import VendorDashboard from "./pages/VendorDashboard";
 import GigWorkerDashboard from "./pages/GigWorkerDashboard";
 import GigWorkerAuth from "./pages/GigWorkerAuth";
@@ -153,6 +154,16 @@ const App = () => {
                   </ProtectedRoute>
                 }>
                   <Route index element={<VendorTeamDashboard />} />
+                </Route>
+
+                <Route path="/supply" element={
+                  <ProtectedRoute allowedRoles={['supply_team']}>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<SupplyDashboard />} />
+                  <Route path="vendors" element={<VendorManagement />} />
+                  <Route path="gig-workers" element={<GigWorkerManagement />} />
                 </Route>
 
                 <Route path="/qc" element={

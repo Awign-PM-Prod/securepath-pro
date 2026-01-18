@@ -20,6 +20,7 @@ const Index = () => {
         super_admin: '/admin',
         ops_team: '/ops',
         vendor_team: '/vendor-team',
+        supply_team: '/supply',
         qc_team: '/qc',
         vendor: '/vendor',
         gig_worker: '/gig',

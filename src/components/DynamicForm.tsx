@@ -380,10 +380,25 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
             uploaded_at: file.uploaded_at
           }));
           
-          // Remove duplicates based on file URL to prevent showing same file multiple times
-          const uniqueFiles = transformedFiles.filter((file, index, self) => 
-            index === self.findIndex(f => f.url === file.url)
-          );
+          // Remove duplicates based on file URL, ID, or name+size to prevent showing same file multiple times
+          const seen = new Set<string>();
+          const uniqueFiles = transformedFiles.filter((file) => {
+            // Create a unique key for deduplication
+            const fileUrl = file.url || '';
+            const fileId = (file as any).id || '';
+            const fileName = file.name || '';
+            const fileSize = file.size || 0;
+            
+            // Use URL as primary key, fallback to ID, then name+size
+            const key = fileUrl || fileId || `${fileName}_${fileSize}`;
+            
+            if (seen.has(key)) {
+              console.log('Skipping duplicate file when loading draft:', { fileUrl, fileId, fileName });
+              return false;
+            }
+            seen.add(key);
+            return true;
+          });
           
           console.log(`loadDraftFilesFromDraft: Setting ${uniqueFiles.length} files for field ${fieldKey}`);
           
@@ -532,10 +547,25 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
             uploaded_at: file.uploaded_at  // Keep uploaded_at
           }));
           
-          // Remove duplicates based on file URL to prevent showing same file multiple times
-          const uniqueFiles = transformedFiles.filter((file, index, self) => 
-            index === self.findIndex(f => f.url === file.url)
-          );
+          // Remove duplicates based on file URL, ID, or name+size to prevent showing same file multiple times
+          const seen = new Set<string>();
+          const uniqueFiles = transformedFiles.filter((file) => {
+            // Create a unique key for deduplication
+            const fileUrl = file.url || '';
+            const fileId = (file as any).id || '';
+            const fileName = file.name || '';
+            const fileSize = file.size || 0;
+            
+            // Use URL as primary key, fallback to ID, then name+size
+            const key = fileUrl || fileId || `${fileName}_${fileSize}`;
+            
+            if (seen.has(key)) {
+              console.log('Skipping duplicate file when loading from QC review:', { fileUrl, fileId, fileName });
+              return false;
+            }
+            seen.add(key);
+            return true;
+          });
           
           // REPLACE files instead of adding to existing ones
           updatedData[fieldKey].files = uniqueFiles;
@@ -2526,72 +2556,98 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
               </div>
               
               {/* Display uploaded files */}
-              {fieldData.files && fieldData.files.length > 0 && (
-                <div className="space-y-2">
-                  {fieldData.files.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                      <div className="flex items-center space-x-2">
-                        {(() => {
-                          const type = (file.type || file.mime_type || '').toString();
-                          const name = (file.name || file.file_name || '').toString();
-                          const isImg = (type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name));
-                          if (!isImg) return null;
-                          const src = file.url ? file.url : (file instanceof File ? URL.createObjectURL(file) : undefined);
-                          if (!src) return null;
-                          return (
-                            <img
-                              src={src}
-                              alt="preview"
-                              className="h-12 w-12 object-cover rounded border"
-                              onLoad={() => { if (!file.url && (file instanceof File)) { try { URL.revokeObjectURL(src); } catch {} } }}
-                            />
-                          );
-                        })()}
-                        <div className="flex flex-col">
-                          <span className="text-sm">{file.name || file.file_name || 'Unknown file'}</span>
-                          <span className="text-xs text-gray-500">
-                            ({((file.size || file.file_size || 0) / 1024 / 1024).toFixed(2)} MB)
-                          </span>
-                          {(() => {
-                            // First try to get location from individual file locations
-                            const individualLocation = individualFileLocations[field.field_key]?.[index];
-                            if (individualLocation) {
+              {fieldData.files && fieldData.files.length > 0 && (() => {
+                // Deduplicate files by URL, ID, or name+size combination
+                const seen = new Set<string>();
+                const uniqueFiles = fieldData.files.filter((file) => {
+                  // Create a unique key for deduplication
+                  const fileUrl = file.url || file.file_url || '';
+                  const fileId = file.id || '';
+                  const fileName = file.name || file.file_name || '';
+                  const fileSize = file.size || file.file_size || 0;
+                  
+                  // Use URL as primary key, fallback to ID, then name+size
+                  const key = fileUrl || fileId || `${fileName}_${fileSize}`;
+                  
+                  if (seen.has(key)) {
+                    console.log('Skipping duplicate file:', { fileUrl, fileId, fileName });
+                    return false;
+                  }
+                  seen.add(key);
+                  return true;
+                });
+
+                return (
+                  <div className="space-y-2">
+                    {uniqueFiles.map((file, index) => {
+                      // Find the original index for location mapping
+                      const originalIndex = fieldData.files.indexOf(file);
+                      return (
+                        <div key={`${file.id || file.url || file.file_url || index}`} className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                          <div className="flex items-center space-x-2">
+                            {(() => {
+                              const type = (file.type || file.mime_type || '').toString();
+                              const name = (file.name || file.file_name || '').toString();
+                              const isImg = (type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name));
+                              if (!isImg) return null;
+                              const src = file.url ? file.url : (file instanceof File ? URL.createObjectURL(file) : undefined);
+                              if (!src) return null;
                               return (
-                                <span className="text-xs text-blue-600">
-                                  📍 {individualLocation.address || `${individualLocation.lat.toFixed(4)}, ${individualLocation.lng.toFixed(4)}`}
-                                </span>
+                                <img
+                                  src={src}
+                                  alt="preview"
+                                  className="h-12 w-12 object-cover rounded border"
+                                  onLoad={() => { if (!file.url && (file instanceof File)) { try { URL.revokeObjectURL(src); } catch {} } }}
+                                />
                               );
-                            }
-                            
-                            // Fallback: Parse location from filename
-                            const locationMatch = (file.name || '').match(/-(\d+\.\d+)-(\d+\.\d+)\./);
-                            if (locationMatch) {
-                              const lat = parseFloat(locationMatch[1]);
-                              const lng = parseFloat(locationMatch[2]);
-                              return (
-                                <span className="text-xs text-blue-600">
-                                  📍 {lat.toFixed(4)}, {lng.toFixed(4)}
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
+                            })()}
+                            <div className="flex flex-col">
+                              <span className="text-sm">{file.name || file.file_name || 'Unknown file'}</span>
+                              <span className="text-xs text-gray-500">
+                                ({((file.size || file.file_size || 0) / 1024 / 1024).toFixed(2)} MB)
+                              </span>
+                              {(() => {
+                                // First try to get location from individual file locations
+                                const individualLocation = individualFileLocations[field.field_key]?.[originalIndex];
+                                if (individualLocation) {
+                                  return (
+                                    <span className="text-xs text-blue-600">
+                                      📍 {individualLocation.address || `${individualLocation.lat.toFixed(4)}, ${individualLocation.lng.toFixed(4)}`}
+                                    </span>
+                                  );
+                                }
+                                
+                                // Fallback: Parse location from filename
+                                const locationMatch = (file.name || '').match(/-(\d+\.\d+)-(\d+\.\d+)\./);
+                                if (locationMatch) {
+                                  const lat = parseFloat(locationMatch[1]);
+                                  const lng = parseFloat(locationMatch[2]);
+                                  return (
+                                    <span className="text-xs text-blue-600">
+                                      📍 {lat.toFixed(4)}, {lng.toFixed(4)}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeFile(field.field_key, originalIndex)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            title="Delete image"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeFile(field.field_key, index)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        title="Delete image"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {field.field_config.description && (
                 <p className="text-sm text-gray-600">{field.field_config.description}</p>

@@ -24,6 +24,7 @@ import BulkCaseUpload from '@/components/BulkCaseUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { AllocationCandidate } from '@/services/allocationEngine';
 import { useClients } from '@/hooks/useClients';
+import { caseService } from '@/services/caseService';
 
 interface Case {
   id: string;
@@ -1094,25 +1095,65 @@ export default function CaseListWithAllocation({
 
   // Download cases metadata (all cases or filtered cases)
   const handleDownloadFilteredCases = async () => {
-    // Determine which cases to download: filtered if filters are active, otherwise all cases
-    const casesToDownload = hasActiveFilters ? filteredCases : cases;
-    
-    if (casesToDownload.length === 0) {
-      toast({
-        title: 'No Cases to Download',
-        description: hasActiveFilters 
-          ? 'No cases match the applied filters'
-          : 'There are no cases available to download',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setIsDownloading(true);
     try {
-      // Convert cases to CSV
-      const csvRows: string[] = [];
+      // Build filters object for fetching all matching cases
+      // Note: tierFilter is excluded here and applied client-side after fetching
+      const downloadFilters = hasActiveFilters ? {
+        statusFilter: statusFilter.length > 0 ? statusFilter : undefined,
+        clientFilter: clientFilter !== 'all' ? clientFilter : undefined,
+        dateFilter: dateFilter && (dateFilter.from || dateFilter.to) ? dateFilter : undefined,
+        tatExpiryFilter: tatExpiryFilter && (tatExpiryFilter.from || tatExpiryFilter.to) ? tatExpiryFilter : undefined,
+        searchTerm: searchQuery.trim() ? searchQuery : undefined,
+        qcResponseTab: qcResponseTab !== 'all' ? qcResponseTab : undefined
+      } : {};
+
+      // Use a very large batch size to fetch everything in one go (up to 50,000 rows)
+      // This avoids multiple round trips which is the main performance bottleneck
+      const batchSize = 50000;
+      let casesToDownload: Case[] = [];
+
+      // Fetch first batch with large size
+      const firstResult = await caseService.getCases(1, batchSize, downloadFilters);
+      casesToDownload = firstResult.cases;
+      const totalCases = firstResult.total;
+
+      // If we got fewer results than requested, we're done
+      // Otherwise, fetch remaining batches in parallel
+      if (firstResult.cases.length === batchSize && totalCases > batchSize) {
+        const numRemainingBatches = Math.ceil((totalCases - batchSize) / batchSize);
+        const batchPromises = Array.from({ length: numRemainingBatches }, (_, i) =>
+          caseService.getCases(i + 2, batchSize, downloadFilters) // Start from page 2
+        );
+        const batchResults = await Promise.all(batchPromises);
+        casesToDownload = [...casesToDownload, ...batchResults.flatMap(result => result.cases)];
+      }
+
+      // Apply tier filter client-side if needed (since it's applied client-side in the component)
+      if (tierFilter !== 'all') {
+        casesToDownload = casesToDownload.filter(c => c.location?.pincode_tier === tierFilter);
+      }
       
+      if (casesToDownload.length === 0) {
+        toast({
+          title: 'No Cases to Download',
+          description: hasActiveFilters 
+            ? 'No cases match the applied filters'
+            : 'There are no cases available to download',
+          variant: 'destructive',
+        });
+        return;
+      }
+      // Optimized CSV generation using array join (much faster than string concatenation)
+      const escapeCSV = (value: any): string => {
+        if (value === null || value === undefined) return '';
+        const str = String(value);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
       // CSV Header
       const headers = [
         'Case Number',
@@ -1152,51 +1193,56 @@ export default function CaseListWithAllocation({
         'Current Assignee',
         'Assignee Type'
       ];
-      csvRows.push(headers.join(','));
 
-      // CSV Rows - use casesToDownload
-      casesToDownload.forEach((caseItem) => {
-        const metadataStr = (caseItem as any).metadata ? JSON.stringify((caseItem as any).metadata).replace(/"/g, '""') : '';
+      // Build CSV rows efficiently
+      const csvRows = [headers.join(',')];
+      
+      // Pre-allocate array for better performance
+      csvRows.length = casesToDownload.length + 1;
+      
+      // Generate CSV rows
+      for (let i = 0; i < casesToDownload.length; i++) {
+        const caseItem = casesToDownload[i];
         const row = [
-          `"${caseItem.case_number || ''}"`,
-          `"${caseItem.client_case_id || ''}"`,
-          `"${caseItem.contract_type || ''}"`,
-          `"${caseItem.candidate_name || ''}"`,
-          `"${caseItem.phone_primary || ''}"`,
-          `"${caseItem.phone_secondary || ''}"`,
-          `"${caseItem.status || ''}"`,
-          `"${caseItem.client?.name || ''}"`,
-          `"${caseItem.client?.email || ''}"`,
-          `"${caseItem.client?.contact_person || ''}"`,
-          `"${caseItem.client?.phone || ''}"`,
-          `"${caseItem.location?.address_line || ''}"`,
-          `"${caseItem.location?.city || ''}"`,
-          `"${caseItem.location?.state || ''}"`,
-          `"${caseItem.location?.pincode || ''}"`,
-          `"${caseItem.location?.pincode_tier || ''}"`,
-          caseItem.location?.lat || '',
-          caseItem.location?.lng || '',
-          `"${caseItem.location?.location_url || ''}"`,
-          `"${caseItem.vendor_tat_start_date || ''}"`,
-          `"${caseItem.due_at || ''}"`,
-          caseItem.tat_hours || '',
-          caseItem.base_rate_inr || '',
-          caseItem.bonus_inr || '',
-          caseItem.penalty_inr || '',
-          caseItem.total_payout_inr || '',
-          `"${caseItem.created_at || ''}"`,
-          `"${caseItem.updated_at || ''}"`,
-          `"${caseItem.created_by || ''}"`,
-          `"${caseItem.last_updated_by || ''}"`,
-          `"${caseItem.status_updated_at || ''}"`,
-          `"${caseItem.QC_Response || ''}"`,
-          `"${caseItem.assigned_at || ''}"`,
-          `"${caseItem.submitted_at || ''}"`,
-          `"${caseItem.current_assignee?.name || ''}"`,
-          `"${caseItem.current_assignee?.type || ''}"`
+          escapeCSV(caseItem.case_number),
+          escapeCSV(caseItem.client_case_id),
+          escapeCSV(caseItem.contract_type),
+          escapeCSV(caseItem.candidate_name),
+          escapeCSV(caseItem.phone_primary),
+          escapeCSV(caseItem.phone_secondary),
+          escapeCSV(caseItem.status),
+          escapeCSV(caseItem.client?.name),
+          escapeCSV(caseItem.client?.email),
+          escapeCSV(caseItem.client?.contact_person),
+          escapeCSV(caseItem.client?.phone),
+          escapeCSV(caseItem.location?.address_line),
+          escapeCSV(caseItem.location?.city),
+          escapeCSV(caseItem.location?.state),
+          escapeCSV(caseItem.location?.pincode),
+          escapeCSV(caseItem.location?.pincode_tier),
+          escapeCSV(caseItem.location?.lat),
+          escapeCSV(caseItem.location?.lng),
+          escapeCSV(caseItem.location?.location_url),
+          escapeCSV(caseItem.vendor_tat_start_date),
+          escapeCSV(caseItem.due_at),
+          escapeCSV(caseItem.tat_hours),
+          escapeCSV(caseItem.base_rate_inr),
+          escapeCSV(caseItem.bonus_inr),
+          escapeCSV(caseItem.penalty_inr),
+          escapeCSV(caseItem.total_payout_inr),
+          escapeCSV(caseItem.created_at),
+          escapeCSV(caseItem.updated_at),
+          escapeCSV(caseItem.created_by),
+          escapeCSV(caseItem.last_updated_by),
+          escapeCSV(caseItem.status_updated_at),
+          escapeCSV(caseItem.QC_Response),
+          escapeCSV(caseItem.assigned_at),
+          escapeCSV(caseItem.submitted_at),
+          escapeCSV(caseItem.current_assignee?.name),
+          escapeCSV(caseItem.current_assignee?.type)
         ];
-        csvRows.push(row.join(','));
-      });
+        csvRows[i + 1] = row.join(',');
+      }
 
       const csvContent = csvRows.join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

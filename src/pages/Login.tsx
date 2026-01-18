@@ -60,6 +60,8 @@ export default function Login() {
         return '/ops';
       case 'vendor_team':
         return '/vendor-team';
+      case 'supply_team':
+        return '/supply';
       case 'qc_team':
         return '/qc';
       case 'vendor':

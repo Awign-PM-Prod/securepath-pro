@@ -314,6 +314,11 @@ function checkPermissions(currentRole: string, targetRole: string): boolean {
     return true
   }
   
+  // Supply team can manage vendors and gig workers
+  if (currentRole === 'supply_team' && ['vendor', 'gig_worker'].includes(targetRole)) {
+    return true
+  }
+  
   // Vendors can manage gig workers
   if (currentRole === 'vendor' && targetRole === 'gig_worker') {
     return true

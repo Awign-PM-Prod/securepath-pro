@@ -341,8 +341,20 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
 
         if (filesError) throw filesError;
 
+        // Deduplicate images by file_url (primary) or id (fallback)
+        const seen = new Set<string>();
+        const uniqueImages = (files || []).filter(file => {
+          const key = file.file_url || file.id;
+          if (seen.has(key)) {
+            console.log('Skipping duplicate image:', { file_url: file.file_url, id: file.id });
+            return false;
+          }
+          seen.add(key);
+          return true;
+        });
+
         // Transform the data
-        const images = (files || []).map(file => ({
+        const images = uniqueImages.map(file => ({
           id: file.id,
           file_url: file.file_url,
           file_name: file.file_name,

@@ -65,6 +65,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           { icon: BarChart3, label: 'Performance', href: '/vendor-team/performance' },
         ];
       
+      case 'supply_team':
+        return [
+          { icon: LayoutDashboard, label: 'Dashboard', href: '/supply' },
+          { icon: Building2, label: 'Vendors', href: '/supply/vendors' },
+          { icon: UserCog, label: 'Gig Workers', href: '/supply/gig-workers' },
+        ];
+      
       case 'qc_team':
         return [
           { icon: UserCheck, label: 'Quality Review', href: '/qc/review' },

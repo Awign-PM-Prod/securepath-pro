@@ -52,19 +52,72 @@ export default function SetupPassword() {
 
   useEffect(() => {
     const checkPasswordStatus = async () => {
-      if (authLoading) return;
+      // Check if this is a first login redirect from sessionStorage
+      const isFirstLoginRedirect = sessionStorage.getItem('isFirstLogin') === 'true';
+      const storedUserId = sessionStorage.getItem('firstLoginUserId');
+      
+      // If we're waiting for auth to load (first login redirect), be patient
+      if (authLoading && isFirstLoginRedirect) {
+        console.log('⏳ Auth is loading, waiting for first login session...');
+        return;
+      }
 
-      // If not authenticated, redirect to login
-      if (!user) {
+      // If not authenticated but we have a first login flag, wait a bit for auth to load
+      if (!user && isFirstLoginRedirect) {
+        console.log('⏳ Waiting for auth to load after first login redirect...');
+        console.log('⏳ Stored user ID:', storedUserId);
+        
+        // Wait up to 5 seconds for auth to load (allowing time for localStorage session to be read)
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds (100ms each)
+        
+        const checkAuth = setInterval(() => {
+          attempts++;
+          
+          // Check if user is now available
+          if (user) {
+            console.log('✅ Auth loaded successfully after', attempts * 100, 'ms');
+            clearInterval(checkAuth);
+            // Clear flags and continue
+            sessionStorage.removeItem('isFirstLogin');
+            sessionStorage.removeItem('redirectAfterAuth');
+            sessionStorage.removeItem('firstLoginUserId');
+            setCheckingPassword(false);
+            return;
+          }
+          
+          // If we've waited too long, redirect to login
+          if (attempts >= maxAttempts) {
+            console.log('⚠️ Auth not loaded after', maxAttempts * 100, 'ms, redirecting to login');
+            clearInterval(checkAuth);
+            sessionStorage.removeItem('isFirstLogin');
+            sessionStorage.removeItem('redirectAfterAuth');
+            sessionStorage.removeItem('firstLoginUserId');
+            navigate('/');
+            return;
+          }
+        }, 100);
+        
+        // Cleanup interval on unmount
+        return () => clearInterval(checkAuth);
+      }
+
+      // If not authenticated and not a first login redirect, redirect to login
+      if (!user && !isFirstLoginRedirect) {
         navigate('/');
         return;
       }
 
-      // Check if user already has a password set
-      // We'll try to verify by checking if they can authenticate with email/password
-      // For now, we'll just show the form - if they already have a password,
-      // the update will still work (they're just changing it)
-      setCheckingPassword(false);
+      // If we have a user, clear sessionStorage flags
+      if (user) {
+        if (isFirstLoginRedirect) {
+          console.log('✅ User authenticated, clearing first login flags');
+          sessionStorage.removeItem('isFirstLogin');
+          sessionStorage.removeItem('redirectAfterAuth');
+          sessionStorage.removeItem('firstLoginUserId');
+        }
+        setCheckingPassword(false);
+      }
     };
 
     checkPasswordStatus();
@@ -78,6 +131,8 @@ export default function SetupPassword() {
         return '/ops';
       case 'vendor_team':
         return '/vendor-team';
+      case 'supply_team':
+        return '/supply';
       case 'qc_team':
         return '/qc';
       case 'vendor':
@@ -118,6 +173,14 @@ export default function SetupPassword() {
     setError('');
 
     try {
+      // Store current user role and ID before password update
+      const currentRole = user?.profile?.role;
+      const currentUserId = user?.id;
+      
+      if (!currentRole) {
+        throw new Error('Unable to determine user role. Please try again.');
+      }
+
       // Update the user's password
       const { error: updateError } = await supabase.auth.updateUser({
         password: data.password
@@ -129,22 +192,59 @@ export default function SetupPassword() {
 
       toast({
         title: 'Success',
-        description: 'Password set successfully! You can now login with your email and password.',
+        description: 'Password set successfully! Redirecting to your dashboard...',
       });
 
-      // Redirect to appropriate dashboard based on role
-      if (user?.profile?.role) {
-        const redirectPath = getRoleRedirectPath(user.profile.role);
-        navigate(redirectPath, { replace: true });
+      // Wait for USER_UPDATED event to process and ensure session is still valid
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Verify session is still valid after password update
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('Session lost after password update:', sessionError);
+        // If session is lost, redirect to login
+        navigate('/', { replace: true });
+        return;
+      }
+
+      // Fetch profile directly to get role (bypassing AuthContext which might be updating)
+      let profileRole: UserRole | null = null;
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+        
+        if (!profileError && profile?.role) {
+          profileRole = profile.role as UserRole;
+        }
+      } catch (e) {
+        console.warn('Could not fetch profile directly:', e);
+      }
+
+      // Use profile role if available, otherwise fall back to stored role
+      const finalRole = profileRole || currentRole;
+
+      if (finalRole) {
+        const redirectPath = getRoleRedirectPath(finalRole);
+        console.log('🔄 Redirecting after password setup to:', redirectPath, 'for role:', finalRole);
+        
+        // Use a small delay to ensure toast is visible, then redirect
+        setTimeout(() => {
+          navigate(redirectPath, { replace: true });
+        }, 500);
       } else {
+        console.warn('⚠️ No role found for redirect, going to home');
         navigate('/', { replace: true });
       }
     } catch (err: any) {
       console.error('Error setting password:', err);
       setError(err.message || 'Failed to set password. Please try again.');
-    } finally {
       setIsLoading(false);
     }
+    // Note: Don't set isLoading to false here if redirecting, let the redirect happen
   };
 
   if (authLoading || checkingPassword) {

@@ -32,7 +32,7 @@ const createUserSchema = z.object({
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
   phone: z.string().min(1, 'Phone number is required'),
-  role: z.enum(['super_admin', 'ops_team', 'vendor_team', 'qc_team', 'vendor', 'gig_worker', 'client'] as const),
+  role: z.enum(['super_admin', 'ops_team', 'vendor_team', 'supply_team', 'qc_team', 'vendor', 'gig_worker', 'client'] as const),
 });
 
 type CreateUserForm = z.infer<typeof createUserSchema>;
@@ -72,6 +72,7 @@ export function CreateUserDialog({ open, onOpenChange, onUserCreated }: CreateUs
       roles.push(
         { value: 'ops_team', label: 'Operations Team' },
         { value: 'vendor_team', label: 'Vendor Team' },
+        { value: 'supply_team', label: 'Supply Team' },
         { value: 'qc_team', label: 'QC Team' },
         { value: 'vendor', label: 'Vendor' },
         { value: 'gig_worker', label: 'Gig Worker' },

@@ -29,10 +29,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle(); // Use maybeSingle() instead of single() to avoid 406 error when no profile exists
 
       if (error) {
-        // Only log unexpected errors (not PGRST116 which means no rows found)
+        // Log all errors with details for debugging
+        console.error('Error fetching user profile:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          userId: userId
+        });
+        
+        // Only return null for actual errors (not PGRST116 which means no rows found)
         if (error.code !== 'PGRST116') {
-          console.error('Error fetching user profile:', error);
+          return null;
         }
+        // PGRST116 means no profile found - this is also an error case
+        return null;
+      }
+
+      if (!data) {
+        console.warn('No profile found for user:', userId);
         return null;
       }
 
@@ -305,8 +320,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // For all other events (SIGNED_IN, TOKEN_REFRESHED, etc.)
+        // For USER_UPDATED events (like password changes), wait a bit longer for profile to be available
+        if (event === 'USER_UPDATED') {
+          console.log('🔄 USER_UPDATED event detected, waiting for profile reload...');
+          // Wait a moment for any database updates to complete
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        // For all other events (SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED, etc.)
         await loadUserFromSession(session);
+        
+        // For USER_UPDATED, retry profile fetch after a delay if it might have failed
+        // This helps with timing issues after password updates
+        if (event === 'USER_UPDATED' && session?.user) {
+          setTimeout(async () => {
+            if (mounted) {
+              // Check if user was loaded, if not, try again
+              const { data: { session: currentSession } } = await supabase.auth.getSession();
+              if (currentSession?.user && mounted) {
+                // Only retry if we still don't have a user after the initial load
+                // We'll check this by trying to load again
+                await loadUserFromSession(currentSession);
+              }
+            }
+          }, 1500);
+        }
       }
     );
     
@@ -430,6 +468,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // Vendor team can manage vendors and gig workers
     if (currentRole === 'vendor_team' && ['vendor', 'gig_worker'].includes(targetRole)) {
+      return true;
+    }
+    
+    // Supply team can manage vendors and gig workers
+    if (currentRole === 'supply_team' && ['vendor', 'gig_worker'].includes(targetRole)) {
       return true;
     }
     

@@ -29,7 +29,7 @@ const editUserSchema = z.object({
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
   phone: z.string().optional(),
-  role: z.enum(['super_admin', 'ops_team', 'vendor_team', 'qc_team', 'vendor', 'gig_worker', 'client'] as const),
+  role: z.enum(['super_admin', 'ops_team', 'vendor_team', 'supply_team', 'qc_team', 'vendor', 'gig_worker', 'client'] as const),
   is_active: z.boolean(),
 });
 
@@ -88,6 +88,7 @@ export function EditUserDialog({ open, onOpenChange, user, onUserUpdated }: Edit
         { value: 'super_admin', label: 'Super Admin' },
         { value: 'ops_team', label: 'Operations Team' },
         { value: 'vendor_team', label: 'Vendor Team' },
+        { value: 'supply_team', label: 'Supply Team' },
         { value: 'qc_team', label: 'QC Team' },
         { value: 'vendor', label: 'Vendor' },
         { value: 'gig_worker', label: 'Gig Worker' },

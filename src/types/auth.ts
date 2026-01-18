@@ -2,6 +2,7 @@ export type UserRole =
   | 'super_admin'
   | 'ops_team' 
   | 'vendor_team'
+  | 'supply_team'
   | 'qc_team'
   | 'vendor'
   | 'gig_worker'
