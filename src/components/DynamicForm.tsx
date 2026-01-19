@@ -2560,74 +2560,74 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
                 });
 
                 return (
-                  <div className="space-y-2">
+                <div className="space-y-2">
                     {uniqueFiles.map((file, index) => {
                       // Find the original index for location mapping
                       const originalIndex = fieldData.files.indexOf(file);
                       return (
                         <div key={`${file.id || file.url || file.file_url || index}`} className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                          <div className="flex items-center space-x-2">
-                            {(() => {
-                              const type = (file.type || file.mime_type || '').toString();
-                              const name = (file.name || file.file_name || '').toString();
-                              const isImg = (type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name));
-                              if (!isImg) return null;
-                              const src = file.url ? file.url : (file instanceof File ? URL.createObjectURL(file) : undefined);
-                              if (!src) return null;
-                              return (
-                                <img
-                                  src={src}
-                                  alt="preview"
-                                  className="h-12 w-12 object-cover rounded border"
-                                  onLoad={() => { if (!file.url && (file instanceof File)) { try { URL.revokeObjectURL(src); } catch {} } }}
-                                />
-                              );
-                            })()}
-                            <div className="flex flex-col">
-                              <span className="text-sm">{file.name || file.file_name || 'Unknown file'}</span>
-                              <span className="text-xs text-gray-500">
-                                ({((file.size || file.file_size || 0) / 1024 / 1024).toFixed(2)} MB)
-                              </span>
-                              {(() => {
-                                // First try to get location from individual file locations
+                      <div className="flex items-center space-x-2">
+                        {(() => {
+                          const type = (file.type || file.mime_type || '').toString();
+                          const name = (file.name || file.file_name || '').toString();
+                          const isImg = (type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name));
+                          if (!isImg) return null;
+                          const src = file.url ? file.url : (file instanceof File ? URL.createObjectURL(file) : undefined);
+                          if (!src) return null;
+                          return (
+                            <img
+                              src={src}
+                              alt="preview"
+                              className="h-12 w-12 object-cover rounded border"
+                              onLoad={() => { if (!file.url && (file instanceof File)) { try { URL.revokeObjectURL(src); } catch {} } }}
+                            />
+                          );
+                        })()}
+                        <div className="flex flex-col">
+                          <span className="text-sm">{file.name || file.file_name || 'Unknown file'}</span>
+                          <span className="text-xs text-gray-500">
+                            ({((file.size || file.file_size || 0) / 1024 / 1024).toFixed(2)} MB)
+                          </span>
+                          {(() => {
+                            // First try to get location from individual file locations
                                 const individualLocation = individualFileLocations[field.field_key]?.[originalIndex];
-                                if (individualLocation) {
-                                  return (
-                                    <span className="text-xs text-blue-600">
-                                      📍 {individualLocation.address || `${individualLocation.lat.toFixed(4)}, ${individualLocation.lng.toFixed(4)}`}
-                                    </span>
-                                  );
-                                }
-                                
-                                // Fallback: Parse location from filename
-                                const locationMatch = (file.name || '').match(/-(\d+\.\d+)-(\d+\.\d+)\./);
-                                if (locationMatch) {
-                                  const lat = parseFloat(locationMatch[1]);
-                                  const lng = parseFloat(locationMatch[2]);
-                                  return (
-                                    <span className="text-xs text-blue-600">
-                                      📍 {lat.toFixed(4)}, {lng.toFixed(4)}
-                                    </span>
-                                  );
-                                }
-                                return null;
-                              })()}
-                            </div>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeFile(field.field_key, originalIndex)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="Delete image"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            if (individualLocation) {
+                              return (
+                                <span className="text-xs text-blue-600">
+                                  📍 {individualLocation.address || `${individualLocation.lat.toFixed(4)}, ${individualLocation.lng.toFixed(4)}`}
+                                </span>
+                              );
+                            }
+                            
+                            // Fallback: Parse location from filename
+                            const locationMatch = (file.name || '').match(/-(\d+\.\d+)-(\d+\.\d+)\./);
+                            if (locationMatch) {
+                              const lat = parseFloat(locationMatch[1]);
+                              const lng = parseFloat(locationMatch[2]);
+                              return (
+                                <span className="text-xs text-blue-600">
+                                  📍 {lat.toFixed(4)}, {lng.toFixed(4)}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                            onClick={() => removeFile(field.field_key, originalIndex)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        title="Delete image"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                       );
                     })}
-                  </div>
+                </div>
                 );
               })()}
 
