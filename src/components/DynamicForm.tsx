@@ -380,23 +380,17 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
             uploaded_at: file.uploaded_at
           }));
           
-          // Remove duplicates based on file URL, ID, or name+size to prevent showing same file multiple times
+          // Remove duplicates based on file_name to prevent showing same file multiple times
           const seen = new Set<string>();
           const uniqueFiles = transformedFiles.filter((file) => {
-            // Create a unique key for deduplication
-            const fileUrl = file.url || '';
-            const fileId = (file as any).id || '';
-            const fileName = file.name || '';
-            const fileSize = file.size || 0;
+            const fileName = file.name || file.file_name || '';
+            if (!fileName) return true; // Keep files without names
             
-            // Use URL as primary key, fallback to ID, then name+size
-            const key = fileUrl || fileId || `${fileName}_${fileSize}`;
-            
-            if (seen.has(key)) {
-              console.log('Skipping duplicate file when loading draft:', { fileUrl, fileId, fileName });
+            if (seen.has(fileName)) {
+              console.log('Skipping duplicate file by name:', fileName);
               return false;
             }
-            seen.add(key);
+            seen.add(fileName);
             return true;
           });
           
@@ -547,23 +541,17 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
             uploaded_at: file.uploaded_at  // Keep uploaded_at
           }));
           
-          // Remove duplicates based on file URL, ID, or name+size to prevent showing same file multiple times
+          // Remove duplicates based on file_name to prevent showing same file multiple times
           const seen = new Set<string>();
           const uniqueFiles = transformedFiles.filter((file) => {
-            // Create a unique key for deduplication
-            const fileUrl = file.url || '';
-            const fileId = (file as any).id || '';
-            const fileName = file.name || '';
-            const fileSize = file.size || 0;
+            const fileName = file.name || file.file_name || '';
+            if (!fileName) return true; // Keep files without names
             
-            // Use URL as primary key, fallback to ID, then name+size
-            const key = fileUrl || fileId || `${fileName}_${fileSize}`;
-            
-            if (seen.has(key)) {
-              console.log('Skipping duplicate file when loading from QC review:', { fileUrl, fileId, fileName });
+            if (seen.has(fileName)) {
+              console.log('Skipping duplicate file by name:', fileName);
               return false;
             }
-            seen.add(key);
+            seen.add(fileName);
             return true;
           });
           
@@ -2557,23 +2545,17 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
               
               {/* Display uploaded files */}
               {fieldData.files && fieldData.files.length > 0 && (() => {
-                // Deduplicate files by URL, ID, or name+size combination
+                // Deduplicate files by file_name to prevent showing same file multiple times
                 const seen = new Set<string>();
                 const uniqueFiles = fieldData.files.filter((file) => {
-                  // Create a unique key for deduplication
-                  const fileUrl = file.url || file.file_url || '';
-                  const fileId = file.id || '';
                   const fileName = file.name || file.file_name || '';
-                  const fileSize = file.size || file.file_size || 0;
+                  if (!fileName) return true; // Keep files without names
                   
-                  // Use URL as primary key, fallback to ID, then name+size
-                  const key = fileUrl || fileId || `${fileName}_${fileSize}`;
-                  
-                  if (seen.has(key)) {
-                    console.log('Skipping duplicate file:', { fileUrl, fileId, fileName });
+                  if (seen.has(fileName)) {
+                    console.log('Skipping duplicate file by name:', fileName);
                     return false;
                   }
-                  seen.add(key);
+                  seen.add(fileName);
                   return true;
                 });
 

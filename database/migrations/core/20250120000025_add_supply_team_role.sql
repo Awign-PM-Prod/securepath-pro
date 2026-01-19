@@ -196,3 +196,4 @@ USING (
 -- Grant execute permission on updated function
 GRANT EXECUTE ON FUNCTION public.can_manage_user(app_role) TO authenticated;
 
+

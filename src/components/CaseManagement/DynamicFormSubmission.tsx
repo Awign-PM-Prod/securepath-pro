@@ -404,15 +404,20 @@ export default function DynamicFormSubmission({ caseId, caseStatus, onSubmission
           </div>
         );
       case 'file_upload':
-        // Find files for this field and de-duplicate by file_url (or id fallback)
+        // Find files for this field and de-duplicate by file_name
         const fieldFilesRaw = submission.form_submission_files?.filter(file => 
           file.form_field?.field_key === fieldKey
         ) || [];
         const seen = new Set<string>();
         const fieldFiles = fieldFilesRaw.filter(f => {
-          const key = f.file_url || f.id;
-          if (seen.has(key)) return false;
-          seen.add(key);
+          const fileName = f.file_name || '';
+          if (!fileName) return true; // Keep files without names
+          
+          if (seen.has(fileName)) {
+            console.log('Skipping duplicate file by name:', fileName);
+            return false;
+          }
+          seen.add(fileName);
           return true;
         });
         

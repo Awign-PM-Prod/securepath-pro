@@ -179,9 +179,22 @@ export class CSVService {
 
       case 'file_upload':
         // Find files for this specific field
-        const fieldFiles = submission.form_submission_files?.filter(file => 
+        const fieldFilesRaw = submission.form_submission_files?.filter(file => 
           file.form_field?.field_key === fieldKey
         ) || [];
+        
+        // Deduplicate by file_name
+        const seen = new Set<string>();
+        const fieldFiles = fieldFilesRaw.filter(file => {
+          const fileName = file.file_name || '';
+          if (!fileName) return true; // Keep files without names
+          
+          if (seen.has(fileName)) {
+            return false;
+          }
+          seen.add(fileName);
+          return true;
+        });
         
         if (fieldFiles.length === 0) {
           return 'No files uploaded';

@@ -48,8 +48,9 @@ serve(async (req) => {
       .single()
 
     if (profileError || !currentProfile) {
+      console.error('Profile fetch error:', profileError)
       return new Response(
-        JSON.stringify({ error: 'Unable to verify user role' }),
+        JSON.stringify({ error: 'Unable to verify user role', details: profileError?.message }),
         { 
           status: 403, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -70,11 +71,23 @@ serve(async (req) => {
       )
     }
 
+    // Debug logging
+    console.log('Permission check:', {
+      currentRole: currentProfile.role,
+      targetRole: role,
+      userId: currentUser.id
+    })
+
     // Verify permission to create user with this role
     const canCreate = checkPermissions(currentProfile.role, role)
+    console.log('Can create result:', canCreate)
+    
     if (!canCreate) {
       return new Response(
-        JSON.stringify({ error: 'Insufficient permissions to create user with this role' }),
+        JSON.stringify({ 
+          error: 'Insufficient permissions to create user with this role',
+          details: `Current role: ${currentProfile.role}, Target role: ${role}`
+        }),
         { 
           status: 403, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -299,30 +312,43 @@ serve(async (req) => {
 })
 
 function checkPermissions(currentRole: string, targetRole: string): boolean {
+  // Normalize roles (trim whitespace)
+  const normalizedCurrentRole = (currentRole || '').trim()
+  const normalizedTargetRole = (targetRole || '').trim()
+  
+  console.log('checkPermissions called:', { 
+    currentRole: normalizedCurrentRole, 
+    targetRole: normalizedTargetRole,
+    currentRoleType: typeof normalizedCurrentRole,
+    targetRoleType: typeof normalizedTargetRole
+  })
+  
   // Super admin can manage all roles except other super admins
-  if (currentRole === 'super_admin' && targetRole !== 'super_admin') {
+  if (normalizedCurrentRole === 'super_admin' && normalizedTargetRole !== 'super_admin') {
     return true
   }
   
   // Ops team can manage clients, vendors, and gig workers
-  if (currentRole === 'ops_team' && ['client', 'vendor', 'gig_worker'].includes(targetRole)) {
+  if (normalizedCurrentRole === 'ops_team' && ['client', 'vendor', 'gig_worker'].includes(normalizedTargetRole)) {
     return true
   }
   
   // Vendor team can manage vendors and gig workers
-  if (currentRole === 'vendor_team' && ['vendor', 'gig_worker'].includes(targetRole)) {
+  if (normalizedCurrentRole === 'vendor_team' && ['vendor', 'gig_worker'].includes(normalizedTargetRole)) {
     return true
   }
   
   // Supply team can manage vendors and gig workers
-  if (currentRole === 'supply_team' && ['vendor', 'gig_worker'].includes(targetRole)) {
+  if (normalizedCurrentRole === 'supply_team' && ['vendor', 'gig_worker'].includes(normalizedTargetRole)) {
+    console.log('✅ Supply team permission granted for role:', normalizedTargetRole)
     return true
   }
   
   // Vendors can manage gig workers
-  if (currentRole === 'vendor' && targetRole === 'gig_worker') {
+  if (normalizedCurrentRole === 'vendor' && normalizedTargetRole === 'gig_worker') {
     return true
   }
   
+  console.log('❌ Permission denied - no matching rule found')
   return false
 }
