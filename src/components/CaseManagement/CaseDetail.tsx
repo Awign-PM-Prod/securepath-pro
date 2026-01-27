@@ -45,6 +45,7 @@ interface CaseDetailProps {
     phone_primary: string;
     phone_secondary?: string;
     status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
+    source?: 'api' | 'manual';
     client: {
       id: string;
       name: string;
@@ -521,18 +522,45 @@ export default function CaseDetail({ caseData, onEdit, onClose }: CaseDetailProp
       setIsGeneratingSummary(false);
       setDownloadProgress(90);
       
+      // Check if this is an API-sourced case
+      const isApiCase = caseData.source === 'api';
+      
       // Generate PDF (this is the actual heavy operation)
-      await PDFService.convertFormSubmissionsToPDF(
+      const result = await PDFService.convertFormSubmissionsToPDF(
         formSubmissions, 
         caseData.case_number, 
         caseData.contract_type,
         caseData.is_positive,
         caseDataForPDF,
-        aiSummary
+        aiSummary,
+        caseData.id, // caseId
+        isApiCase // shouldUploadToStorage
       );
       
+      // If this is an API case and we got a URL, store it in the database
+      if (isApiCase && result.url) {
+        try {
+          const { error: updateError } = await supabase
+            .from('cases')
+            .update({ report_url: result.url })
+            .eq('id', caseData.id);
+          
+          if (updateError) {
+            console.error('Failed to update report_url:', updateError);
+            // Don't fail the whole operation if URL storage fails
+          } else {
+            console.log('Report URL stored successfully:', result.url);
+          }
+        } catch (error) {
+          console.error('Error storing report URL:', error);
+          // Don't fail the whole operation if URL storage fails
+        }
+      }
+      
       setDownloadProgress(100);
-      toast.success('PDF file downloaded successfully');
+      toast.success(isApiCase && result.url 
+        ? 'PDF file downloaded and uploaded to storage successfully'
+        : 'PDF file downloaded successfully');
 
       setTimeout(() => {
         setIsDownloading(false);

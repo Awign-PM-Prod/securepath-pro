@@ -616,17 +616,6 @@ export default function GigWorkerDashboard() {
     
     if (!caseId || !gigWorkerId || isSaving) return;
 
-    console.log('Auto-save triggered with formData:', formData);
-    console.log('Files in formData:', Object.keys(formData).map(key => {
-      if (key === '_metadata') return null;
-      const fieldData = formData[key];
-      return {
-        fieldKey: key,
-        hasFiles: !!(fieldData && fieldData.files && fieldData.files.length > 0),
-        fileCount: fieldData?.files?.length || 0
-      };
-    }).filter(Boolean));
-
     setIsSaving(true);
     try {
       const result = await gigWorkerService.saveDraft({
@@ -638,8 +627,7 @@ export default function GigWorkerDashboard() {
 
       if (result.success) {
         setLastSaveTime(new Date());
-        console.log('Form saved successfully');
-        console.log('Auto-save result:', result);
+        console.log('✅ AUTO-SAVE: Successfully saved to database');
         
         // Check if this case is currently in 'accepted' status and move it to 'in_progress'
         const currentCase = allocatedCases.find(c => c.id === caseId);
@@ -670,10 +658,10 @@ export default function GigWorkerDashboard() {
           }
         }
       } else {
-        console.warn('Save failed:', result.error);
+        console.error('❌ AUTO-SAVE: Failed to save:', result.error);
       }
     } catch (error) {
-      console.error('Error during save:', error);
+      console.error('❌ AUTO-SAVE: Error during save:', error);
     } finally {
       setIsSaving(false);
     }
@@ -720,18 +708,15 @@ export default function GigWorkerDashboard() {
         
         if (draftResult.success && draftResult.draft) {
           // Auto-load draft for both accepted and in_progress so saved responses always appear
-          console.log('Draft found: auto-loading draft and opening form');
           setDraftData(draftResult.draft);
           setIsSubmissionDialogOpen(true);
         } else {
           // No draft exists - start fresh
-          console.log('No draft exists, starting fresh');
           setDraftData(null);
           setIsSubmissionDialogOpen(true);
         }
       }
     } catch (error) {
-      console.error('Error checking for draft or previous submission:', error);
       setDraftData(null);
       setIsSubmissionDialogOpen(true);
     }

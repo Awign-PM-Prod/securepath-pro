@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+import { supabase } from '@/integrations/supabase/client';
 import type { FormSubmissionData } from './csvService';
 
 /**
@@ -1081,7 +1082,56 @@ export class PDFService {
   }
 
   /**
+   * Upload PDF to storage bucket and return public URL
+   * @param doc - jsPDF document
+   * @param caseId - Case ID
+   * @param caseData - Case data for filename generation
+   * @returns Public URL of uploaded PDF or null if upload fails
+   */
+  static async uploadPDFToStorage(
+    doc: jsPDF,
+    caseId: string,
+    caseData?: CaseDataForPDF
+  ): Promise<string | null> {
+    try {
+      // Generate PDF blob
+      const blob = doc.output('blob');
+      
+      // Generate filename
+      const filename = this.generatePDFFilename(caseData);
+      
+      // Create file path: caseId/filename
+      const filePath = `${caseId}/${filename}`;
+      
+      // Upload to storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('api-reports')
+        .upload(filePath, blob, {
+          contentType: 'application/pdf',
+          upsert: true // Replace if exists
+        });
+      
+      if (uploadError) {
+        console.error('Failed to upload PDF to storage:', uploadError);
+        return null;
+      }
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('api-reports')
+        .getPublicUrl(filePath);
+      
+      console.log('PDF uploaded successfully:', urlData.publicUrl);
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Error uploading PDF to storage:', error);
+      return null;
+    }
+  }
+
+  /**
    * Convert form submission data to PDF format (downloads automatically)
+   * For API-sourced cases, also uploads to storage and returns the URL
    */
   static async convertFormSubmissionsToPDF(
     submissions: FormSubmissionData[],
@@ -1089,12 +1139,27 @@ export class PDFService {
     contractType?: string,
     isPositive?: boolean,
     caseData?: CaseDataForPDF,
-    aiSummary?: string
-  ): Promise<void> {
+    aiSummary?: string,
+    caseId?: string,
+    shouldUploadToStorage?: boolean
+  ): Promise<{ url?: string }> {
     const doc = await this.generatePDFDocument(submissions, caseNumber, contractType, isPositive, caseData, aiSummary);
-    // Download the PDF
+    
+    // If this is an API-sourced case and should upload to storage
+    if (shouldUploadToStorage && caseId) {
+      const reportUrl = await this.uploadPDFToStorage(doc, caseId, caseData);
+      if (reportUrl) {
+        // Download the PDF for user as well
+        const filename = this.generatePDFFilename(caseData);
+        doc.save(filename);
+        return { url: reportUrl };
+      }
+    }
+    
+    // Default behavior: just download
     const filename = this.generatePDFFilename(caseData);
     doc.save(filename);
+    return {};
   }
 
   /**

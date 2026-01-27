@@ -236,57 +236,26 @@ export class FormService {
           // Check if this is an auto-save operation
           const isAutoSave = formData._metadata?.auto_save === true;
           
-          console.log(`Field ${fieldKey}:`, {
-            hasFiles: !!fieldValue.files,
-            fileCount: fieldValue.files?.length || 0,
-            isAutoSave,
-            files: fieldValue.files?.map(f => ({ 
-              name: f.name, 
-              size: f.size, 
-              type: f.type,
-              hasUrl: !!f.url,
-              isFileObject: f instanceof File
-            }))
-          });
-          
           // Filter out files that already have URLs (already uploaded)
           const newFiles = fieldValue.files.filter((file: any) => {
             if (file instanceof File) {
-              console.log(`File ${file.name} is a new File object, will upload`);
               return true;
             } else if (file.url) {
-              console.log(`File ${file.name} already has URL, skipping upload`);
               return false;
             } else {
-              console.log(`File ${file.name} is not a File object and has no URL, skipping`);
               return false;
             }
           });
           
-          console.log(`Field ${fieldKey}: ${newFiles.length} new files to upload out of ${fieldValue.files.length} total`);
-          
           if (newFiles.length > 0) {
-            if (isAutoSave) {
-              // For auto-save, upload only new files
-              console.log(`Auto-save: Processing ${newFiles.length} new files for field ${fieldKey}`);
-              filesToUpload.push({
-                fieldId: fieldKey,
-                files: newFiles
-              });
-              submissionData[fieldKey] = fieldValue.value;
-              console.log(`Auto-save: Added new files to upload queue for field ${fieldKey}`);
-            } else {
-              // For regular submission, upload files and store only the field value
-              filesToUpload.push({
-                fieldId: fieldKey,
-                files: newFiles
-              });
-              submissionData[fieldKey] = fieldValue.value;
-            }
+            filesToUpload.push({
+              fieldId: fieldKey,
+              files: newFiles
+            });
+            submissionData[fieldKey] = fieldValue.value;
           } else {
             // No new files to upload, just store the field value
             submissionData[fieldKey] = fieldValue.value;
-            console.log(`Field ${fieldKey}: No new files to upload, storing field value only`);
           }
         } else {
           // Store regular field values
@@ -513,9 +482,24 @@ export class FormService {
         `)
         .eq('case_id', caseId)
         .or('status.is.null,status.eq.draft')
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .maybeSingle();
 
       if (error) throw error;
+
+      // Parse submission_data if it's a JSON string
+      if (draft && draft.submission_data) {
+        if (typeof draft.submission_data === 'string') {
+          try {
+            draft.submission_data = JSON.parse(draft.submission_data);
+          } catch (e) {
+            console.error('Error parsing submission_data as JSON:', e);
+            // If parsing fails, set to empty object to avoid errors
+            draft.submission_data = {};
+          }
+        }
+      }
 
       return { success: true, draft };
     } catch (error) {

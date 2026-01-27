@@ -5,10 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface AwignStatusUpdateRequest {
+interface AwignInProgressRequest {
   caseId: string;
   clientCaseId: string;
-  status: string;
 }
 
 serve(async (req) => {
@@ -18,8 +17,8 @@ serve(async (req) => {
   }
 
   try {
-    const body: AwignStatusUpdateRequest = await req.json();
-    const { caseId, clientCaseId, status } = body;
+    const body: AwignInProgressRequest = await req.json();
+    const { caseId, clientCaseId } = body;
 
     if (!caseId || !clientCaseId) {
       return new Response(
@@ -53,22 +52,17 @@ serve(async (req) => {
       );
     }
 
-    // Ensure status is 'in_progress' for AWIGN API
-    // The trigger only fires when status changes to 'in_progress', so this should always be 'in_progress'
-    const awignStatus = 'in_progress';
-
     // Construct the API URL - replace :lead_id with clientCaseId
     // URL format: /workforce/executions/{executionId}/project_roles/{projectRoleId}/screens/{screenId}/leads/{lead_id}/status
     const apiUrl = `https://ih-oms-api.awign.com/office/api/v1/workforce/executions/${executionId}/project_roles/${projectRoleId}/screens/${screenId}/leads/${clientCaseId}/status`;
 
-    console.log('Calling AWIGN API:', {
+    console.log('Calling AWIGN API for in_progress status:', {
       url: apiUrl,
       caseId,
       clientCaseId,
-      status: awignStatus,
     });
 
-    // Make the API call
+    // Make the API call - exact match to the provided curl request
     const response = await fetch(apiUrl, {
       method: 'PATCH',
       headers: {
@@ -80,7 +74,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         lead: {
-          _status: awignStatus
+          _status: 'in_progress'
         }
       })
     });
@@ -105,10 +99,9 @@ serve(async (req) => {
 
     const result = await response.json().catch(() => ({}));
 
-    console.log('AWIGN API success:', {
+    console.log('AWIGN API success (in_progress):', {
       caseId,
       clientCaseId,
-      status: awignStatus,
       responseStatus: response.status,
     });
 
@@ -117,7 +110,7 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Error updating AWIGN lead status:', error);
+    console.error('Error updating AWIGN lead status to in_progress:', error);
     return new Response(
       JSON.stringify({ 
         success: false, 
@@ -127,4 +120,6 @@ serve(async (req) => {
     );
   }
 });
+
+
 

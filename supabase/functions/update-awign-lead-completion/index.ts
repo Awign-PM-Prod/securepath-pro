@@ -5,10 +5,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface AwignStatusUpdateRequest {
+interface AwignLeadCompletionRequest {
   caseId: string;
   clientCaseId: string;
-  status: string;
+  contractType: string;
+  isPositive: boolean;
+  allocatedAt: string;
+  submittedAt: string;
+  reportUrl: string;
+  qcComments?: string;
 }
 
 serve(async (req) => {
@@ -18,12 +23,21 @@ serve(async (req) => {
   }
 
   try {
-    const body: AwignStatusUpdateRequest = await req.json();
-    const { caseId, clientCaseId, status } = body;
+    const body: AwignLeadCompletionRequest = await req.json();
+    const { 
+      caseId, 
+      clientCaseId, 
+      contractType, 
+      isPositive, 
+      allocatedAt, 
+      submittedAt, 
+      reportUrl,
+      qcComments 
+    } = body;
 
-    if (!caseId || !clientCaseId) {
+    if (!caseId || !clientCaseId || !reportUrl) {
       return new Response(
-        JSON.stringify({ success: false, error: 'caseId and clientCaseId are required' }),
+        JSON.stringify({ success: false, error: 'caseId, clientCaseId, and reportUrl are required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -34,17 +48,15 @@ serve(async (req) => {
     const uid = Deno.env.get('AWIGN_UID');
     const callerId = Deno.env.get('AWIGN_CALLER_ID');
     const executionId = Deno.env.get('AWIGN_EXECUTION_ID');
-    const projectRoleId = Deno.env.get('AWIGN_PROJECT_ROLE_ID');
     const screenId = Deno.env.get('AWIGN_SCREEN_ID');
 
-    if (!accessToken || !client || !uid || !callerId || !executionId || !projectRoleId || !screenId) {
+    if (!accessToken || !client || !uid || !callerId || !executionId || !screenId) {
       console.error('Missing AWIGN API credentials. Required:', {
         hasAccessToken: !!accessToken,
         hasClient: !!client,
         hasUid: !!uid,
         hasCallerId: !!callerId,
         hasExecutionId: !!executionId,
-        hasProjectRoleId: !!projectRoleId,
         hasScreenId: !!screenId,
       });
       return new Response(
@@ -53,19 +65,50 @@ serve(async (req) => {
       );
     }
 
-    // Ensure status is 'in_progress' for AWIGN API
-    // The trigger only fires when status changes to 'in_progress', so this should always be 'in_progress'
-    const awignStatus = 'in_progress';
+    // Map contract_type to verification_type
+    const contractTypeLower = (contractType || '').toLowerCase();
+    let verificationType: string;
+    if (contractTypeLower.includes('business')) {
+      verificationType = 'Business';
+    } else if (contractTypeLower.includes('residence') || contractTypeLower.includes('residential')) {
+      verificationType = 'Residence/Office';
+    } else if (contractTypeLower.includes('office')) {
+      verificationType = 'Residence/Office';
+    } else {
+      // Default fallback
+      verificationType = 'Residence/Office';
+    }
 
-    // Construct the API URL - replace :lead_id with clientCaseId
-    // URL format: /workforce/executions/{executionId}/project_roles/{projectRoleId}/screens/{screenId}/leads/{lead_id}/status
-    const apiUrl = `https://ih-oms-api.awign.com/office/api/v1/workforce/executions/${executionId}/project_roles/${projectRoleId}/screens/${screenId}/leads/${clientCaseId}/status`;
+    // Map is_positive to case_status
+    const caseStatus = isPositive ? 'Positive' : 'Negative';
 
-    console.log('Calling AWIGN API:', {
+    // Use QC comments if available, otherwise default message
+    const comments = qcComments || 'Completed the verification';
+
+    // Construct the API URL - different endpoint structure for completion
+    const apiUrl = `https://ih-oms-api.awign.com/office/api/v1/executions/${executionId}/screens/${screenId}/leads/${clientCaseId}`;
+
+    // Build payload according to AWIGN API specification
+    const payload = {
+      lead: {
+        case_id: clientCaseId,
+        file_no: clientCaseId,
+        case_status: caseStatus,
+        verification_type: verificationType,
+        date_time_of_allocation: allocatedAt,
+        date_time_of_report: submittedAt,
+        comments: comments,
+        report_link: reportUrl
+      }
+    };
+
+    console.log('Calling AWIGN API for lead completion:', {
       url: apiUrl,
       caseId,
       clientCaseId,
-      status: awignStatus,
+      caseStatus,
+      verificationType,
+      reportUrl,
     });
 
     // Make the API call
@@ -78,11 +121,7 @@ serve(async (req) => {
         'caller_id': callerId,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
-        lead: {
-          _status: awignStatus
-        }
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
@@ -92,6 +131,7 @@ serve(async (req) => {
         statusText: response.statusText,
         error: errorText,
         url: apiUrl,
+        payload: JSON.stringify(payload),
       });
       return new Response(
         JSON.stringify({ 
@@ -108,7 +148,8 @@ serve(async (req) => {
     console.log('AWIGN API success:', {
       caseId,
       clientCaseId,
-      status: awignStatus,
+      caseStatus,
+      verificationType,
       responseStatus: response.status,
     });
 
@@ -117,7 +158,7 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Error updating AWIGN lead status:', error);
+    console.error('Error updating AWIGN lead completion:', error);
     return new Response(
       JSON.stringify({ 
         success: false, 
@@ -127,4 +168,7 @@ serve(async (req) => {
     );
   }
 });
+
+
+
 

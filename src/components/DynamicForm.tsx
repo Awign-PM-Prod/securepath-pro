@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef, useRef } from 'react';
 import { FormTemplate, FormField, FormData, FormFieldValue } from '@/types/form';
 import { formService } from '@/services/formService';
 import { supabase } from '@/integrations/supabase/client';
@@ -204,50 +204,27 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
 
   // Immediate save functionality - save when user adds responses
   const saveFormData = useCallback(async (updatedFormData: FormData) => {
-    console.log('saveFormData called with:', {
-      hasOnAutoSave: !!onAutoSave,
-      hasFormData: !!updatedFormData,
-      formDataKeys: Object.keys(updatedFormData || {}),
-      formData: updatedFormData
-    });
-    
     if (onAutoSave && updatedFormData && Object.keys(updatedFormData).length > 0) {
       // Create a deep copy of form data for save
       const saveFormData = JSON.parse(JSON.stringify(updatedFormData));
       
-      // Process files for auto-save - always include files for upload if they exist
+      // Check for non-empty field values (excluding metadata)
+      const fieldsToSave: Array<{fieldKey: string, value: any}> = [];
       Object.keys(saveFormData).forEach(fieldKey => {
         if (fieldKey === '_metadata') return;
         const fieldData = saveFormData[fieldKey];
+        if (fieldData && fieldData.value !== undefined && fieldData.value !== '' && fieldData.value !== null) {
+          fieldsToSave.push({ fieldKey, value: fieldData.value });
+        }
+        // Check for files
         if (fieldData && fieldData.files && fieldData.files.length > 0) {
-          console.log(`Auto-save: Processing field ${fieldKey} with ${fieldData.files.length} files`);
-          // For auto-save, always include files for processing
-          // The formService will handle filtering out already uploaded files
-          console.log(`Field ${fieldKey}: Including ${fieldData.files.length} files for auto-save processing`);
+          fieldsToSave.push({ fieldKey, value: `[${fieldData.files.length} file(s)]` });
         }
       });
       
-      // Check if there are any changes worth saving
-      const hasFileChanges = Object.keys(saveFormData).some(fieldKey => {
-        if (fieldKey === '_metadata') return false;
-        const fieldData = saveFormData[fieldKey];
-        return fieldData && fieldData.files && fieldData.files.length > 0;
-      });
-      
-      const hasNonFileChanges = Object.keys(saveFormData).some(fieldKey => {
-        if (fieldKey === '_metadata') return false;
-        const fieldData = saveFormData[fieldKey];
-        return fieldData && fieldData.value !== undefined && fieldData.value !== '';
-      });
-      
-      console.log('Auto-save check:', {
-        hasFileChanges,
-        hasNonFileChanges,
-        willSave: hasFileChanges || hasNonFileChanges,
-        formDataKeys: Object.keys(saveFormData)
-      });
-      
-      if (hasFileChanges || hasNonFileChanges) {
+      if (fieldsToSave.length > 0) {
+        console.log('🔄 AUTO-SAVE: Saving fields:', fieldsToSave);
+        
         // Prepare form data with location information for save
         const formDataWithLocation: any = {
           ...saveFormData,
@@ -258,74 +235,12 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
             auto_save: true
           }
         };
-        console.log('Calling onAutoSave with formDataWithLocation:', formDataWithLocation);
         onAutoSave(formDataWithLocation);
       }
     }
   }, [onAutoSave, fileLocations, individualFileLocations, isFileAlreadyUploaded]);
 
 
-  // Debug: Monitor fileLocations state changes
-  useEffect(() => {
-    console.log('fileLocations state updated:', fileLocations);
-  }, [fileLocations]);
-  
-  // Debug: Monitor individualFileLocations state changes
-  useEffect(() => {
-    console.log('individualFileLocations state updated:', individualFileLocations);
-  }, [individualFileLocations]);
-
-  // Debug: Monitor formData state changes
-  useEffect(() => {
-    console.log('formData state updated:', formData);
-    console.log('Draft data available:', !!draftData);
-    console.log('Template loaded:', !!template);
-    
-    // Check if form data has values
-    const hasValues = Object.entries(formData).some(([key, field]) => {
-      if (key === '_metadata') return false; // Skip metadata
-      
-      // Check if field has a value property (standard structure)
-      if (field && typeof field === 'object' && 'value' in field) {
-        const hasValue = field.value !== '' && field.value !== false && 
-               (!Array.isArray(field.value) || field.value.length > 0);
-        if (hasValue) {
-          console.log(`Field ${key} has value:`, field.value);
-        }
-        return hasValue;
-      }
-      
-      // Check if field is an array directly (multiple choice fields)
-      if (Array.isArray(field) && field.length > 0) {
-        console.log(`Field ${key} has array value:`, field);
-        return true;
-      }
-      
-      return false;
-    });
-    console.log('Form data has values:', hasValues);
-  }, [formData, draftData, template]);
-
-  // Debug: Log formData changes to track if files are being lost
-  useEffect(() => {
-    if (draftLoaded && template) {
-      const fieldsWithFiles = Object.entries(formData)
-        .filter(([key, value]: [string, any]) => value?.files && value.files.length > 0)
-        .map(([key, value]: [string, any]) => ({
-          fieldKey: key,
-          fileCount: value.files.length,
-          fileNames: value.files.map((f: any) => f.name || f.file_name)
-        }));
-      
-      if (fieldsWithFiles.length > 0) {
-        console.log('DynamicForm: Current formData fields with files:', fieldsWithFiles);
-      } else {
-        console.warn('DynamicForm: No fields with files found in formData!');
-        console.log('DynamicForm: All formData keys:', Object.keys(formData));
-        console.log('DynamicForm: Sample formData entry:', Object.entries(formData)[0]);
-      }
-    }
-  }, [formData, draftLoaded, template]);
 
   // Removed debounced auto-save on any form change; auto-save should trigger only on value changes
 
@@ -935,85 +850,80 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
       autoFillDateTimeFields(initialData, result.template.form_fields || []);
       
       if (draftData && draftData.submission_data) {
-        console.log('DynamicForm: Loading draft data:', draftData);
-        console.log('DynamicForm: Draft data structure:', {
-          hasSubmissionData: !!draftData.submission_data,
-          submissionDataType: typeof draftData.submission_data,
-          submissionDataKeys: Object.keys(draftData.submission_data || {}),
-          hasFiles: !!draftData.files,
-          filesLength: draftData.files?.length || 0
-        });
+        // Only log in development to reduce performance impact
+        if (process.env.NODE_ENV === 'development') {
+          const fieldValues = Object.entries(draftData.submission_data || {})
+            .filter(([k, v]) => k !== '_metadata' && v !== null && v !== undefined && v !== '')
+            .map(([k, v]) => ({ key: k, value: v, valueType: typeof v }));
+          console.log('DynamicForm: Loading draft with field values:', fieldValues);
+        }
         
         
         
         // initialData is already initialized with template fields above
         
-        // Debug for text fields
-        textFields.forEach(fieldKey => {
-          if (initialData[fieldKey]) {
-            console.log(`Template field ${fieldKey}:`, {
-              field_key: fieldKey,
-              field_type: initialData[fieldKey].value,
-              initialDataValue: initialData[fieldKey]
-            });
-          }
-        });
-        
         // Merge draft data with current form data (only update fields that have values in draft)
-        console.log('DynamicForm: Processing submission data entries:', Object.entries(draftData.submission_data));
+        const mergedFields: Array<{fieldKey: string, value: any}> = [];
         Object.entries(draftData.submission_data).forEach(([key, value]) => {
           if (key === '_metadata') {
             // Handle metadata separately
             return;
           }
           
-          console.log(`DynamicForm: Processing field ${key}:`, { 
-            key, 
-            value, 
-            valueType: typeof value,
-            initialDataKey: initialData[key],
-            hasInitialData: !!initialData[key]
-          });
-          
-          // Special debug for text fields
-          if (textFields.includes(key)) {
-            console.log(`Processing text field ${key}:`, { key, value, initialDataKey: initialData[key] });
+          // Skip empty values
+          if (value === null || value === undefined || value === '') {
+            return;
           }
           
           if (initialData[key]) {
             // Field exists in template, merge the data
             // NOTE: We preserve files here, but files will be loaded AFTER this merge
             // So we keep the empty files array for now, files will be added in loadDraftFilesFromDraft
+            let actualValue: any = null;
+            
             if (value && typeof value === 'object' && 'value' in value) {
               // Standard structure: {value: "", files: []}
-              if (value.value !== undefined) {
+              if (value.value !== undefined && value.value !== null && value.value !== '') {
+                actualValue = value.value;
                 initialData[key] = {
                   value: value.value as string | number | boolean | string[],
                   files: initialData[key].files || [] // Keep existing files array (will be populated later)
                 };
-                console.log(`Merging field ${key} with draft value:`, value.value, 'files will be loaded next');
-              } else {
-                console.log(`Skipping field ${key} - value is undefined`);
               }
-            } else if (Array.isArray(value)) {
+            } else if (Array.isArray(value) && value.length > 0) {
               // Array structure: ["Yes", "No"] - convert to standard structure
+              actualValue = value;
               initialData[key] = {
                 value: value,
                 files: initialData[key].files || [] // Keep existing files array (will be populated later)
               };
-              console.log(`Merging field ${key} with draft array:`, value, 'files will be loaded next');
-            } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-              // Direct value structure: "some text" or 123 or true - convert to standard structure
+            } else if (typeof value === 'string' && value.trim() !== '') {
+              // Direct value structure: "some text" - convert to standard structure
+              actualValue = value;
               initialData[key] = {
                 value: value,
                 files: initialData[key].files || [] // Keep existing files array (will be populated later)
               };
-              console.log(`Merging field ${key} with direct value:`, value, 'files will be loaded next');
+            } else if (typeof value === 'number' || typeof value === 'boolean') {
+              // Direct value structure: 123 or true - convert to standard structure
+              actualValue = value;
+              initialData[key] = {
+                value: value,
+                files: initialData[key].files || [] // Keep existing files array (will be populated later)
+              };
             }
-          } else if (key === 'additional_notes') {
-            console.log('additional_notes field not found in initialData template');
+            
+            if (actualValue !== null) {
+              mergedFields.push({ fieldKey: key, value: actualValue });
+            }
           }
         });
+        
+        if (mergedFields.length > 0) {
+          console.log('✅ FORM PRE-FILLED: Successfully loaded fields:', mergedFields);
+        } else {
+          console.log('⚠️ FORM PRE-FILLED: No fields were merged from draft');
+        }
         
         // Load file locations from draft metadata
         if (draftData.submission_data._metadata?.file_locations) {
@@ -1025,9 +935,7 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
         
         // Load files from draft data (now included in the draft)
         // This MUST happen after merging draft values to ensure files are loaded into the correct fields
-        console.log('DynamicForm: About to load files from draft, initialData keys:', Object.keys(initialData));
         const updatedFormData = await loadDraftFilesFromDraft(draftData, initialData);
-        console.log('DynamicForm: Files loaded, updatedFormData keys:', Object.keys(updatedFormData));
         
         // Load signature from draft files if exists
         const signatureFile = draftData.form_submission_files?.find((file: any) => 
@@ -1045,7 +953,6 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
         if (!isNegative) {
           try {
             const location = await getCurrentLocation();
-            console.log('DynamicForm: Auto-filling coordinates for draft:', location);
           
           // Define coordinate field mappings
           const coordinateFields = [
@@ -1061,21 +968,15 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
           // Apply coordinate auto-fill to matching fields (only if not already filled)
           coordinateFields.forEach(fieldKey => {
             if (updatedFormData[fieldKey] && (!updatedFormData[fieldKey].value || updatedFormData[fieldKey].value === '')) {
-              console.log(`Auto-filling coordinate field ${fieldKey} with value:`, coordinatesValue);
               updatedFormData[fieldKey] = {
                 ...updatedFormData[fieldKey],
                 value: coordinatesValue
               };
             }
           });
-          
-          console.log('Coordinates auto-filled for draft successfully');
           } catch (error) {
-            console.warn('Could not auto-fill coordinates for draft:', error);
             // Don't show error to user as this is optional functionality
           }
-        } else {
-          console.log('DynamicForm: Skipping coordinate auto-fill for draft in negative case template');
         }
         
         // Auto-fill date and time fields for draft data if empty
@@ -1085,7 +986,6 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
         // Re-apply auto-fill mappings after draft merge to ensure auto-filled fields are always populated
         // This is especially important for fields like field_executive_name that may not be in the draft
         if (caseData) {
-          console.log('Re-applying auto-fill mappings after draft merge to ensure all fields are populated');
           const { updatedData, filledFields } = applyAutoFillMappings(
             updatedFormData,
             caseData,
@@ -1103,23 +1003,10 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
           Object.assign(updatedFormData, updatedData);
         }
         
-        // Final check: Log all fields with files before setting formData
-        console.log('DynamicForm: Final check - Fields with files before setFormData:', 
-          Object.entries(updatedFormData)
-            .filter(([key, value]: [string, any]) => value?.files && value.files.length > 0)
-            .map(([key, value]: [string, any]) => ({
-              fieldKey: key,
-              fileCount: value.files.length,
-              files: value.files.map((f: any) => ({ name: f.name || f.file_name, url: f.url || f.file_url }))
-            }))
-        );
-        
         // Update form data with loaded files
-        console.log('DynamicForm: Setting form data to:', updatedFormData);
         setFormData(updatedFormData);
         setDraftLoaded(true);
         setHasFormData(true);
-        console.log('DynamicForm: Form data loaded from draft:', updatedFormData);
       } else {
         // initialData is already initialized with template fields above
         // Set form data for fresh form
@@ -1140,6 +1027,10 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
     setLoadingTemplate(false);
   };
 
+  // Debounce auto-save to avoid too frequent saves
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingFormDataRef = useRef<FormData | null>(null);
+  
   const handleFieldChange = (fieldKey: string, value: any) => {
     setFormData(prev => {
       const updatedFormData = {
@@ -1150,10 +1041,21 @@ export const DynamicForm = forwardRef<DynamicFormRef, DynamicFormProps>(({
         }
       };
       
-      // Trigger auto-save only on value changes
-      setTimeout(() => {
-        saveFormData(updatedFormData);
-      }, 100);
+      // Store the latest form data for auto-save
+      pendingFormDataRef.current = updatedFormData;
+      
+      // Clear previous timeout to debounce auto-save
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+      
+      // Trigger auto-save after user stops typing (debounce 2 seconds)
+      autoSaveTimeoutRef.current = setTimeout(() => {
+        if (pendingFormDataRef.current) {
+          saveFormData(pendingFormDataRef.current);
+          pendingFormDataRef.current = null;
+        }
+      }, 2000);
       
       return updatedFormData;
     });

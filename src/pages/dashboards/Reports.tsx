@@ -28,6 +28,7 @@ interface Case {
   phone_primary: string;
   phone_secondary?: string;
   status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled';
+  source?: 'api' | 'manual';
   client: {
     id: string;
     name: string;
@@ -239,6 +240,7 @@ export default function Reports() {
         .select(`
           *,
           is_positive,
+          source,
           clients(id, name, contact_person, phone, email),
           locations(id, address_line, city, state, pincode, pincode_tier, lat, lng, location_url)
         `, { count: 'exact' })
@@ -328,6 +330,7 @@ export default function Reports() {
         phone_primary: caseItem.phone_primary,
         phone_secondary: caseItem.phone_secondary,
         status: caseItem.status as any,
+        source: caseItem.source as 'api' | 'manual' | undefined,
         client: caseItem.clients as any,
         location: caseItem.locations as any,
         current_assignee: caseItem.current_assignee_id ? {
@@ -1331,20 +1334,47 @@ export default function Reports() {
       setIsGeneratingSummary(false);
       setDownloadProgress(90);
       
+      // Check if this is an API-sourced case
+      const isApiCase = caseItem.source === 'api';
+      
       // Generate PDF (this is the actual heavy operation)
-      await PDFService.convertFormSubmissionsToPDF(
+      const result = await PDFService.convertFormSubmissionsToPDF(
         submissions, 
         caseItem.case_number, 
         caseItem.contract_type,
         caseItem.is_positive,
         caseDataForPDF,
-        aiSummary
+        aiSummary,
+        caseItem.id, // caseId
+        isApiCase // shouldUploadToStorage
       );
+      
+      // If this is an API case and we got a URL, store it in the database
+      if (isApiCase && result.url) {
+        try {
+          const { error: updateError } = await supabase
+            .from('cases')
+            .update({ report_url: result.url })
+            .eq('id', caseItem.id);
+          
+          if (updateError) {
+            console.error('Failed to update report_url:', updateError);
+            // Don't fail the whole operation if URL storage fails
+          } else {
+            console.log('Report URL stored successfully:', result.url);
+          }
+        } catch (error) {
+          console.error('Error storing report URL:', error);
+          // Don't fail the whole operation if URL storage fails
+        }
+      }
       
       setDownloadProgress(100);
       toast({
         title: 'Success',
-        description: 'PDF file downloaded successfully',
+        description: isApiCase && result.url 
+          ? 'PDF file downloaded and uploaded to storage successfully'
+          : 'PDF file downloaded successfully',
       });
 
       setTimeout(() => {
