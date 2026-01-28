@@ -48,16 +48,16 @@ serve(async (req) => {
     const uid = Deno.env.get('AWIGN_UID');
     const callerId = Deno.env.get('AWIGN_CALLER_ID');
     const executionId = Deno.env.get('AWIGN_EXECUTION_ID');
-    const screenId = Deno.env.get('AWIGN_SCREEN_ID');
+    const qcScreenId = Deno.env.get('AWIGN_QC_SCREEN_ID');
 
-    if (!accessToken || !client || !uid || !callerId || !executionId || !screenId) {
+    if (!accessToken || !client || !uid || !callerId || !executionId || !qcScreenId) {
       console.error('Missing AWIGN API credentials. Required:', {
         hasAccessToken: !!accessToken,
         hasClient: !!client,
         hasUid: !!uid,
         hasCallerId: !!callerId,
         hasExecutionId: !!executionId,
-        hasScreenId: !!screenId,
+        hasQcScreenId: !!qcScreenId,
       });
       return new Response(
         JSON.stringify({ success: false, error: 'AWIGN API credentials not configured' }),
@@ -85,8 +85,10 @@ serve(async (req) => {
     // Use QC comments if available, otherwise default message
     const comments = qcComments || 'Completed the verification';
 
-    // Construct the API URL - different endpoint structure for completion
-    const apiUrl = `https://ih-oms-api.awign.com/office/api/v1/executions/${executionId}/screens/${screenId}/leads/${clientCaseId}`;
+    // Construct the API URL - completion endpoint (Curl B)
+    const apiUrl =
+      `https://ih-oms-api.awign.com/office/api/v1/executions/${executionId}` +
+      `/screens/${qcScreenId}/leads/${clientCaseId}`;
 
     // Build payload according to AWIGN API specification
     const payload = {
@@ -168,6 +170,7 @@ serve(async (req) => {
     );
   }
 });
+
 
 
 
