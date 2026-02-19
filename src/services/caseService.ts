@@ -12,6 +12,7 @@ export interface Case {
   phone_primary: string;
   phone_secondary?: string;
   status: 'new' | 'allocated' | 'accepted' | 'pending_allocation' | 'in_progress' | 'submitted' | 'qc_passed' | 'qc_rejected' | 'qc_rework' | 'reported' | 'in_payment_cycle' | 'payment_complete' | 'cancelled' | 'auto_allocated' | 'completed';
+  allocation_method?: 'auto' | 'manual';
   client: {
     id: string;
     name: string;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { User, LogOut, Bell } from 'lucide-react';
@@ -17,7 +17,11 @@ import {
 export function NoSidebarLayout() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { unreadCount } = useNotifications(user?.id || null);
+  
+  // Hide header for gig workers on dashboard (they have custom header)
+  const isGigWorkerDashboard = user?.profile?.role === 'gig_worker' && location.pathname === '/gig';
 
   const handleSignOut = async () => {
     console.log('handleSignOut called');
@@ -52,7 +56,8 @@ export function NoSidebarLayout() {
     <div className="flex min-h-screen bg-background">
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
+        {/* Header - Hide for gig worker dashboard */}
+        {!isGigWorkerDashboard && (
         <header className="border-b border-border bg-card flex-shrink-0">
           <div className="flex h-16 items-center justify-between px-4">
             <div className="flex items-center gap-4">
@@ -115,9 +120,10 @@ export function NoSidebarLayout() {
             </div>
           </div>
         </header>
+        )}
 
         {/* Main Content Area */}
-        <main className="flex-1 p-4 overflow-auto">
+        <main className={`flex-1 overflow-auto ${isGigWorkerDashboard ? '' : 'p-4'}`}>
           <Outlet />
         </main>
       </div>

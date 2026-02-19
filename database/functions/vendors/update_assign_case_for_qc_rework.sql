@@ -40,6 +40,7 @@ BEGIN
             current_assignee_type = 'gig',
             current_vendor_id = p_vendor_id,
             status = 'allocated',
+            allocation_method = 'manual',
             status_updated_at = NOW(),
             due_at = rework_deadline
         WHERE id = p_case_id;

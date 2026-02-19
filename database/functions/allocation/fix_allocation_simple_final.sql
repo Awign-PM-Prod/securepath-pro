@@ -190,6 +190,7 @@ BEGIN
             ELSE p_vendor_id
         END,
         status = 'allocated',
+        allocation_method = 'auto',
         status_updated_at = now()
     WHERE id = p_case_id;
     

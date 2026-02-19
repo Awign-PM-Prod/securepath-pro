@@ -6,7 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell, Filter, X, Loader2, ArrowLeft } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, MapPin, User, Building, Phone, Calendar, FileText, AlertCircle, Bell, Filter, X, Loader2, ArrowLeft, Home, ChevronRight, ChevronDown, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { format, differenceInMinutes, addHours, startOfMonth, endOfMonth, isSameMonth, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -128,8 +129,37 @@ export default function GigWorkerDashboard() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isAttendanceDialogOpen, setIsAttendanceDialogOpen] = useState(false);
   const [isMarkingAttendance, setIsMarkingAttendance] = useState(false);
-  const { user } = useAuth();
+  const [mobileDetailCase, setMobileDetailCase] = useState<AllocatedCase | null>(null);
+  const { user, signOut } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Error signing out:', error);
+      try {
+        Object.keys(localStorage).forEach(key => {
+          if (key.includes('supabase') || key.includes('sb-') || key.includes('auth')) {
+            localStorage.removeItem(key);
+          }
+        });
+      } catch (clearError) {
+        console.error('Error clearing storage:', clearError);
+      }
+      window.location.href = '/';
+    }
+  };
+
+  const getUserName = () => {
+    if (!user?.profile) return 'User';
+    const firstName = user.profile.first_name || '';
+    const lastName = user.profile.last_name || '';
+    return `${firstName} ${lastName}`.trim() || 'User';
+  };
   
   // Check if filter is applied (not current month)
   const isFilterApplied = () => {
@@ -1150,13 +1180,22 @@ export default function GigWorkerDashboard() {
       });
   }, [allocatedCases, selectedMonth]);
 
+  // Format contract type string for display
+  const formatContractType = (contractType: string) => {
+    if (!contractType) return 'Case';
+    return contractType
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
   // Mobile-friendly case card component
-  const MobileCaseCard = ({ caseItem, onAccept, onReject, onSubmit, onViewSubmission, showEditDraft = false }: {
+  const MobileCaseCard = ({ caseItem, onAccept, onReject, onSubmit, onViewSubmission, onClick, showEditDraft = false }: {
     caseItem: AllocatedCase;
     onAccept?: () => void;
     onReject?: () => void;
     onSubmit?: () => void;
     onViewSubmission?: () => void;
+    onClick?: () => void;
     showEditDraft?: boolean;
   }) => {
     const isExpired = (deadline: string, isDirectGig: boolean = false) => {
@@ -1177,134 +1216,81 @@ export default function GigWorkerDashboard() {
     };
 
     return (
-      <Card className="mb-3 shadow-sm border-0 bg-white">
-        <CardHeader className="pb-2 px-4 pt-4">
-          <div className="flex items-start justify-between">
-            <div className="flex-1 min-w-0 pr-2">
-              <CardTitle className="text-base font-semibold text-gray-900 truncate leading-tight">
+      <Card 
+        className="mb-3 shadow-sm bg-white border-l-4 border-l-[#1e3a5f] border-t-0 border-r-0 border-b-0 rounded-lg cursor-pointer active:bg-gray-50 transition-colors"
+        onClick={onClick}
+      >
+        <CardContent className="px-4 py-4 space-y-3">
+          {/* Title + Status Badge */}
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-gray-900 leading-tight">
+                {formatContractType(caseItem.contract_type)}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
                 {caseItem.case_number}
                 {caseItem.QC_Response === 'Rework' && (
-                  <Badge variant="destructive" className="ml-2 text-xs">
+                  <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">
                     Rework
                   </Badge>
                 )}
                 {isRecreatedCase(caseItem.case_number) && (
-                  <Badge variant="outline" className="ml-2 text-xs border-orange-300 text-orange-700 bg-orange-50">
+                  <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0 border-orange-300 text-orange-700 bg-orange-50">
                     Recreated
                   </Badge>
                 )}
-              </CardTitle>
+              </p>
             </div>
-            <div className="flex flex-col items-end gap-1.5">
+            <div className="flex-shrink-0">
               {getStatusBadge(caseItem.status, caseItem.id)}
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="px-4 pb-4 space-y-3">
-          {/* Candidate Info */}
-          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <User className="h-4 w-4 text-blue-600 flex-shrink-0" />
-              <span className="font-semibold text-sm text-gray-900">{caseItem.candidate_name}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <Phone className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
-              <span className="break-all">{caseItem.phone_primary}</span>
-              {caseItem.phone_secondary && (
-                <>
-                  <span className="text-gray-400">•</span>
-                  <span className="break-all">{caseItem.phone_secondary}</span>
-                </>
-              )}
-            </div>
+
+          {/* Time Indicator */}
+          <div className="flex items-center gap-1.5">
+            <Clock className={`h-3.5 w-3.5 flex-shrink-0 ${
+              isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig) ? 'text-red-500' : 'text-orange-500'
+            }`} />
+            <span className={`text-xs font-medium ${
+              isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)
+                ? 'text-red-600'
+                : 'text-orange-600'
+            }`}>
+              {caseItem.is_direct_gig ? 'No time limit' : getTimeRemaining(caseItem.acceptance_deadline)}
+            </span>
           </div>
 
-          {/* Location */}
-          <div className="space-y-2">
+          {/* Two-column: Candidate Info + Location */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Left: Candidate Info */}
             <div className="flex items-start gap-2">
-              <MapPin className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-900 leading-tight">
-                  {caseItem.locations?.address_line || caseItem.address}
-                </div>
-                <div className="text-xs text-gray-600 mt-1">
-                  {caseItem.locations?.location_url ? (
-                    <a 
-                      href={caseItem.locations.location_url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 underline font-medium"
-                    >
-                      {caseItem.locations?.city || caseItem.city}
-                    </a>
-                  ) : (
-                    <span>{caseItem.locations?.city || caseItem.city}</span>
-                  )}, {caseItem.locations?.state || caseItem.state} - {caseItem.locations?.pincode || caseItem.pincode}
+              <div className="flex-shrink-0 mt-0.5">
+                <div className="h-7 w-7 rounded-full bg-blue-100 flex items-center justify-center">
+                  <User className="h-4 w-4 text-blue-600" />
                 </div>
               </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-900 truncate">{caseItem.candidate_name}</p>
+                <p className="text-[11px] text-gray-500 truncate">{caseItem.phone_primary}</p>
+              </div>
             </div>
-          </div>
 
-          {/* Client and Time */}
-          <div className="flex items-center justify-end bg-blue-50 rounded-lg p-3">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-orange-600 flex-shrink-0" />
-              <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-orange-100 text-orange-700'
-              }`}>
-                {caseItem.is_direct_gig ? 'No time limit' : getTimeRemaining(caseItem.acceptance_deadline)}
-              </span>
+            {/* Right: Location */}
+            <div className="flex items-start gap-2">
+              <div className="flex-shrink-0 mt-0.5">
+                <div className="h-7 w-7 rounded-full bg-blue-100 flex items-center justify-center">
+                  <MapPin className="h-4 w-4 text-blue-600" />
+                </div>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-900 truncate">
+                  {caseItem.locations?.address_line || caseItem.address}
+                </p>
+                <p className="text-[11px] text-gray-500 truncate">
+                  {caseItem.locations?.city || caseItem.city}, {caseItem.locations?.state || caseItem.state}
+                </p>
+              </div>
             </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-2 pt-1">
-            {onAccept && (
-              <Button
-                size="sm"
-                onClick={onAccept}
-                disabled={isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)}
-                className="flex-1 h-10 text-sm font-medium bg-green-600 hover:bg-green-700 disabled:bg-gray-300"
-              >
-                <CheckCircle className="h-4 w-4 mr-1.5" />
-                Accept
-              </Button>
-            )}
-            {onReject && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onReject}
-                disabled={isExpired(caseItem.acceptance_deadline, caseItem.is_direct_gig)}
-                className="flex-1 h-10 text-sm font-medium border-red-300 text-red-700 hover:bg-red-50 disabled:bg-gray-100"
-              >
-                <XCircle className="h-4 w-4 mr-1.5" />
-                Reject
-              </Button>
-            )}
-            {onSubmit && (
-              <Button
-                size="sm"
-                onClick={onSubmit}
-                className="flex-1 h-10 text-sm font-medium bg-blue-600 hover:bg-blue-700"
-              >
-                <FileText className="h-4 w-4 mr-1.5" />
-                {showEditDraft ? 'Edit Draft' : 'Submit'}
-              </Button>
-            )}
-            {onViewSubmission && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onViewSubmission}
-                className="flex-1 h-10 text-sm font-medium border-blue-300 text-blue-700 hover:bg-blue-50"
-              >
-                <FileText className="h-4 w-4 mr-1.5" />
-                View
-              </Button>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -1329,7 +1315,154 @@ export default function GigWorkerDashboard() {
   }
 
   return (
-    <div className={`space-y-4 ${isMobile ? 'min-h-screen bg-gray-50 pb-4' : 'space-y-6'}`}>
+    <div className={`space-y-4 ${isMobile ? 'min-h-screen bg-gray-100 pb-20' : 'space-y-6'}`}>
+
+      {/* Mobile Case Detail View */}
+      {isMobile && mobileDetailCase && (
+        <div className={`min-h-screen bg-gray-100 ${isEditMode ? 'pb-24' : 'pb-4'}`}>
+          {/* Dark Blue Header */}
+          <header className="bg-[#1e3a5f] text-white px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+            <h1 className="text-lg font-semibold">Background Verification</h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/10"
+              onClick={() => setShowNotificationTest(!showNotificationTest)}
+            >
+              <Bell className="h-5 w-5" />
+            </Button>
+          </header>
+
+          {/* Back + Edit */}
+          <div className="flex items-center justify-between px-4 py-3 bg-white border-b">
+            <button
+              className="flex items-center gap-1 text-gray-700 text-sm font-medium"
+              onClick={() => {
+                if (isEditMode) {
+                  setIsEditMode(false);
+                  setDraftData(null);
+                }
+                setMobileDetailCase(null);
+              }}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+            {mobileDetailCase.status === 'in_progress' && !isEditMode && (
+              <button
+                className="text-sm font-medium text-[#1e3a5f]"
+                onClick={() => {
+                  setSelectedSubmissionCase(mobileDetailCase);
+                  handleStartEditing(mobileDetailCase);
+                }}
+              >
+                Edit
+              </button>
+            )}
+            {isEditMode && (
+              <button
+                className="text-sm font-medium text-red-500"
+                onClick={() => {
+                  setIsEditMode(false);
+                  setDraftData(null);
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          {/* Case Info */}
+          <div className="px-4 pt-4 pb-2">
+            <Card className="bg-white shadow-sm">
+              <CardContent className="p-4">
+                <h2 className="text-lg font-bold text-gray-900 leading-tight mb-1">
+                  {formatContractType(mobileDetailCase.contract_type)}
+                </h2>
+                <p className="text-sm text-gray-600 mb-0.5">{mobileDetailCase.case_number}</p>
+                {mobileDetailCase.actual_submitted_at && (
+                  <p className="text-xs text-gray-400">
+                    Submitted on {format(new Date(mobileDetailCase.actual_submitted_at), "MMMM do, yyyy h:mm a")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Form Content - Edit Mode or View Mode */}
+          <div className="px-4 py-2">
+            {isEditMode && selectedSubmissionCase ? (
+              <DynamicForm
+                ref={formRef}
+                contractTypeId={mobileDetailCase.contract_type}
+                caseId={mobileDetailCase.id}
+                gigWorkerId={gigWorkerId}
+                onSubmit={handleDynamicFormSubmit}
+                onSaveDraft={handleSaveDraft}
+                onAutoSave={handleImmediateSave}
+                onCancel={() => {
+                  setIsEditMode(false);
+                  setDraftData(null);
+                }}
+                loading={isSubmitting}
+                draftData={draftData}
+                isAutoSaving={isSaving}
+                lastAutoSaveTime={lastSaveTime}
+                hideFooterButtons={true}
+                qcReviewData={allQcReviewData[mobileDetailCase.id] || null}
+                caseData={{
+                  id: mobileDetailCase.id,
+                  case_number: mobileDetailCase.case_number,
+                  client_case_id: mobileDetailCase.client_case_id,
+                  candidate_name: mobileDetailCase.candidate_name,
+                  phone_primary: mobileDetailCase.phone_primary,
+                  location: {
+                    address_line: mobileDetailCase.locations?.address_line || mobileDetailCase.address,
+                    city: mobileDetailCase.locations?.city || mobileDetailCase.city,
+                    pincode: mobileDetailCase.locations?.pincode || mobileDetailCase.pincode
+                  },
+                  fi_type: mobileDetailCase.fi_type,
+                  company_name: (mobileDetailCase as any).company_name
+                }}
+              />
+            ) : (
+              <DynamicFormSubmission caseId={mobileDetailCase.id} qcReviewData={allQcReviewData[mobileDetailCase.id] || null} />
+            )}
+          </div>
+
+          {/* Bottom CTA - Only show in edit mode */}
+          {isEditMode && (
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 z-20">
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  className="flex-1 py-3 text-sm font-medium rounded-lg"
+                  onClick={() => {
+                    if (formRef.current) {
+                      formRef.current.saveDraft();
+                    }
+                  }}
+                  disabled={isSubmitting || isSaving}
+                >
+                  {isSaving ? 'Saving...' : 'Save Draft'}
+                </Button>
+                <Button
+                  className="flex-1 bg-[#1e3a5f] hover:bg-[#162d4a] text-white py-3 text-sm font-medium rounded-lg"
+                  onClick={() => {
+                    if (formRef.current) {
+                      formRef.current.submit();
+                    }
+                  }}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? 'Submitting...' : 'Submit'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Desktop Header with Notifications */}
       {!isMobile && gigWorkerId && (
         <div className="flex items-center justify-between">
@@ -1350,21 +1483,34 @@ export default function GigWorkerDashboard() {
       )}
 
       {/* Mobile Header */}
-      {isMobile && (
-        <div className="bg-white shadow-sm border-b sticky top-0 z-10">
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-lg font-bold text-gray-900">Gig Worker Dashboard</h1>
-                <p className="text-sm text-gray-600">Background Verification</p>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-500">Total Cases</div>
-                <div className="text-lg font-bold text-blue-600">{allocatedCases.length}</div>
-              </div>
-            </div>
+      {isMobile && !mobileDetailCase && (
+        <>
+          <header className="bg-[#1e3a5f] text-white px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+            <h1 className="text-lg font-semibold">Background Verification</h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/10"
+              onClick={() => setShowNotificationTest(!showNotificationTest)}
+            >
+              <Bell className="h-5 w-5" />
+            </Button>
+          </header>
+
+          {/* Welcome Section */}
+          <div className="bg-gray-100 px-4 pt-4 pb-2">
+            <div className="text-sm text-gray-700 mb-1">Welcome!</div>
+            <div className="text-xl font-bold text-gray-900 mb-4">{getUserName()}</div>
+            
+            {/* Total Cases Card */}
+            <Card className="bg-white shadow-sm">
+              <CardContent className="p-4 flex items-center justify-between">
+                <span className="text-gray-700 font-medium">Total Cases</span>
+                <span className="text-blue-600 text-xl font-bold">{allocatedCases.length}</span>
+              </CardContent>
+            </Card>
           </div>
-        </div>
+        </>
       )}
 
       {/* Notification Permission Card - Only show when bell button is clicked */}
@@ -1377,7 +1523,115 @@ export default function GigWorkerDashboard() {
         </div>
       )}
 
-      <Card className={isMobile ? 'mx-2 shadow-sm border-0' : ''}>
+      {/* Mobile: My Allocated Cases Section (outside Card) */}
+      {isMobile && !selectedCategory && !mobileDetailCase && (
+        <div className="px-4 pt-6 pb-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">My Allocated Cases</h2>
+              <p className="text-sm text-gray-500 mt-1">Manage your assigned background verification cases.</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:text-white"
+              onClick={() => setIsFilterOpen(!isFilterOpen)}
+            >
+              {format(parseISO(`${selectedMonth}-01`), 'MMM yyyy')}
+              <ChevronDown className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+
+          {isFilterOpen && (
+            <Card className="border-2 mb-4">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Filter by Month</CardTitle>
+                  <Select 
+                    value={selectedYear.toString()} 
+                    onValueChange={(year) => {
+                      const currentMonth = selectedMonth.split('-')[1];
+                      setSelectedMonth(`${year}-${currentMonth}`);
+                    }}
+                  >
+                    <SelectTrigger className="w-[120px]">
+                      <SelectValue>{selectedYear}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {getYearOptions().map((year) => (
+                        <SelectItem key={year} value={year.toString()}>
+                          {year}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-2">
+                  {getMonthOptions().map((month) => {
+                    const isSelected = selectedMonth === month.value;
+                    const [year, monthNum] = month.value.split('-').map(Number);
+                    const monthDate = new Date(year, monthNum - 1, 1);
+                    const isCurrentMonth = isSameMonth(monthDate, new Date());
+                    
+                    return (
+                      <Button
+                        key={month.value}
+                        variant={isSelected ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          setSelectedMonth(month.value);
+                          setIsFilterOpen(false);
+                        }}
+                        className={`h-12 ${isSelected ? 'bg-primary text-primary-foreground' : ''} ${
+                          isCurrentMonth && !isSelected ? 'border-primary/50' : ''
+                        }`}
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="text-xs font-medium">{month.label}</span>
+                          {isCurrentMonth && !isSelected && (
+                            <span className="text-[10px] text-muted-foreground">Current</span>
+                          )}
+                        </div>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Mobile Status Cards Grid - 3x2 */}
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            {[
+              { label: 'Pending', count: pendingCases.length, color: 'text-blue-600', category: 'pending' },
+              { label: 'Accepted', count: acceptedCases.length, color: 'text-green-600', category: 'accepted' },
+              { label: 'In Progress', count: inProgressCases.length, color: 'text-orange-600', category: 'in_progress' },
+              { label: 'Approved', count: approvedCases.length, color: 'text-green-600', category: 'approved' },
+              { label: 'Rework', count: reworkCases.length, color: 'text-red-600', category: 'rework' },
+              { label: 'Submitted', count: submittedCases.length, color: 'text-purple-600', category: 'submitted' },
+            ].map((card, index) => (
+              <Card
+                key={index}
+                className="bg-white shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => setSelectedCategory(card.category)}
+              >
+                <CardContent className="p-4 flex flex-col items-start justify-between h-full">
+                  <div className="w-full flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">{card.label}</span>
+                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <span className={`text-2xl font-bold ${card.color}`}>{card.count}</span>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Card wrapper / Mobile selected category view */}
+      <Card className={isMobile ? (selectedCategory && !mobileDetailCase ? 'mx-2 shadow-sm border-0' : 'hidden') : ''}>
         <CardHeader className={isMobile ? 'px-4 py-4' : ''}>
           <div className="flex items-center justify-between">
             <div>
@@ -1386,7 +1640,7 @@ export default function GigWorkerDashboard() {
                 Manage your assigned background verification cases
               </CardDescription>
             </div>
-            {gigWorkerId && (
+            {!isMobile && gigWorkerId && (
               <Button
                 size="sm"
                 variant="outline"
@@ -1399,21 +1653,20 @@ export default function GigWorkerDashboard() {
           </div>
         </CardHeader>
         <CardContent className={isMobile ? 'px-2' : ''}>
-          {/* Notification Test Component - Removed duplicate, using main notification card */}
-          
-          {/* Month Filter */}
-          <div className={`mb-4 ${isMobile ? 'px-1' : ''}`}>
-            <div className={`flex items-center gap-2 mb-2 ${isMobile ? 'flex-wrap' : ''}`}>
+          {/* Month Filter - Desktop only */}
+          {!isMobile && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
               <Button
                 variant={isFilterApplied() ? "default" : "outline"}
                 size="sm"
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className={`${isFilterApplied() ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''} ${isMobile ? 'flex-1 min-w-0' : ''}`}
+                className={isFilterApplied() ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
               >
-                <Filter className={`h-4 w-4 ${isMobile ? 'mr-1' : 'mr-2'}`} />
-                {isMobile ? 'Filter' : 'Filter by Month'}
+                <Filter className="h-4 w-4 mr-2" />
+                Filter by Month
                 {isFilterApplied() && (
-                  <span className={`${isMobile ? 'ml-1' : 'ml-2'} px-1.5 py-0.5 bg-blue-700 rounded-full text-xs whitespace-nowrap`}>
+                  <span className="ml-2 px-1.5 py-0.5 bg-blue-700 rounded-full text-xs whitespace-nowrap">
                     {format(parseISO(`${selectedMonth}-01`), 'MMM yyyy')}
                   </span>
                 )}
@@ -1423,10 +1676,10 @@ export default function GigWorkerDashboard() {
                   variant="outline"
                   size="sm"
                   onClick={clearFilter}
-                  className={`text-red-600 hover:text-red-700 hover:bg-red-50 ${isMobile ? 'flex-shrink-0' : ''}`}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
                 >
                   <X className="h-4 w-4 mr-1" />
-                  {isMobile ? 'Clear' : 'Clear Filter'}
+                  Clear Filter
                 </Button>
               )}
             </div>
@@ -1471,7 +1724,7 @@ export default function GigWorkerDashboard() {
                           size="sm"
                           onClick={() => {
                             setSelectedMonth(month.value);
-                            setIsFilterOpen(false); // Close filter after selection
+                            setIsFilterOpen(false);
                           }}
                           className={`h-12 ${isSelected ? 'bg-primary text-primary-foreground' : ''} ${
                             isCurrentMonth && !isSelected ? 'border-primary/50' : ''
@@ -1491,9 +1744,10 @@ export default function GigWorkerDashboard() {
               </Card>
             )}
           </div>
+          )}
 
-          {/* Category Cards View */}
-          {!selectedCategory && (
+          {/* Category Cards View - Desktop only */}
+          {!isMobile && !selectedCategory && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               <Card 
                 className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-blue-500"
@@ -1559,27 +1813,23 @@ export default function GigWorkerDashboard() {
 
           {/* Cases View for Selected Category */}
           {selectedCategory && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedCategory(null)}
-                    className="flex items-center gap-2"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                  </Button>
-                  <h2 className="text-xl font-semibold">
-                    {selectedCategory === 'pending' && 'Pending Cases'}
-                    {selectedCategory === 'accepted' && 'Accepted Cases'}
-                    {selectedCategory === 'in_progress' && 'In Progress Cases'}
-                    {selectedCategory === 'rework' && 'Rework Cases'}
-                    {selectedCategory === 'approved' && 'Approved Cases'}
-                    {selectedCategory === 'submitted' && 'Submitted Cases'}
-                  </h2>
-                </div>
+            <div className={isMobile ? 'space-y-3 px-4 pt-2' : 'space-y-4'}>
+              <div>
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  className={`flex items-center gap-1.5 text-gray-700 hover:text-gray-900 mb-2 ${isMobile ? 'text-sm' : ''}`}
+                >
+                  <ArrowLeft className={isMobile ? 'h-4 w-4' : 'h-5 w-5'} />
+                  <span className="font-medium">Back</span>
+                </button>
+                <h2 className={`font-bold text-gray-900 ${isMobile ? 'text-xl' : 'text-xl'}`}>
+                  {selectedCategory === 'pending' && 'Pending Cases'}
+                  {selectedCategory === 'accepted' && 'Accepted Cases'}
+                  {selectedCategory === 'in_progress' && 'In Progress Cases'}
+                  {selectedCategory === 'rework' && 'Rework Cases'}
+                  {selectedCategory === 'approved' && 'Approved Cases'}
+                  {selectedCategory === 'submitted' && 'Submitted Cases'}
+                </h2>
               </div>
 
               {/* Pending Cases */}
@@ -1601,6 +1851,7 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
+                          onClick={() => setMobileDetailCase(caseItem)}
                           onAccept={() => {
                             setSelectedCase(caseItem);
                             setIsAcceptDialogOpen(true);
@@ -1741,6 +1992,7 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
+                          onClick={() => setMobileDetailCase(caseItem)}
                           onSubmit={() => handleSubmitResponse(caseItem)}
                         />
                       ))}
@@ -1844,6 +2096,7 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
+                          onClick={() => setMobileDetailCase(caseItem)}
                           onSubmit={() => handleSubmitResponse(caseItem)}
                           onViewSubmission={() => handleViewSubmission(caseItem)}
                           showEditDraft={true}
@@ -1993,6 +2246,7 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
+                          onClick={() => setMobileDetailCase(caseItem)}
                           onViewSubmission={() => {
                             setSelectedSubmissionCase(caseItem);
                             setIsViewSubmissionDialogOpen(true);
@@ -2132,6 +2386,7 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
+                          onClick={() => setMobileDetailCase(caseItem)}
                           onViewSubmission={() => {
                             setSelectedSubmissionCase(caseItem);
                             setIsViewSubmissionDialogOpen(true);
@@ -2260,6 +2515,7 @@ export default function GigWorkerDashboard() {
                         <MobileCaseCard
                           key={caseItem.id}
                           caseItem={caseItem}
+                          onClick={() => setMobileDetailCase(caseItem)}
                           onViewSubmission={() => {
                             setSelectedSubmissionCase(caseItem);
                             setIsViewSubmissionDialogOpen(true);
@@ -2861,6 +3117,29 @@ export default function GigWorkerDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Mobile Bottom Navigation Bar */}
+      {isMobile && !mobileDetailCase && (
+        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-20">
+          <div className="flex items-center justify-around h-16">
+            <button
+              onClick={() => {
+                setSelectedCategory(null);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="flex flex-col items-center justify-center flex-1 h-full text-blue-600"
+            >
+              <Home className="h-6 w-6 mb-1" />
+            </button>
+            <button
+              onClick={handleSignOut}
+              className="flex flex-col items-center justify-center flex-1 h-full text-gray-400"
+            >
+              <LogOut className="h-6 w-6 mb-1" />
+            </button>
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

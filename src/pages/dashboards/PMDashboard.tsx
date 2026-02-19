@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { 
   Users, 
   Building2, 
@@ -14,8 +17,10 @@ import {
   Send,
   Database,
   BarChart3,
-  Calendar
+  Calendar as CalendarIcon,
+  X
 } from 'lucide-react';
+import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 
 interface PMDashboardStats {
@@ -65,7 +70,11 @@ interface PMDashboardStats {
   activeClients: number;
 }
 
+// Filter cases created after November 2nd, 2025 (same as ops/cases page)
+const CUTOFF_DATE = new Date('2025-11-02T00:00:00.000Z');
+
 export default function PMDashboard() {
+  const [dateFilter, setDateFilter] = useState<{ from?: Date; to?: Date } | undefined>(undefined);
   const [stats, setStats] = useState<PMDashboardStats>({
     totalUsers: 0,
     superAdmins: 0,
@@ -117,6 +126,37 @@ export default function PMDashboard() {
         fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
         const fourteenDaysAgoISO = fourteenDaysAgo.toISOString();
 
+        // Build base query with cutoff date and date filter
+        const buildCaseQuery = (baseQuery: any) => {
+          let query = baseQuery
+            .eq('is_active', true)
+            .gte('created_at', CUTOFF_DATE.toISOString());
+          
+          // Apply date filter if set
+          if (dateFilter) {
+            if (dateFilter.from) {
+              const startOfDay = new Date(dateFilter.from);
+              startOfDay.setHours(0, 0, 0, 0);
+              query = query.gte('created_at', startOfDay.toISOString());
+            }
+            if (dateFilter.to) {
+              const endOfDay = new Date(dateFilter.to);
+              endOfDay.setHours(23, 59, 59, 999);
+              query = query.lte('created_at', endOfDay.toISOString());
+            }
+          }
+          
+          return query;
+        };
+
+        // Build query for "last 7 days" metrics (always uses last 7 days, regardless of date filter)
+        const buildLast7DaysQuery = (baseQuery: any) => {
+          return baseQuery
+            .eq('is_active', true)
+            .gte('created_at', CUTOFF_DATE.toISOString())
+            .gte('created_at', sevenDaysAgoISO);
+        };
+
         // Fetch all statistics in parallel
         const [
           // User counts by role
@@ -152,19 +192,19 @@ export default function PMDashboard() {
           supabase.from('vendors').select('*', { count: 'exact', head: true }),
           supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'gig_worker').eq('is_active', true),
           supabase.from('clients').select('*', { count: 'exact', head: true }),
-          // Case statistics
-          supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true),
-          supabase.from('cases').select('status').eq('is_active', true),
+          // Case statistics (with cutoff date and date filter)
+          buildCaseQuery(supabase.from('cases').select('*', { count: 'exact', head: true })),
+          buildCaseQuery(supabase.from('cases').select('status')),
           // Activity statistics
           supabase.from('qc_reviews').select('*', { count: 'exact', head: true }),
           supabase.from('allocation_logs').select('*', { count: 'exact', head: true }),
-          // Recent activity (last 7 days)
-          supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).gte('created_at', sevenDaysAgoISO),
-          supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).in('status', ['completed', 'qc_passed']).gte('updated_at', sevenDaysAgoISO),
+          // Recent activity (last 7 days) - always uses last 7 days from today, regardless of date filter
+          buildLast7DaysQuery(supabase.from('cases').select('*', { count: 'exact', head: true })),
+          buildCaseQuery(supabase.from('cases').select('*', { count: 'exact', head: true })).in('status', ['submitted', 'qc_passed']).gte('status_updated_at', sevenDaysAgoISO),
           supabase.from('qc_reviews').select('*', { count: 'exact', head: true }).gte('reviewed_at', sevenDaysAgoISO),
-          // Previous week data (14-7 days ago)
-          supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).gte('created_at', fourteenDaysAgoISO).lt('created_at', sevenDaysAgoISO),
-          supabase.from('cases').select('*', { count: 'exact', head: true }).eq('is_active', true).in('status', ['completed', 'qc_passed']).gte('updated_at', fourteenDaysAgoISO).lt('updated_at', sevenDaysAgoISO),
+          // Previous week data (14-7 days ago) - with cutoff date and date filter
+          buildCaseQuery(supabase.from('cases').select('*', { count: 'exact', head: true })).gte('created_at', fourteenDaysAgoISO).lt('created_at', sevenDaysAgoISO),
+          buildCaseQuery(supabase.from('cases').select('*', { count: 'exact', head: true })).in('status', ['submitted', 'qc_passed']).gte('status_updated_at', fourteenDaysAgoISO).lt('status_updated_at', sevenDaysAgoISO),
           supabase.from('qc_reviews').select('*', { count: 'exact', head: true }).gte('reviewed_at', fourteenDaysAgoISO).lt('reviewed_at', sevenDaysAgoISO),
           // Active entities
           supabase.from('vendors').select('*', { count: 'exact', head: true }).eq('is_active', true),
@@ -235,7 +275,7 @@ export default function PMDashboard() {
     };
 
     fetchStats();
-  }, []);
+  }, [dateFilter]);
 
   const formatNumber = (num: number) => {
     if (isLoading) return '-';
@@ -260,6 +300,71 @@ export default function PMDashboard() {
           </p>
         </div>
       </div>
+
+      {/* Date Filter */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Date Range Filter</CardTitle>
+          <CardDescription>
+            Filter analytics data by case creation date range
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={`w-64 justify-start text-left font-normal ${dateFilter && (dateFilter.from || dateFilter.to) ? 'bg-blue-50 border-blue-300 text-blue-700' : ''}`}
+                >
+                  <CalendarIcon className="h-4 w-4 mr-2" />
+                  {dateFilter?.from && dateFilter?.to
+                    ? `${format(dateFilter.from, "MMM dd, yyyy")} - ${format(dateFilter.to, "MMM dd, yyyy")}`
+                    : dateFilter?.from
+                    ? `From ${format(dateFilter.from, "MMM dd, yyyy")}`
+                    : dateFilter?.to
+                    ? `Until ${format(dateFilter.to, "MMM dd, yyyy")}`
+                    : "Select Date Range"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  selected={dateFilter ? { from: dateFilter.from, to: dateFilter.to } : undefined}
+                  onSelect={(range) => {
+                    if (range) {
+                      setDateFilter({ from: range.from, to: range.to });
+                    } else {
+                      setDateFilter(undefined);
+                    }
+                  }}
+                  disabled={(date) => {
+                    const today = new Date();
+                    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                    return dateOnly > todayDateOnly;
+                  }}
+                  numberOfMonths={2}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            {dateFilter && (dateFilter.from || dateFilter.to) && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setDateFilter(undefined)}
+                className="w-10 h-10"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">
+            Note: Only cases created after {format(CUTOFF_DATE, "MMM dd, yyyy")} are included (same as ops/cases page)
+          </p>
+        </CardContent>
+      </Card>
 
       {/* User Statistics */}
       <div>
@@ -474,7 +579,7 @@ export default function PMDashboard() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Cases Created</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatNumber(stats.casesCreatedLast7Days)}</div>

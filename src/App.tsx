@@ -116,6 +116,7 @@ const App = () => {
                   </ProtectedRoute>
                 }>
                   <Route index element={<SuperAdminDashboard />} />
+                  <Route path="team" element={<SuperAdminDashboard />} />
                 </Route>
 
                 <Route path="/pm-dashboard" element={

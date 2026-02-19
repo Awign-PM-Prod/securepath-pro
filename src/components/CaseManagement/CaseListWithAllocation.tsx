@@ -1295,41 +1295,47 @@ export default function CaseListWithAllocation({
     );
   }
 
+  const hasSelectedCases = selectedCases.size > 0;
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Cases</CardTitle>
-            <CardDescription>
-              Manage and allocate cases to gig workers
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={handleDownloadFilteredCases}
-              disabled={isDownloading}
-            >
-              {isDownloading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
-              {hasActiveFilters ? 'Download Filtered Cases' : 'Download Cases'}
-            </Button>
-            <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Bulk Upload
-            </Button>
-            <Button onClick={onCreateCase}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Case
-            </Button>
-          </div>
+    <div className={`space-y-6 ${hasSelectedCases ? 'pb-20' : ''}`}>
+      {/* Header Section */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Cases</h1>
+          <p className="text-sm text-gray-600 mt-1">Total Cases - {totalCases.toLocaleString()}</p>
         </div>
-      </CardHeader>
-      <CardContent>
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline" 
+            onClick={handleDownloadFilteredCases}
+            disabled={isDownloading}
+            size="sm"
+          >
+            {isDownloading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            Download cases
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => setIsBulkUploadOpen(true)}
+            size="sm"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Bulk Upload
+          </Button>
+          <Button onClick={onCreateCase} className="bg-[#1e3a5f] hover:bg-[#162d4a] text-white">
+            <Plus className="h-4 w-4 mr-2" />
+            Create Case
+          </Button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border shadow-sm">
+        <div className="p-6">
         {/* QC Response Tabs */}
         <>
             <Tabs value={qcResponseTab} onValueChange={setQcResponseTab} className="w-full mb-6">
@@ -1609,82 +1615,7 @@ export default function CaseListWithAllocation({
           </div>
         )}
 
-        {/* Allocation Actions - Show when allocatable cases are selected */}
-        {selectedAllocatableCases.length > 0 && (
-          <div className="mb-6">
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                <div className="flex items-center justify-between">
-                  <span>
-                    {selectedAllocatableCases.length} case{selectedAllocatableCases.length > 1 ? 's' : ''} selected for allocation
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => {
-                        setAllocationMode('auto');
-                        setIsAllocationDialogOpen(true);
-                      }}
-                      size="sm"
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Zap className="h-4 w-4 mr-2" />
-                      Auto Allocate
-                    </Button>
-                    <Button
-                      onClick={handleManualAllocate}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Manual Allocate
-                    </Button>
-                    <Button
-                      onClick={() => setSelectedCases(new Set())}
-                      size="sm"
-                      variant="outline"
-                    >
-                      Clear Selection
-                    </Button>
-                  </div>
-                </div>
-              </AlertDescription>
-            </Alert>
-          </div>
-        )}
 
-        {/* Unallocation Actions - Show when allocated cases are selected */}
-        {selectedUnallocatableCases.length > 0 && (
-          <div className="mb-6">
-            <Alert>
-              <RotateCcw className="h-4 w-4" />
-              <AlertDescription>
-                <div className="flex items-center justify-between">
-                  <span>
-                    {selectedUnallocatableCases.length} allocated case{selectedUnallocatableCases.length > 1 ? 's' : ''} selected
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleUnallocate}
-                      size="sm"
-                      variant="destructive"
-                    >
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Unallocate
-                    </Button>
-                    <Button
-                      onClick={() => setSelectedCases(new Set())}
-                      size="sm"
-                      variant="outline"
-                    >
-                      Clear Selection
-                    </Button>
-                  </div>
-                </div>
-              </AlertDescription>
-            </Alert>
-          </div>
-        )}
 
         {/* Allocation Summary */}
         {showSummary && allocationSummary.length > 0 && (
@@ -1707,7 +1638,35 @@ export default function CaseListWithAllocation({
         )}
 
 
-        {/* Cases Table */}
+        {/* Results and Actions Bar */}
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm font-medium text-gray-700">Results - {displayCases.length}</span>
+          {totalCases > pageSize && (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span>{startIndex + 1}-{endIndex} of {totalCases}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
+                disabled={currentPage === 1}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Cases Grid */}
         {displayCases.length === 0 ? (
           <div className="text-center py-8">
             <Building className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -1741,16 +1700,16 @@ export default function CaseListWithAllocation({
                 </p>
               </div>
             ) : (
-              <div className="grid gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                  {displayCases.map((caseItem) => {
                   return (
-                    <div
+                    <Card
                       key={caseItem.id}
-                      className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+                      className="border rounded-lg hover:shadow-md transition-shadow"
                     >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-start gap-3">
-                          {/* Checkbox for new, pending_allocation, allocated, and accepted status cases */}
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3 mb-3">
+                          {/* Checkbox */}
                           {(((caseItem.status === 'new' || caseItem.status === 'pending_allocation') && !caseItem.current_assignee) || 
                            ((caseItem.status === 'allocated' || caseItem.status === 'accepted') && caseItem.current_assignee)) && (
                             <Checkbox
@@ -1760,202 +1719,83 @@ export default function CaseListWithAllocation({
                             />
                           )}
                           <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
-                              <h3 className="font-semibold text-lg flex items-center gap-2">
-                                {highlightText(caseItem.case_number, searchTerm)}
-                                {isRecreatedCase(caseItem.case_number) && (
-                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
-                                    Recreated
-                                  </Badge>
-                                )}
-                              </h3>
-                              <Badge className={STATUS_COLORS[caseItem.status]}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-sm">{highlightText(caseItem.case_number, searchTerm)}</span>
+                              <Badge className={STATUS_COLORS[caseItem.status]} variant="outline">
                                 {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchTerm)}
                               </Badge>
                             </div>
-                            <div className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
-                              <span>{highlightText(caseItem.client_case_id, searchTerm)}</span>
-                              <span>•</span>
-                              {getContractTypeBadge(caseItem.contract_type, searchTerm)}
-                            </div>
-                            <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchTerm)}</h4>
-                          </div>
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => onViewCase(caseItem.id)}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onEditCase(caseItem.id)}>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              onClick={() => onDeleteCase(caseItem.id)}
-                              className="text-red-600"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Client</p>
-                            <p className="font-medium">{highlightText(caseItem.client.name, searchTerm)}</p>
-                            <p className="text-xs text-muted-foreground">{highlightText(caseItem.client.email, searchTerm)}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Phone</p>
-                            <p className="font-medium">{highlightText(caseItem.phone_primary, searchTerm)}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Location</p>
-                            {caseItem.location.location_url ? (
-                              <a
-                                href={caseItem.location.location_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                              >
-                                {highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchTerm)}
-                              </a>
-                            ) : (
-                              <p className="font-medium">{highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchTerm)}</p>
-                            )}
-                             <div className="flex items-center gap-2">
-                               <span className="text-xs text-muted-foreground">{highlightText(caseItem.location.pincode, searchTerm)}</span>
-                               <Badge variant="outline" className="text-xs">
-                                 {highlightText(`Tier ${getTierNumber(caseItem.location.pincode_tier)}`, searchTerm)}
-                               </Badge>
-                             </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">TAT Hours</p>
-                            <p className="font-medium">{highlightText(`${caseItem.tat_hours}h`, searchTerm)}</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Additional Information */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-sm mt-4 pt-4 border-t">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Assigned On</p>
-                            <p className="font-medium">{highlightText(formatTime(caseItem.assigned_at), searchTerm)}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {caseItem.assigned_at ? 'Assignment time' : 'Not assigned'}
+                            <p className="text-xs text-gray-500 mb-2">
+                              {getContractTypeBadge(caseItem.contract_type, searchTerm)} | {highlightText(caseItem.client_case_id, searchTerm)} | {highlightText(caseItem.candidate_name, searchTerm)}
                             </p>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Submitted On</p>
-                            <p className="font-medium">{highlightText(formatTime(caseItem.submitted_at), searchTerm)}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {caseItem.submitted_at ? 'Submission time' : 'Not submitted'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Zap className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Time Taken</p>
-                            <p className="font-medium">
-                              {caseItem.assigned_at && caseItem.submitted_at 
-                                ? highlightText(getTimeTaken(caseItem.assigned_at, caseItem.submitted_at), searchTerm)
-                                : 'N/A'
-                              }
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {caseItem.assigned_at && caseItem.submitted_at 
-                                ? 'From assignment to submission'
-                                : 'Not submitted yet'
-                              }
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Due Date</p>
-                            <p className={`font-medium ${isOverdue(caseItem.due_at) ? 'text-red-600' : ''}`}>
-                              {highlightText(format(new Date(caseItem.due_at), 'MMM dd, yyyy'), searchTerm)}
-                            </p>
-                            <p className={`text-xs ${isOverdue(caseItem.due_at) ? 'text-red-500' : 'text-muted-foreground'}`}>
-                              {isOverdue(caseItem.due_at) 
-                                ? 'Overdue' 
-                                : `${getDaysUntilDue(caseItem.due_at)} days left`
-                              }
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Building className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-muted-foreground">Payout</p>
-                            {caseItem.total_payout_inr ? (
-                              <div>
-                                <p className="font-medium">{highlightText(`₹${caseItem.total_payout_inr.toFixed(2)}`, searchTerm)}</p>
-                                {caseItem.bonus_inr && caseItem.bonus_inr > 0 && (
-                                  <p className="text-xs text-green-600">{highlightText(`+₹${caseItem.bonus_inr.toFixed(2)} bonus`, searchTerm)}</p>
-                                )}
-                                {caseItem.penalty_inr && caseItem.penalty_inr > 0 && (
-                                  <p className="text-xs text-red-600">{highlightText(`-₹${caseItem.penalty_inr.toFixed(2)} penalty`, searchTerm)}</p>
-                                )}
-                              </div>
-                            ) : (
-                              <p className="text-muted-foreground text-xs">Not calculated</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {caseItem.current_assignee && (
-                        <div className="mt-3 pt-3 border-t">
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4 text-muted-foreground" />
+                        {/* Details Table */}
+                        <div className="space-y-2 text-xs mb-3">
+                          <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <p className="text-sm text-muted-foreground">Assigned to</p>
-                              <p className="font-medium">
-                                {highlightText(caseItem.current_assignee.name, searchTerm)}
-                                <span className="text-sm text-muted-foreground ml-2">
-                                  ({highlightText(caseItem.current_assignee.type === 'gig' ? 'Gig Worker' : 'Vendor', searchTerm)})
-                                </span>
+                              <span className="text-gray-500">Client:</span>
+                              <span className="ml-1 font-medium">{highlightText(caseItem.client.name, searchTerm)}, {highlightText(caseItem.client.email, searchTerm)}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Phone:</span>
+                              <span className="ml-1 font-medium">{highlightText(caseItem.phone_primary, searchTerm)}</span>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <span className="text-gray-500">Location:</span>
+                              <span className="ml-1 font-medium">
+                                {highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchTerm)} | Tier {getTierNumber(caseItem.location.pincode_tier)}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">TAT Hours:</span>
+                              <span className="ml-1 font-medium">{highlightText(`${caseItem.tat_hours} Hours`, searchTerm)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bottom Table */}
+                        <div className="border-t pt-3 mt-3">
+                          <div className="grid grid-cols-6 gap-2 text-xs">
+                            <div>
+                              <span className="text-gray-500">Assigned to:</span>
+                              <p className="font-medium mt-0.5">{caseItem.current_assignee?.name || 'NA'}</p>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Assigned On:</span>
+                              <p className="font-medium mt-0.5">{caseItem.assigned_at ? format(new Date(caseItem.assigned_at), 'MMM dd, yyyy HH:mm') : 'NA'}</p>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Submitted On:</span>
+                              <p className="font-medium mt-0.5">{caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm') : 'NA'}</p>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Time Taken:</span>
+                              <p className="font-medium mt-0.5">
+                                {caseItem.assigned_at && caseItem.submitted_at 
+                                  ? getTimeTaken(caseItem.assigned_at, caseItem.submitted_at)
+                                  : 'NA'}
+                              </p>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Due Date:</span>
+                              <p className={`font-medium mt-0.5 ${isOverdue(caseItem.due_at) ? 'text-red-600' : ''}`}>
+                                {format(new Date(caseItem.due_at), 'MMM dd, yyyy')}
+                              </p>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Payout:</span>
+                              <p className="font-medium mt-0.5">
+                                {caseItem.total_payout_inr ? `₹${caseItem.total_payout_inr.toFixed(2)}` : 'NA'}
                               </p>
                             </div>
                           </div>
                         </div>
-                      )}
-                    </div>
+                      </CardContent>
+                    </Card>
                   );
                 })}
               </div>
@@ -1963,62 +1803,7 @@ export default function CaseListWithAllocation({
           </div>
         )}
 
-        {/* Pagination */}
-        {totalCases > pageSize && (
-          <div className="flex items-center justify-between mt-6">
-            <div className="text-sm text-muted-foreground">
-              Showing {startIndex + 1} to {endIndex} of {totalCases} cases
-            </div>
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
-                disabled={currentPage === 1}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Previous
-              </Button>
-              
-              <div className="flex items-center space-x-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-                  
-                  return (
-                    <Button
-                      key={pageNum}
-                      variant={currentPage === pageNum ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => onPageChange(pageNum)}
-                      className="w-8 h-8 p-0"
-                    >
-                      {pageNum}
-                    </Button>
-                  );
-                })}
-              </div>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}
-                disabled={currentPage === totalPages}
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        )}
+
 
         {/* Allocation Confirmation Dialog */}
         <AllocationConfirmationDialog
@@ -2484,7 +2269,60 @@ export default function CaseListWithAllocation({
           </DialogContent>
         </Dialog>
 
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+
+      {/* Floating Bottom Bar for Allocation/Unallocation */}
+      {hasSelectedCases && (
+        <div className="fixed bottom-4 left-4 right-4 bg-[#1967FF] text-white p-4 shadow-lg z-50 md:left-[calc(18rem+1rem)] md:right-4 rounded-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold">
+              {selectedCases.size} case{selectedCases.size > 1 ? 's' : ''} selected for allocation
+            </span>
+            <div className="flex gap-3">
+              {selectedAllocatableCases.length > 0 && (
+                <>
+                  <Button
+                    onClick={() => {
+                      setAllocationMode('auto');
+                      setIsAllocationDialogOpen(true);
+                    }}
+                    className="bg-black text-white hover:bg-white hover:text-black border border-black transition-colors"
+                  >
+                    <Zap className="h-4 w-4 mr-2" />
+                    Auto Allocate
+                  </Button>
+                  <Button
+                    onClick={() => handleManualAllocate()}
+                    variant="outline"
+                    className="bg-white text-[#1e3a5f] border-white hover:bg-black hover:text-white transition-colors"
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Manual Allocate
+                  </Button>
+                </>
+              )}
+              {selectedUnallocatableCases.length > 0 && (
+                <Button
+                  onClick={handleUnallocate}
+                  variant="outline"
+                  className="bg-white text-[#1e3a5f] border-white hover:bg-black hover:text-white transition-colors"
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Unallocate
+                </Button>
+              )}
+              <Button
+                onClick={() => setSelectedCases(new Set())}
+                variant="outline"
+                className="bg-white text-gray-600 border-white hover:bg-black hover:text-white transition-colors"
+              >
+                Clear Selection
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

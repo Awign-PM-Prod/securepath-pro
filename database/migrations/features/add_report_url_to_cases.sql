@@ -19,3 +19,8 @@ COMMENT ON COLUMN public.cases.report_url IS 'Public URL of the generated PDF re
 
 
 
+
+
+
+
+

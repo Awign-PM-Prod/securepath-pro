@@ -158,6 +158,7 @@ BEGIN
           current_assignee_type = 'gig',
           current_vendor_id = candidate.vendor_id,
           status = 'allocated',
+          allocation_method = 'auto',
           status_updated_at = now()
         WHERE id = case_id;
         
@@ -177,6 +178,7 @@ BEGIN
           current_vendor_id = candidate.candidate_id,
           current_assignee_type = 'vendor',
           status = 'allocated',
+          allocation_method = 'auto',
           status_updated_at = now()
         WHERE id = case_id;
         

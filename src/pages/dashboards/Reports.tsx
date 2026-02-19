@@ -1442,12 +1442,14 @@ export default function Reports() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Reports</h1>
-          <p className="text-muted-foreground">View all submitted and QC passed cases and download reports</p>
+          <h1 className="text-3xl font-bold">Reports</h1>
+          <p className="text-muted-foreground mt-1">
+            {searchQuery ? totalFilteredCases : totalCases} - Reports ready to be downloaded
+          </p>
         </div>
-        <Button onClick={handleOpenBulkReportsDialog} variant="outline">
+        <Button onClick={handleOpenBulkReportsDialog} className="bg-blue-600 hover:bg-blue-700 text-white">
           <Download className="h-4 w-4 mr-2" />
           Bulk Reports
         </Button>
@@ -1455,19 +1457,14 @@ export default function Reports() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Reports Cases ({searchQuery ? totalFilteredCases : totalCases})</CardTitle>
-          <CardDescription>
-            All cases with status "submitted" or "qc_passed"
-          </CardDescription>
-          
           {/* Filters Section */}
-          <div className="mt-4 space-y-4">
+          <div className="space-y-4">
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
               <Input
                 type="text"
-                placeholder="Search all case metadata..."
+                placeholder="Search"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyPress={handleSearchKeyPress}
@@ -1495,36 +1492,11 @@ export default function Reports() {
               )}
             </div>
 
-            {/* Filter Row */}
+            {/* Filter Row 1 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Creation Date Range - Start Date */}
-              <div className="space-y-2">
-                <Label htmlFor="start-date">Creation Start Date</Label>
-                <Input
-                  id="start-date"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => handleStartDateChange(e.target.value)}
-                  max={getTodayString()}
-                />
-              </div>
-
-              {/* Creation Date Range - End Date */}
-              <div className="space-y-2">
-                <Label htmlFor="end-date">Creation End Date</Label>
-                <Input
-                  id="end-date"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => handleEndDateChange(e.target.value)}
-                  min={startDate || undefined}
-                  max={getTodayString()}
-                />
-              </div>
-
               {/* Client Filter */}
               <div className="space-y-2">
-                <Label htmlFor="client-filter">Client</Label>
+                <Label htmlFor="client-filter">Clients</Label>
                 <Select value={selectedClient} onValueChange={setSelectedClient}>
                   <SelectTrigger id="client-filter">
                     <SelectValue placeholder="All Clients" />
@@ -1540,6 +1512,114 @@ export default function Reports() {
                 </Select>
               </div>
 
+              {/* Creation Date Range - Start Date */}
+              <div className="space-y-2">
+                <Label htmlFor="start-date">Creation Start Date</Label>
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
+                  <Input
+                    id="start-date"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                    max={getTodayString()}
+                    className="pl-10"
+                    placeholder="DD/MM/YYYY"
+                  />
+                </div>
+              </div>
+
+              {/* Creation Date Range - End Date */}
+              <div className="space-y-2">
+                <Label htmlFor="end-date">Creation End Date</Label>
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
+                  <Input
+                    id="end-date"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => handleEndDateChange(e.target.value)}
+                    min={startDate || undefined}
+                    max={getTodayString()}
+                    className="pl-10"
+                    placeholder="DD/MM/YYYY"
+                  />
+                </div>
+              </div>
+
+              {/* Submission Date Range - Start Date */}
+              <div className="space-y-2">
+                <Label htmlFor="submission-start-date">Submission Start Date</Label>
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
+                  <Input
+                    id="submission-start-date"
+                    type="date"
+                    value={submissionStartDate}
+                    onChange={(e) => handleSubmissionStartDateChange(e.target.value)}
+                    max={getTodayString()}
+                    className="pl-10"
+                    placeholder="DD/MM/YYYY"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Row 2 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Submission Date Range - End Date */}
+              <div className="space-y-2">
+                <Label htmlFor="submission-end-date">Submission End Date</Label>
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
+                  <Input
+                    id="submission-end-date"
+                    type="date"
+                    value={submissionEndDate}
+                    onChange={(e) => handleSubmissionEndDateChange(e.target.value)}
+                    min={submissionStartDate || undefined}
+                    max={getTodayString()}
+                    className="pl-10"
+                    placeholder="DD/MM/YYYY"
+                  />
+                </div>
+              </div>
+
+              {/* Approval Date Range - Start Date */}
+              <div className="space-y-2">
+                <Label htmlFor="approval-start-date">Approval Start Date</Label>
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
+                  <Input
+                    id="approval-start-date"
+                    type="date"
+                    value={approvalStartDate}
+                    onChange={(e) => handleApprovalStartDateChange(e.target.value)}
+                    max={getTodayString()}
+                    className="pl-10"
+                    placeholder="DD/MM/YYYY"
+                  />
+                </div>
+              </div>
+
+              {/* Approval Date Range - End Date */}
+              <div className="space-y-2">
+                <Label htmlFor="approval-end-date">Approval End Date</Label>
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4 z-10" />
+                  <Input
+                    id="approval-end-date"
+                    type="date"
+                    value={approvalEndDate}
+                    onChange={(e) => handleApprovalEndDateChange(e.target.value)}
+                    min={approvalStartDate || undefined}
+                    max={getTodayString()}
+                    className="pl-10"
+                    placeholder="DD/MM/YYYY"
+                  />
+                </div>
+              </div>
+
               {/* Clear Filters Button */}
               <div className="space-y-2">
                 <Label>&nbsp;</Label>
@@ -1547,273 +1627,165 @@ export default function Reports() {
                   <Button
                     variant="outline"
                     onClick={clearFilters}
-                    className="w-full"
+                    className="w-full bg-black text-white hover:bg-black/90"
                   >
-                    <X className="h-4 w-4 mr-2" />
-                    Clear Filters
+                    Clear filter
                   </Button>
                 )}
-              </div>
-            </div>
-
-            {/* Second Filter Row - Submission and Approval Date Ranges */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Submission Date Range - Start Date */}
-              <div className="space-y-2">
-                <Label htmlFor="submission-start-date">Submission Start Date</Label>
-                <Input
-                  id="submission-start-date"
-                  type="date"
-                  value={submissionStartDate}
-                  onChange={(e) => handleSubmissionStartDateChange(e.target.value)}
-                  max={getTodayString()}
-                />
-              </div>
-
-              {/* Submission Date Range - End Date */}
-              <div className="space-y-2">
-                <Label htmlFor="submission-end-date">Submission End Date</Label>
-                <Input
-                  id="submission-end-date"
-                  type="date"
-                  value={submissionEndDate}
-                  onChange={(e) => handleSubmissionEndDateChange(e.target.value)}
-                  min={submissionStartDate || undefined}
-                  max={getTodayString()}
-                />
-              </div>
-
-              {/* Approval Date Range - Start Date */}
-              <div className="space-y-2">
-                <Label htmlFor="approval-start-date">Approval Start Date</Label>
-                <Input
-                  id="approval-start-date"
-                  type="date"
-                  value={approvalStartDate}
-                  onChange={(e) => handleApprovalStartDateChange(e.target.value)}
-                  max={getTodayString()}
-                />
-              </div>
-
-              {/* Approval Date Range - End Date */}
-              <div className="space-y-2">
-                <Label htmlFor="approval-end-date">Approval End Date</Label>
-                <Input
-                  id="approval-end-date"
-                  type="date"
-                  value={approvalEndDate}
-                  onChange={(e) => handleApprovalEndDateChange(e.target.value)}
-                  min={approvalStartDate || undefined}
-                  max={getTodayString()}
-                />
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
+          {/* Results and Pagination Header */}
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-medium text-gray-700">
+              Results - {searchQuery ? totalFilteredCases : totalCases}
+            </span>
+            {totalCases > pageSize && (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <span>
+                  {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, searchQuery ? totalFilteredCases : totalCases)} of {searchQuery ? totalFilteredCases : totalCases}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil((searchQuery ? totalFilteredCases : totalCases) / pageSize)))}
+                  disabled={currentPage >= Math.ceil((searchQuery ? totalFilteredCases : totalCases) / pageSize)}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </div>
+
           {paginatedFilteredCases.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No cases found.
             </div>
           ) : (
-            <div className="grid gap-4">
-              {paginatedFilteredCases.map((caseItem) => (
-                <div
-                  key={caseItem.id}
-                  className="border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/ops/cases/${caseItem.id}`)}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="font-semibold text-lg flex items-center gap-2">
-                          {highlightText(caseItem.case_number, searchQuery)}
-                          {isRecreatedCase(caseItem.case_number) && (
-                            <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 bg-orange-50">
-                              Recreated
-                            </Badge>
-                          )}
-                        </h3>
-                        <Badge className={STATUS_COLORS[caseItem.status] || 'bg-gray-100 text-gray-800'}>
-                          {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchQuery)}
-                        </Badge>
-                      </div>
-                      <div className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
-                        <span>{highlightText(caseItem.client_case_id, searchQuery)}</span>
-                        <span>•</span>
-                        {getContractTypeBadge(caseItem.contract_type, searchQuery)}
-                      </div>
-                      <h4 className="font-medium text-base mb-1">{highlightText(caseItem.candidate_name, searchQuery)}</h4>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDownloadCSV(caseItem);
-                        }}
-                      >
-                        <FileSpreadsheet className="h-4 w-4 mr-2" />
-                        CSV
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDownloadPDF(caseItem);
-                        }}
-                      >
-                        <FileText className="h-4 w-4 mr-2" />
-                        PDF
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <Building className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-muted-foreground">Client</p>
-                        <p className="font-medium">{highlightText(caseItem.client.name, searchQuery)}</p>
-                        <p className="text-xs text-muted-foreground">{highlightText(caseItem.client.email, searchQuery)}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-muted-foreground">Phone</p>
-                        <p className="font-medium">{highlightText(caseItem.phone_primary, searchQuery)}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-muted-foreground">Location</p>
-                        {caseItem.location.location_url ? (
-                          <a
-                            href={caseItem.location.location_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                          >
-                            {highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchQuery)}
-                          </a>
-                        ) : (
-                          <p className="font-medium">{highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchQuery)}</p>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{highlightText(caseItem.location.pincode, searchQuery)}</span>
-                          <Badge variant="outline" className="text-xs">
-                            {highlightText(`Tier ${getTierNumber(caseItem.location.pincode_tier)}`, searchQuery)}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {paginatedFilteredCases.map((caseItem) => {
+                const contractTypeLabel = caseItem.contract_type === 'residential_address_check' 
+                  ? 'RESIDENTIAL ADDRESS_CHECK' 
+                  : caseItem.contract_type === 'business_address_check'
+                  ? 'BUSINESS ADDRESS_CHECK'
+                  : caseItem.contract_type.toUpperCase();
+                
+                return (
+                  <div
+                    key={caseItem.id}
+                    className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                  >
+                    {/* Header Section: Case ID, Status, Description, Download Buttons */}
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="font-bold text-base">
+                            {highlightText(caseItem.case_number, searchQuery)}
+                          </h3>
+                          <Badge className="bg-purple-500 text-white border-purple-600 font-semibold px-2.5 py-0.5">
+                            {highlightText(STATUS_LABELS[caseItem.status] || caseItem.status, searchQuery)}
                           </Badge>
                         </div>
+                        <p className="text-sm text-gray-700">
+                          {highlightText(caseItem.candidate_name, searchQuery)} | {contractTypeLabel} | {highlightText(caseItem.client_case_id, searchQuery)}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-900 border-blue-200"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownloadCSV(caseItem);
+                          }}
+                        >
+                          <FileSpreadsheet className="h-4 w-4 mr-1" />
+                          CSV
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-900 border-blue-200"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownloadPDF(caseItem);
+                          }}
+                        >
+                          <FileText className="h-4 w-4 mr-1" />
+                          PDF
+                        </Button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
+                    {/* Primary Details Section - Horizontal Layout */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 pb-4 border-b border-gray-200">
+                      {/* Client */}
                       <div>
-                        <p className="text-muted-foreground">TAT Hours</p>
-                        <p className="font-medium">{highlightText(`${caseItem.tat_hours}h`, searchQuery)}</p>
+                        <p className="text-sm text-blue-600 mb-1">Client</p>
+                        <p className="font-bold text-sm">{highlightText(caseItem.client.name, searchQuery)}</p>
+                        <p className="text-xs text-gray-500">{highlightText(caseItem.client.email, searchQuery)}</p>
+                      </div>
+
+                      {/* Phone */}
+                      <div>
+                        <p className="text-sm text-blue-600 mb-1">Phone</p>
+                        <p className="font-medium text-sm">{highlightText(caseItem.phone_primary, searchQuery)}</p>
+                      </div>
+
+                      {/* Location */}
+                      <div>
+                        <p className="text-sm text-blue-600 mb-1">Location</p>
+                        <p className="font-bold text-sm">{highlightText(`${caseItem.location.city}, ${caseItem.location.state}`, searchQuery)}</p>
+                        <p className="text-xs text-gray-500">
+                          {highlightText(caseItem.location.pincode, searchQuery)} | Tier {getTierNumber(caseItem.location.pincode_tier)}
+                        </p>
+                      </div>
+
+                      {/* TAT */}
+                      <div>
+                        <p className="text-sm text-blue-600 mb-1">TAT</p>
+                        <p className="font-medium text-sm">{highlightText(`${caseItem.tat_hours} Hours`, searchQuery)}</p>
+                      </div>
+                    </div>
+
+                    {/* Secondary Details Section - Horizontal Layout */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Created at */}
+                      <div>
+                        <p className="text-sm text-blue-600 mb-1">Created at</p>
+                        <p className="font-medium text-sm">{format(new Date(caseItem.created_at), 'MMM dd, yyyy HH:mm')}</p>
+                      </div>
+
+                      {/* Submitted at */}
+                      <div>
+                        <p className="text-sm text-blue-600 mb-1">Submitted at</p>
+                        <p className="font-medium text-sm">
+                          {caseItem.submitted_at ? format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                        </p>
+                      </div>
+
+                      {/* Total Payout INR */}
+                      <div>
+                        <p className="text-sm text-blue-600 mb-1">Total Payout INR</p>
+                        <p className="font-medium text-sm">₹ {caseItem.total_payout_inr || 0}</p>
                       </div>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t">
-                    <div className="flex items-center gap-2">
-                      <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-muted-foreground">Created At</p>
-                        <p className="font-medium">{highlightText(format(new Date(caseItem.created_at), 'MMM dd, yyyy'), searchQuery)}</p>
-                        <p className="text-xs text-muted-foreground">{highlightText(format(new Date(caseItem.created_at), 'HH:mm'), searchQuery)}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-muted-foreground">Submitted At</p>
-                        <p className="font-medium">
-                          {caseItem.submitted_at ? highlightText(format(new Date(caseItem.submitted_at), 'MMM dd, yyyy HH:mm'), searchQuery) : 'N/A'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {caseItem.submitted_at ? 'Submission time' : 'Not submitted'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-muted-foreground">Total Payout (INR)</p>
-                        <p className="font-medium">{highlightText(`₹${caseItem.total_payout_inr || 0}`, searchQuery)}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Pagination */}
-          {totalCases > pageSize && (
-            <div className="flex items-center justify-between mt-6 pt-6 border-t">
-              <div className="text-sm text-muted-foreground">
-                Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCases)} of {totalCases} cases
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Previous
-                </Button>
-                
-                <div className="flex items-center space-x-1">
-                  {Array.from({ length: Math.min(5, Math.ceil(totalCases / pageSize)) }, (_, i) => {
-                    const totalPages = Math.ceil(totalCases / pageSize);
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-                    
-                    return (
-                      <Button
-                        key={pageNum}
-                        variant={currentPage === pageNum ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setCurrentPage(pageNum)}
-                        className="w-8 h-8 p-0"
-                      >
-                        {pageNum}
-                      </Button>
-                    );
-                  })}
-                </div>
-                
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCases / pageSize)))}
-                  disabled={currentPage >= Math.ceil(totalCases / pageSize)}
-                >
-                  Next
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -1999,3 +1971,4 @@ export default function Reports() {
     </div>
   );
 }
+

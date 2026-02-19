@@ -131,7 +131,7 @@ All colors MUST be HSL.
   }
   
   .gradient-sidebar {
-    background: linear-gradient(180deg, hsl(222.2 84% 4.9%) 0%, hsl(222.2 84% 8%) 100%);
+    background: linear-gradient(180deg, hsl(222.2 84% 4.9%) 0%, hsl(222.2 84% 12%) 100%);
   }
 
   /* Modern button styles */
@@ -172,16 +172,24 @@ All colors MUST be HSL.
 
   /* Sidebar enhancements */
   .sidebar-item {
-    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground;
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200;
     min-width: 100%;
     white-space: nowrap;
     overflow: visible;
     color: hsl(var(--sidebar-foreground)) !important;
   }
+
+  .sidebar-item:not(.sidebar-item-active):hover {
+    @apply bg-sidebar-accent text-sidebar-accent-foreground;
+  }
   
   .sidebar-item-active {
-    @apply bg-sidebar-accent text-sidebar-accent-foreground shadow-sm;
-    color: hsl(var(--sidebar-accent-foreground)) !important;
+    @apply bg-gray-700 text-white shadow-sm;
+    color: white !important;
+  }
+
+  .sidebar-item-active:hover {
+    @apply bg-gray-700 text-white;
   }
 
   /* Ensure sidebar is always visible */

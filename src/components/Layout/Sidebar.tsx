@@ -10,7 +10,6 @@ import {
   Briefcase,
   MapPin,
   BarChart3,
-  Settings,
   LayoutDashboard,
   MapPinIcon,
   DollarSign,
@@ -38,23 +37,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       case 'super_admin':
         return [
           { icon: Users, label: 'Team Management', href: '/admin/team' },
-          { icon: Settings, label: 'System Settings', href: '/admin/settings' },
-          { icon: BarChart3, label: 'Analytics', href: '/admin/analytics' },
+          { icon: BarChart3, label: 'Analytics', href: '/pm-dashboard' },
         ];
       
       case 'ops_team':
         return [
           { icon: LayoutDashboard, label: 'Dashboard', href: '/ops' },
-          { icon: FileText, label: 'Cases', href: '/ops/cases' },
-          { icon: Target, label: 'Allocation', href: '/ops/allocation' },
-          { icon: Users, label: 'Clients', href: '/ops/clients' },
-          { icon: FileTextIcon, label: 'Client Contracts', href: '/ops/client-contracts' },
-          { icon: Tag, label: 'Contract Types', href: '/ops/contract-types' },
-          { icon: MapPinIcon, label: 'Pincode Tiers', href: '/ops/pincode-tiers' },
-          { icon: UserCog, label: 'Gig Workers', href: '/ops/gig-workers' },
-          { icon: Building2, label: 'Vendors', href: '/ops/vendors' },
-          { icon: ClipboardList, label: 'Form Management', href: '/ops/forms' },
-          { icon: BarChart3, label: 'Reports', href: '/ops/reports' },
+          { icon: LayoutDashboard, label: 'Cases', href: '/ops/cases' },
+          { icon: LayoutDashboard, label: 'Allocations', href: '/ops/allocation' },
+          { icon: LayoutDashboard, label: 'Clients', href: '/ops/clients' },
+          { icon: LayoutDashboard, label: 'Client Contracts', href: '/ops/client-contracts' },
+          { icon: LayoutDashboard, label: 'Contract Types', href: '/ops/contract-types' },
+          { icon: LayoutDashboard, label: 'Pincode Tiers', href: '/ops/pincode-tiers' },
+          { icon: LayoutDashboard, label: 'Gig Workers', href: '/ops/gig-workers' },
+          { icon: LayoutDashboard, label: 'Vendors', href: '/ops/vendors' },
+          { icon: LayoutDashboard, label: 'Form Management', href: '/ops/forms' },
+          { icon: LayoutDashboard, label: 'Reports', href: '/ops/reports' },
         ];
       
       case 'vendor_team':
@@ -133,8 +131,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                     isActive && 'sidebar-item-active'
                   )}
                 >
-                  <Icon className="h-4 w-4 flex-shrink-0 text-sidebar-foreground" />
-                  <span className="flex-1 text-left text-sidebar-foreground">{item.label}</span>
+                  <Icon className={cn(
+                    "h-4 w-4 flex-shrink-0",
+                    isActive ? "text-white" : "text-sidebar-foreground"
+                  )} />
+                  <span className={cn(
+                    "flex-1 text-left",
+                    isActive ? "text-white" : "text-sidebar-foreground"
+                  )}>{item.label}</span>
                 </Link>
               </li>
             );

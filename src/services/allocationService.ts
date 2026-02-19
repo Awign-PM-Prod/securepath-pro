@@ -638,6 +638,7 @@ export class AllocationService {
           status: 'allocated',
           allocated_at: allocationTime,
           status_updated_at: allocationTime,
+          allocation_method: 'manual',
           last_updated_by: (await supabase.auth.getUser()).data.user?.id,
           updated_at: allocationTime
         })
@@ -782,6 +783,7 @@ export class AllocationService {
           status: 'allocated',
           allocated_at: allocationTime,
           status_updated_at: allocationTime,
+          allocation_method: 'manual',
           last_updated_by: (await supabase.auth.getUser()).data.user?.id,
           updated_at: allocationTime
         })

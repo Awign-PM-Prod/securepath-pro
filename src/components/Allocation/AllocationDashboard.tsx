@@ -1,29 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Progress } from '@/components/ui/progress';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { 
-  Target, 
-  Users, 
-  Clock, 
-  TrendingUp, 
-  AlertCircle, 
-  CheckCircle, 
-  MapPin,
-  BarChart3,
-  Settings,
+  Grid3x3,
   RefreshCw,
-  Play,
-  Pause,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { allocationEngine } from '@/services/allocationEngine';
 import { useToast } from '@/hooks/use-toast';
+import { format, startOfWeek, startOfMonth, startOfQuarter, DateRange } from 'date-fns';
+
+type DateFilterType = 'all' | 'this_week' | 'this_month' | 'this_quarter' | 'custom';
 
 interface CapacityData {
   gig_partner_id: string;
@@ -87,15 +81,52 @@ export default function AllocationDashboard() {
   const [currentPageLogs, setCurrentPageLogs] = useState(1);
   const [totalLogs, setTotalLogs] = useState(0);
   const [pageSizeLogs] = useState(10);
+  const [dateFilter, setDateFilter] = useState<DateFilterType>('all');
+  const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>(undefined);
   const { toast } = useToast();
+
+  // Get date range based on filter
+  const getDateRange = (): { from: string; to: string } | null => {
+    const now = new Date();
+    switch (dateFilter) {
+      case 'this_week': {
+        const start = startOfWeek(now, { weekStartsOn: 1 });
+        return { from: start.toISOString(), to: now.toISOString() };
+      }
+      case 'this_month': {
+        const start = startOfMonth(now);
+        return { from: start.toISOString(), to: now.toISOString() };
+      }
+      case 'this_quarter': {
+        const start = startOfQuarter(now);
+        return { from: start.toISOString(), to: now.toISOString() };
+      }
+      case 'custom': {
+        if (customDateRange?.from) {
+          const from = customDateRange.from;
+          const to = customDateRange.to || now;
+          return { from: from.toISOString(), to: to.toISOString() };
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
+  };
+
+  const customDateLabel = useMemo(() => {
+    if (dateFilter !== 'custom' || !customDateRange?.from) return 'Custom Date';
+    const from = format(customDateRange.from, 'dd MMM');
+    const to = customDateRange.to ? format(customDateRange.to, 'dd MMM') : 'now';
+    return `Custom Date (${from} - ${to})`;
+  }, [dateFilter, customDateRange]);
 
   useEffect(() => {
     loadData();
-  }, [currentPage]);
+  }, [currentPage, dateFilter, customDateRange]);
 
   useEffect(() => {
     if (activeTab === 'allocation') {
-      // Reset to page 1 when switching to allocation tab
       setCurrentPageLogs(1);
     }
   }, [activeTab]);
@@ -104,15 +135,16 @@ export default function AllocationDashboard() {
     if (activeTab === 'allocation') {
       loadAllocationLogs();
     }
-  }, [activeTab, currentPageLogs]);
+  }, [activeTab, currentPageLogs, dateFilter, customDateRange]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      // Load stats first (doesn't depend on capacity data)
-      await loadAllocationStats();
-      // Then load capacity data (paginated)
-      await loadCapacityData();
+      // Load stats and capacity data in parallel
+      await Promise.all([
+        loadAllocationStats(),
+        loadCapacityData()
+      ]);
     } catch (error) {
       console.error('Failed to load allocation data:', error);
       toast({
@@ -127,7 +159,35 @@ export default function AllocationDashboard() {
 
   const loadCapacityData = async () => {
     try {
-      // Get all active gig workers directly from gig_partners
+      const dateRange = getDateRange();
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+
+      // Calculate pagination first to limit the query
+      const from = (currentPage - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      // First, get total count for pagination
+      let countQuery = supabase
+        .from('gig_partners')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+
+      const { count: totalCount, error: countError } = await countQuery;
+
+      if (countError) {
+        console.error('Error counting gig workers:', countError);
+        throw new Error('Failed to count gig workers');
+      }
+
+      if (!totalCount || totalCount === 0) {
+        setCapacityData([]);
+        setTotalCapacity(0);
+        return;
+      }
+
+      setTotalCapacity(totalCount);
+
+      // Get paginated active gig workers
       const { data: allGigWorkers, error: workersError } = await supabase
         .from('gig_partners')
         .select(`
@@ -149,7 +209,8 @@ export default function AllocationDashboard() {
           is_available
         `)
         .eq('is_active', true)
-        .order('capacity_available', { ascending: false });
+        .order('capacity_available', { ascending: false })
+        .range(from, to);
 
       if (workersError) {
         console.error('Error loading gig workers:', workersError);
@@ -158,18 +219,29 @@ export default function AllocationDashboard() {
 
       if (!allGigWorkers || allGigWorkers.length === 0) {
         setCapacityData([]);
-        setTotalCapacity(0);
         return;
       }
 
-      // Get case counts for each gig worker from cases table
+      // Get case counts for each gig worker - optimized with date filter
       const workerIds = allGigWorkers.map(w => w.id);
-      const { data: casesData, error: casesError } = await supabase
+      
+      // Build case query with date filter
+      // Filter by created_at for simplicity and performance
+      let casesQuery = supabase
         .from('cases')
         .select('current_assignee_id, status')
         .in('current_assignee_id', workerIds)
         .eq('current_assignee_type', 'gig')
-        .in('status', ['allocated', 'auto_allocated', 'accepted', 'in_progress', 'submitted', 'qc_passed', 'completed']);
+        .in('status', ['allocated', 'auto_allocated', 'accepted', 'in_progress', 'submitted', 'qc_passed', 'completed'])
+        .gte('created_at', cutoffDate.toISOString());
+
+      // Apply date filter if set
+      if (dateRange) {
+        casesQuery = casesQuery.gte('created_at', dateRange.from).lte('created_at', dateRange.to);
+      }
+
+      const { data: casesData, error: casesError } = await casesQuery.limit(10000);
+
 
       if (casesError) {
         console.error('Error loading cases:', casesError);
@@ -241,17 +313,7 @@ export default function AllocationDashboard() {
         };
       });
 
-      // Sort by capacity available (descending)
-      capacityData.sort((a, b) => (b.current_capacity_available || 0) - (a.current_capacity_available || 0));
-
-      // Calculate pagination
-      const totalCount = capacityData.length;
-      const from = (currentPage - 1) * pageSize;
-      const to = from + pageSize;
-      const paginatedData = capacityData.slice(from, to);
-
-      setCapacityData(paginatedData);
-      setTotalCapacity(totalCount);
+      setCapacityData(capacityData);
     } catch (error) {
       console.error('Error loading capacity data:', error);
       setCapacityData([]);
@@ -261,64 +323,68 @@ export default function AllocationDashboard() {
 
   const loadAllocationStats = async () => {
     try {
-      // Query all cases to calculate stats
-      const { data: allCases, error: casesError } = await supabase
-        .from('cases')
-        .select('id, status')
-        .eq('is_active', true);
+      const dateRange = getDateRange();
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
 
-      if (casesError) {
-        console.error('Error loading cases:', casesError);
-        throw casesError;
-      }
+      // Build base query with date filter
+      // For stats, filter by created_at (when cases were created) for simplicity and performance
+      const buildQuery = (baseQuery: any) => {
+        let query = baseQuery.eq('is_active', true).gte('created_at', cutoffDate.toISOString());
+        if (dateRange) {
+          query = query.gte('created_at', dateRange.from).lte('created_at', dateRange.to);
+        }
+        return query;
+      };
 
-      // Total Allocations: All cases except status "new"
-      const total_allocations = allCases?.filter(c => c.status !== 'new').length || 0;
+      // Use count queries instead of fetching all records for better performance
+      const [
+        { count: totalAllocationsCount },
+        { count: pendingAllocationsCount },
+        { count: successfulAllocationsCount },
+        { count: failedAllocationsCount },
+        capacityDataResult
+      ] = await Promise.all([
+        // Total Allocations: All cases except status "new"
+        buildQuery(supabase.from('cases').select('*', { count: 'exact', head: true })).neq('status', 'new'),
+        
+        // Pending: Cases with status "allocated"
+        buildQuery(supabase.from('cases').select('*', { count: 'exact', head: true })).eq('status', 'allocated'),
+        
+        // Successful: All cases except "new" and "allocated"
+        buildQuery(supabase.from('cases').select('*', { count: 'exact', head: true })).neq('status', 'new').neq('status', 'allocated'),
+        
+        // Failed allocations (rejected or cancelled cases)
+        buildQuery(supabase.from('cases').select('*', { count: 'exact', head: true })).in('status', ['rejected', 'cancelled']),
+        
+        // Calculate capacity utilization from gig_partners
+        supabase
+          .from('gig_partners')
+          .select('max_daily_capacity, capacity_available')
+          .eq('is_active', true)
+          .limit(1000)
+      ]);
 
-      // Successful: All cases except "new" and "allocated" (cases that have been accepted and are in progress, submitted, etc.)
-      const successful_allocations = allCases?.filter(c => 
-        c.status !== 'new' && c.status !== 'allocated'
-      ).length || 0;
-
-      // Pending: Cases with status "allocated"
-      const pending_allocations = allCases?.filter(c => c.status === 'allocated').length || 0;
-
-      // Failed allocations (rejected or cancelled cases)
-      const failed_allocations = allCases?.filter(c => 
-        c.status === 'rejected' || c.status === 'cancelled'
-      ).length || 0;
-
-      // Calculate average acceptance time (placeholder - would need allocation_logs for this)
-      const average_acceptance_time = 0;
-
-      // Calculate capacity utilization from capacity_tracking
-      // This shows percentage of gig worker capacities currently in use
-      const { data: allCapacityData, error: capacityError } = await supabase
-        .from('capacity_tracking')
-        .select('max_daily_capacity, current_capacity_available')
-        .eq('is_active', true);
-
+      // Calculate capacity utilization
       let capacity_utilization = 0;
-      if (!capacityError && allCapacityData && allCapacityData.length > 0) {
-        const totalMax = allCapacityData.reduce((sum, w) => sum + (w.max_daily_capacity || 0), 0);
-        const totalAvailable = allCapacityData.reduce((sum, w) => sum + (w.current_capacity_available || 0), 0);
+      if (capacityDataResult.data && capacityDataResult.data.length > 0) {
+        const totalMax = capacityDataResult.data.reduce((sum, w) => sum + (w.max_daily_capacity || 0), 0);
+        const totalAvailable = capacityDataResult.data.reduce((sum, w) => sum + (w.capacity_available || 0), 0);
         const totalUsed = totalMax - totalAvailable;
         capacity_utilization = totalMax > 0 ? Math.round((totalUsed / totalMax) * 100) : 0;
       }
 
       const stats: AllocationStats = {
-        total_allocations,
-        successful_allocations,
-        pending_allocations,
-        failed_allocations,
-        average_acceptance_time,
+        total_allocations: totalAllocationsCount || 0,
+        successful_allocations: successfulAllocationsCount || 0,
+        pending_allocations: pendingAllocationsCount || 0,
+        failed_allocations: failedAllocationsCount || 0,
+        average_acceptance_time: 0,
         capacity_utilization
       };
 
       setAllocationStats(stats);
     } catch (error) {
       console.error('Error loading allocation stats:', error);
-      // Set default stats on error
       setAllocationStats({
         total_allocations: 0,
         successful_allocations: 0,
@@ -330,37 +396,17 @@ export default function AllocationDashboard() {
     }
   };
 
-  const handleManualAllocation = async () => {
-    try {
-      // This would trigger manual allocation for pending cases
-      toast({
-        title: 'Manual Allocation',
-        description: 'Manual allocation process started',
-      });
-    } catch (error) {
-      console.error('Manual allocation failed:', error);
-      toast({
-        title: 'Error',
-        description: 'Manual allocation failed',
-        variant: 'destructive',
-      });
-    }
-  };
-
   const loadAllocationLogs = async () => {
     setIsLoadingLogs(true);
     try {
-      // Calculate pagination range
+      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
+      const dateRange = getDateRange();
+
       const from = (currentPageLogs - 1) * pageSizeLogs;
       const to = from + pageSizeLogs - 1;
 
-      // Use the same cutoff date as cases (November 2nd, 2025)
-      const cutoffDate = new Date('2025-11-02T00:00:00.000Z');
-
-      // Get allocation logs with case info
-      // Note: We fetch and filter client-side because Supabase doesn't support filtering on nested relationship fields
-      // Limit to 1000 most recent logs to avoid performance issues
-      const { data: allLogsData, error: logsError } = await supabase
+      // Build query with date filter
+      let logsQuery = supabase
         .from('allocation_logs')
         .select(`
           id,
@@ -378,22 +424,31 @@ export default function AllocationDashboard() {
           )
         `)
         .eq('candidate_type', 'gig')
+        .gte('allocated_at', cutoffDate.toISOString());
+
+      if (dateRange) {
+        logsQuery = logsQuery.gte('allocated_at', dateRange.from).lte('allocated_at', dateRange.to);
+      }
+
+      const { count: totalCount } = await logsQuery.select('*', { count: 'exact', head: true });
+
+      const { data: logsData, error: logsError } = await logsQuery
         .order('allocated_at', { ascending: false })
-        .limit(1000);
+        .range(from, to);
 
       if (logsError) {
         console.error('Error loading allocation logs:', logsError);
         throw logsError;
       }
 
-      if (!allLogsData || allLogsData.length === 0) {
+      if (!logsData || logsData.length === 0) {
         setAllocationLogs([]);
         setTotalLogs(0);
         return;
       }
 
-      // Filter logs by case created_at (same cutoff date as cases) and is_active
-      const filteredLogs = allLogsData.filter((log: any) => {
+      // Filter logs by case created_at and is_active
+      const filteredLogs = logsData.filter((log: any) => {
         const caseData = log.cases;
         if (!caseData || !caseData.is_active) return false;
         const caseCreatedAt = caseData.created_at;
@@ -402,24 +457,15 @@ export default function AllocationDashboard() {
         return caseDate >= cutoffDate;
       });
 
-      // Set total count
-      setTotalLogs(filteredLogs.length);
+      setTotalLogs(totalCount || filteredLogs.length);
 
-      // Apply pagination to filtered results
-      const paginatedLogs = filteredLogs.slice(from, to + 1);
-
-      if (logsError) {
-        console.error('Error loading allocation logs:', logsError);
-        throw logsError;
-      }
-
-      if (paginatedLogs.length === 0) {
+      if (filteredLogs.length === 0) {
         setAllocationLogs([]);
         return;
       }
 
       // Get unique candidate IDs
-      const candidateIds = [...new Set(paginatedLogs.map((log: any) => log.candidate_id))];
+      const candidateIds = [...new Set(filteredLogs.map((log: any) => log.candidate_id))];
 
       // Fetch gig worker info separately
       const { data: workersData, error: workersError } = await supabase
@@ -436,7 +482,6 @@ export default function AllocationDashboard() {
 
       if (workersError) {
         console.error('Error loading gig workers:', workersError);
-        // Continue without worker info if this fails
       }
 
       // Create a map of worker data
@@ -446,7 +491,7 @@ export default function AllocationDashboard() {
       });
 
       // Combine the data
-      const logs: AllocationLog[] = paginatedLogs.map((log: any) => {
+      const logs: AllocationLog[] = filteredLogs.map((log: any) => {
         const worker = workersMap.get(log.candidate_id);
         return {
           id: log.id,
@@ -505,25 +550,18 @@ export default function AllocationDashboard() {
   };
 
   const getCapacityPercentage = (available: number, max: number): number => {
+    if (max === 0) return 0;
     return Math.round((available / max) * 100);
   };
 
-  const getCapacityColor = (percentage: number): string => {
-    if (percentage >= 50) return 'text-green-600';
-    if (percentage >= 25) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  const getCapacityBgColor = (percentage: number): string => {
-    if (percentage >= 50) return 'bg-green-500';
-    if (percentage >= 25) return 'bg-yellow-500';
-    return 'bg-red-500';
-  };
-
-  const getPerformanceColor = (score: number): string => {
-    if (score >= 0.8) return 'text-green-600';
-    if (score >= 0.6) return 'text-yellow-600';
-    return 'text-red-600';
+  const getStatusBadge = (isActive: boolean, isAvailable: boolean) => {
+    if (!isActive) {
+      return <Badge variant="secondary">Inactive</Badge>;
+    }
+    if (isAvailable) {
+      return <Badge variant="default">Active Available</Badge>;
+    }
+    return <Badge variant="outline">Active Unavailable</Badge>;
   };
 
   if (isLoading) {
@@ -541,18 +579,130 @@ export default function AllocationDashboard() {
 
   return (
     <div className="container mx-auto py-6">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-2">Allocations</h1>
+      </div>
+
+      {/* Date Filter Bar */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Allocation Dashboard</h1>
-          <p className="text-muted-foreground">
-            Monitor and manage case allocation across gig workers
-          </p>
-        </div>
-        <div className="flex items-center space-x-4">
-          <Button variant="outline" onClick={handleRefreshCapacity}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
+        <div className="flex items-center gap-2">
+          <Button
+            variant={dateFilter === 'all' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDateFilter('all')}
+            className={dateFilter === 'all' ? 'bg-black text-white hover:bg-black' : ''}
+          >
+            All
           </Button>
+          <Button
+            variant={dateFilter === 'this_week' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDateFilter('this_week')}
+            className={dateFilter === 'this_week' ? 'bg-black text-white hover:bg-black' : ''}
+          >
+            This Week
+          </Button>
+          <Button
+            variant={dateFilter === 'this_month' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDateFilter('this_month')}
+            className={dateFilter === 'this_month' ? 'bg-black text-white hover:bg-black' : ''}
+          >
+            This Month
+          </Button>
+          <Button
+            variant={dateFilter === 'this_quarter' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setDateFilter('this_quarter')}
+            className={dateFilter === 'this_quarter' ? 'bg-black text-white hover:bg-black' : ''}
+          >
+            This Quarter
+          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={dateFilter === 'custom' ? 'default' : 'outline'}
+                size="sm"
+                className={dateFilter === 'custom' ? 'bg-black text-white hover:bg-black' : ''}
+              >
+                {customDateLabel}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="range"
+                selected={customDateRange}
+                onSelect={(range) => {
+                  setCustomDateRange(range);
+                  if (range?.from) {
+                    setDateFilter('custom');
+                  }
+                }}
+                numberOfMonths={2}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleRefreshCapacity}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh data
+        </Button>
+      </div>
+
+      {/* Stats Overview */}
+      {allocationStats && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Allocations</CardTitle>
+              <Grid3x3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{allocationStats.total_allocations.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Successful</CardTitle>
+              <Grid3x3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{allocationStats.successful_allocations.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <Grid3x3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{allocationStats.pending_allocations.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Capacity Utilization</CardTitle>
+              <Grid3x3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{allocationStats.capacity_utilization}%</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <div className="flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="capacity">Capacity Overview</TabsTrigger>
+            <TabsTrigger value="performance">Performance</TabsTrigger>
+            <TabsTrigger value="allocation">Allocation Logs</TabsTrigger>
+          </TabsList>
           
           {/* Allocation Mode Toggle */}
           <div className="flex items-center space-x-2">
@@ -567,7 +717,7 @@ export default function AllocationDashboard() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Manual Allocation
+                Manual
               </button>
               <button
                 type="button"
@@ -578,79 +728,11 @@ export default function AllocationDashboard() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Auto Allocation
+                Auto
               </button>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Stats Overview */}
-      {allocationStats && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Allocations</CardTitle>
-              <Target className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{allocationStats.total_allocations}</div>
-              <p className="text-xs text-muted-foreground">
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Successful</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                {allocationStats.successful_allocations}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Cases in progress or beyond
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">
-                {allocationStats.pending_allocations}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Cases awaiting acceptance
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Capacity Utilization</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{allocationStats.capacity_utilization}%</div>
-              <p className="text-xs text-muted-foreground">
-                Overall capacity usage
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="capacity">Capacity Overview</TabsTrigger>
-          <TabsTrigger value="performance">Performance</TabsTrigger>
-          <TabsTrigger value="allocation">Allocation Logs</TabsTrigger>
-        </TabsList>
 
         {/* Capacity Overview Tab */}
         <TabsContent value="capacity" className="space-y-6">
@@ -662,143 +744,108 @@ export default function AllocationDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {capacityData.map((worker) => {
-                  const capacityPercentage = getCapacityPercentage(
-                    worker.current_capacity_available,
-                    worker.max_daily_capacity
-                  );
-                  const utilizationPercentage = 100 - capacityPercentage;
-
-                  return (
-                    <div key={worker.gig_partner_id} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <h3 className="font-medium">
-                            {worker.gig_partners.profiles.first_name} {worker.gig_partners.profiles.last_name}
-                          </h3>
-                          <p className="text-sm text-muted-foreground">
-                            {worker.current_capacity_available} / {worker.max_daily_capacity} slots available
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className={`text-sm font-medium ${getCapacityColor(capacityPercentage)}`}>
-                            {capacityPercentage}% available
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {utilizationPercentage}% utilized
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span>Capacity Utilization</span>
-                          <span>{utilizationPercentage.toFixed(1)}%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className={`h-2 rounded-full ${getCapacityBgColor(capacityPercentage)}`}
-                            style={{ width: `${utilizationPercentage}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4 text-sm">
-                        <div className="text-center">
-                          <div className="font-medium text-blue-600">{worker.cases_allocated}</div>
-                          <div className="text-muted-foreground">Allocated</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-medium text-green-600">{worker.cases_accepted}</div>
-                          <div className="text-muted-foreground">Accepted</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-medium text-yellow-600">{worker.cases_in_progress}</div>
-                          <div className="text-muted-foreground">In Progress</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-medium text-purple-600">{worker.cases_submitted}</div>
-                          <div className="text-muted-foreground">Submitted</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-medium text-green-600">{worker.cases_completed}</div>
-                          <div className="text-muted-foreground">Completed</div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Badge variant={worker.gig_partners.is_active ? "default" : "secondary"}>
-                          {worker.gig_partners.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                        <Badge variant={worker.gig_partners.is_available ? "outline" : "destructive"}>
-                          {worker.gig_partners.is_available ? "Available" : "Busy"}
-                        </Badge>
-                        <Badge variant="outline">
-                          {worker.gig_partners.coverage_pincodes.length} areas
-                        </Badge>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Pagination */}
-                {totalCapacity > pageSize && (
-                  <div className="flex items-center justify-between mt-6 pt-6 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCapacity)} of {totalCapacity} workers
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                        Previous
-                      </Button>
-                      
-                      <div className="flex items-center space-x-1">
-                        {Array.from({ length: Math.min(5, Math.ceil(totalCapacity / pageSize)) }, (_, i) => {
-                          const totalPages = Math.ceil(totalCapacity / pageSize);
-                          let pageNum;
-                          if (totalPages <= 5) {
-                            pageNum = i + 1;
-                          } else if (currentPage <= 3) {
-                            pageNum = i + 1;
-                          } else if (currentPage >= totalPages - 2) {
-                            pageNum = totalPages - 4 + i;
-                          } else {
-                            pageNum = currentPage - 2 + i;
-                          }
-                          
-                          return (
-                            <Button
-                              key={pageNum}
-                              variant={currentPage === pageNum ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => setCurrentPage(pageNum)}
-                              className="w-8 h-8 p-0"
-                            >
-                              {pageNum}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                      
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCapacity / pageSize)))}
-                        disabled={currentPage >= Math.ceil(totalCapacity / pageSize)}
-                      >
-                        Next
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
+              {/* Pagination at top */}
+              {totalCapacity > pageSize && (
+                <div className="flex items-center justify-end mb-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>{((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalCapacity)} of {totalCapacity}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCapacity / pageSize)))}
+                      disabled={currentPage >= Math.ceil(totalCapacity / pageSize)}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
                   </div>
-                )}
+                </div>
+              )}
+
+              {/* Table Format */}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Worker</TableHead>
+                      <TableHead>Capacity</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Areas</TableHead>
+                      <TableHead>Allocated</TableHead>
+                      <TableHead>Accepted</TableHead>
+                      <TableHead>In Progress</TableHead>
+                      <TableHead>Submitted</TableHead>
+                      <TableHead>Completed</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {capacityData.map((worker) => {
+                      const capacityPercentage = getCapacityPercentage(
+                        worker.current_capacity_available,
+                        worker.max_daily_capacity
+                      );
+                      const utilizationPercentage = 100 - capacityPercentage;
+
+                      return (
+                        <TableRow key={worker.gig_partner_id}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">
+                                {worker.gig_partners.profiles.first_name} {worker.gig_partners.profiles.last_name}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                {worker.gig_partners.profiles.email}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="text-sm">
+                                {worker.current_capacity_available} / {worker.max_daily_capacity} slots available
+                              </div>
+                              <div className={`text-sm font-medium ${capacityPercentage >= 50 ? 'text-green-600' : capacityPercentage >= 25 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                {capacityPercentage}% available
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {utilizationPercentage}% Utilization
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {getStatusBadge(worker.gig_partners.is_active, worker.gig_partners.is_available)}
+                          </TableCell>
+                          <TableCell>
+                            {worker.gig_partners.coverage_pincodes.length}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-blue-600">{worker.cases_allocated}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-green-600">{worker.cases_accepted}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-yellow-600">{worker.cases_in_progress}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-purple-600">{worker.cases_submitted}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-green-600">{worker.cases_completed}</div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>
@@ -840,22 +887,22 @@ export default function AllocationDashboard() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className={getPerformanceColor(worker.gig_partners.quality_score)}>
+                        <div className={worker.gig_partners.quality_score >= 0.8 ? 'text-green-600' : worker.gig_partners.quality_score >= 0.6 ? 'text-yellow-600' : 'text-red-600'}>
                           {(worker.gig_partners.quality_score * 100).toFixed(1)}%
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className={getPerformanceColor(worker.gig_partners.completion_rate)}>
+                        <div className={worker.gig_partners.completion_rate >= 0.8 ? 'text-green-600' : worker.gig_partners.completion_rate >= 0.6 ? 'text-yellow-600' : 'text-red-600'}>
                           {(worker.gig_partners.completion_rate * 100).toFixed(1)}%
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className={getPerformanceColor(worker.gig_partners.ontime_completion_rate)}>
+                        <div className={worker.gig_partners.ontime_completion_rate >= 0.8 ? 'text-green-600' : worker.gig_partners.ontime_completion_rate >= 0.6 ? 'text-yellow-600' : 'text-red-600'}>
                           {(worker.gig_partners.ontime_completion_rate * 100).toFixed(1)}%
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className={getPerformanceColor(worker.gig_partners.acceptance_rate)}>
+                        <div className={worker.gig_partners.acceptance_rate >= 0.8 ? 'text-green-600' : worker.gig_partners.acceptance_rate >= 0.6 ? 'text-yellow-600' : 'text-red-600'}>
                           {(worker.gig_partners.acceptance_rate * 100).toFixed(1)}%
                         </div>
                       </TableCell>
@@ -865,14 +912,7 @@ export default function AllocationDashboard() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <Badge variant={worker.gig_partners.is_active ? "default" : "secondary"}>
-                            {worker.gig_partners.is_active ? "Active" : "Inactive"}
-                          </Badge>
-                          <Badge variant={worker.gig_partners.is_available ? "outline" : "destructive"}>
-                            {worker.gig_partners.is_available ? "Available" : "Busy"}
-                          </Badge>
-                        </div>
+                        {getStatusBadge(worker.gig_partners.is_active, worker.gig_partners.is_available)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -895,35 +935,6 @@ export default function AllocationDashboard() {
                       <ChevronLeft className="h-4 w-4" />
                       Previous
                     </Button>
-                    
-                    <div className="flex items-center space-x-1">
-                      {Array.from({ length: Math.min(5, Math.ceil(totalCapacity / pageSize)) }, (_, i) => {
-                        const totalPages = Math.ceil(totalCapacity / pageSize);
-                        let pageNum;
-                        if (totalPages <= 5) {
-                          pageNum = i + 1;
-                        } else if (currentPage <= 3) {
-                          pageNum = i + 1;
-                        } else if (currentPage >= totalPages - 2) {
-                          pageNum = totalPages - 4 + i;
-                        } else {
-                          pageNum = currentPage - 2 + i;
-                        }
-                        
-                        return (
-                          <Button
-                            key={pageNum}
-                            variant={currentPage === pageNum ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setCurrentPage(pageNum)}
-                            className="w-8 h-8 p-0"
-                          >
-                            {pageNum}
-                          </Button>
-                        );
-                      })}
-                    </div>
-                    
                     <Button
                       variant="outline"
                       size="sm"
@@ -957,8 +968,6 @@ export default function AllocationDashboard() {
                 </div>
               ) : allocationLogs.length === 0 ? (
                 <div className="text-center py-8">
-                  <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No Allocation Logs</h3>
                   <p className="text-muted-foreground">
                     No allocation logs found. Logs will appear here when cases are allocated to gig workers.
                   </p>
@@ -1038,35 +1047,6 @@ export default function AllocationDashboard() {
                           <ChevronLeft className="h-4 w-4" />
                           Previous
                         </Button>
-                        
-                        <div className="flex items-center space-x-1">
-                          {Array.from({ length: Math.min(5, Math.ceil(totalLogs / pageSizeLogs)) }, (_, i) => {
-                            const totalPages = Math.ceil(totalLogs / pageSizeLogs);
-                            let pageNum;
-                            if (totalPages <= 5) {
-                              pageNum = i + 1;
-                            } else if (currentPageLogs <= 3) {
-                              pageNum = i + 1;
-                            } else if (currentPageLogs >= totalPages - 2) {
-                              pageNum = totalPages - 4 + i;
-                            } else {
-                              pageNum = currentPageLogs - 2 + i;
-                            }
-                            
-                            return (
-                              <Button
-                                key={pageNum}
-                                variant={currentPageLogs === pageNum ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => setCurrentPageLogs(pageNum)}
-                                className="w-8 h-8 p-0"
-                              >
-                                {pageNum}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                        
                         <Button
                           variant="outline"
                           size="sm"
