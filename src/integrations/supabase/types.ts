@@ -125,6 +125,68 @@ export type Database = {
           },
         ]
       }
+      api_keys: {
+        Row: {
+          api_key: string
+          api_key_hash: string
+          client_id: string
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          key_name: string
+          last_used_at: string | null
+          permissions: Json
+          rate_limit_per_day: number | null
+          rate_limit_per_minute: number | null
+          updated_at: string
+          usage_count: number
+        }
+        Insert: {
+          api_key: string
+          api_key_hash: string
+          client_id: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          key_name: string
+          last_used_at?: string | null
+          permissions?: Json
+          rate_limit_per_day?: number | null
+          rate_limit_per_minute?: number | null
+          updated_at?: string
+          usage_count?: number
+        }
+        Update: {
+          api_key?: string
+          api_key_hash?: string
+          client_id?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          key_name?: string
+          last_used_at?: string | null
+          permissions?: Json
+          rate_limit_per_day?: number | null
+          rate_limit_per_minute?: number | null
+          updated_at?: string
+          usage_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_settings: {
         Row: {
           created_at: string | null
@@ -328,6 +390,10 @@ export type Database = {
       }
       cases: {
         Row: {
+          allocated_at: string | null
+          allocation_method:
+            | Database["public"]["Enums"]["allocation_method"]
+            | null
           base_rate_inr: number
           bonus_inr: number
           candidate_name: string
@@ -347,6 +413,7 @@ export type Database = {
           due_at: string
           id: string
           instructions: string | null
+          is_active: boolean | null
           is_positive: boolean | null
           last_updated_by: string | null
           location_id: string
@@ -357,9 +424,11 @@ export type Database = {
           priority: Database["public"]["Enums"]["case_priority"]
           QC_Response: Database["public"]["Enums"]["QC_Response"] | null
           rate_adjustments: Json
+          report_url: string | null
           source: Database["public"]["Enums"]["case_source"]
           status: Database["public"]["Enums"]["case_status"] | null
           status_updated_at: string
+          submitted_at: string | null
           tat_hours: number
           title: string
           total_payout_inr: number
@@ -370,6 +439,10 @@ export type Database = {
           visible_to_gig: boolean
         }
         Insert: {
+          allocated_at?: string | null
+          allocation_method?:
+            | Database["public"]["Enums"]["allocation_method"]
+            | null
           base_rate_inr?: number
           bonus_inr?: number
           candidate_name: string
@@ -389,6 +462,7 @@ export type Database = {
           due_at: string
           id?: string
           instructions?: string | null
+          is_active?: boolean | null
           is_positive?: boolean | null
           last_updated_by?: string | null
           location_id: string
@@ -399,9 +473,11 @@ export type Database = {
           priority?: Database["public"]["Enums"]["case_priority"]
           QC_Response?: Database["public"]["Enums"]["QC_Response"] | null
           rate_adjustments?: Json
+          report_url?: string | null
           source?: Database["public"]["Enums"]["case_source"]
           status?: Database["public"]["Enums"]["case_status"] | null
           status_updated_at?: string
+          submitted_at?: string | null
           tat_hours: number
           title: string
           total_payout_inr?: number
@@ -412,6 +488,10 @@ export type Database = {
           visible_to_gig?: boolean
         }
         Update: {
+          allocated_at?: string | null
+          allocation_method?:
+            | Database["public"]["Enums"]["allocation_method"]
+            | null
           base_rate_inr?: number
           bonus_inr?: number
           candidate_name?: string
@@ -431,6 +511,7 @@ export type Database = {
           due_at?: string
           id?: string
           instructions?: string | null
+          is_active?: boolean | null
           is_positive?: boolean | null
           last_updated_by?: string | null
           location_id?: string
@@ -441,9 +522,11 @@ export type Database = {
           priority?: Database["public"]["Enums"]["case_priority"]
           QC_Response?: Database["public"]["Enums"]["QC_Response"] | null
           rate_adjustments?: Json
+          report_url?: string | null
           source?: Database["public"]["Enums"]["case_source"]
           status?: Database["public"]["Enums"]["case_status"] | null
           status_updated_at?: string
+          submitted_at?: string | null
           tat_hours?: number
           title?: string
           total_payout_inr?: number
@@ -1229,6 +1312,7 @@ export type Database = {
           quality_score: number
           state: string | null
           total_cases_completed: number
+          total_score: number
           updated_at: string
           user_id: string | null
           vendor_id: string | null
@@ -1262,6 +1346,7 @@ export type Database = {
           quality_score?: number
           state?: string | null
           total_cases_completed?: number
+          total_score?: number
           updated_at?: string
           user_id?: string | null
           vendor_id?: string | null
@@ -1295,6 +1380,7 @@ export type Database = {
           quality_score?: number
           state?: string | null
           total_cases_completed?: number
+          total_score?: number
           updated_at?: string
           user_id?: string | null
           vendor_id?: string | null
@@ -1312,6 +1398,50 @@ export type Database = {
             columns: ["vendor_id"]
             isOneToOne: false
             referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gig_worker_metrics: {
+        Row: {
+          cases_accepted_count: number
+          cases_allocated_count: number
+          cases_qc_passed_count: number
+          cases_submitted_count: number
+          created_at: string
+          gig_worker_id: string
+          gig_worker_name: string
+          id: string
+          last_updated_at: string
+        }
+        Insert: {
+          cases_accepted_count?: number
+          cases_allocated_count?: number
+          cases_qc_passed_count?: number
+          cases_submitted_count?: number
+          created_at?: string
+          gig_worker_id: string
+          gig_worker_name: string
+          id?: string
+          last_updated_at?: string
+        }
+        Update: {
+          cases_accepted_count?: number
+          cases_allocated_count?: number
+          cases_qc_passed_count?: number
+          cases_submitted_count?: number
+          created_at?: string
+          gig_worker_id?: string
+          gig_worker_name?: string
+          id?: string
+          last_updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gig_worker_metrics_gig_worker_id_fkey"
+            columns: ["gig_worker_id"]
+            isOneToOne: true
+            referencedRelation: "gig_partners"
             referencedColumns: ["id"]
           },
         ]
@@ -2714,14 +2844,6 @@ export type Database = {
       }
       allocate_cases_sequentially:
         | {
-            Args: {
-              p_case_ids: string[]
-              p_pincode: string
-              p_pincode_tier: string
-            }
-            Returns: Json
-          }
-        | {
             Args: { p_case_ids: string[] }
             Returns: {
               assignee_email: string
@@ -2731,7 +2853,6 @@ export type Database = {
               success: boolean
             }[]
           }
-      allocate_cases_with_vendors:
         | {
             Args: {
               p_case_ids: string[]
@@ -2740,14 +2861,27 @@ export type Database = {
             }
             Returns: Json
           }
+      allocate_cases_with_vendors:
         | { Args: { p_case_ids: string[]; p_pincode: string }; Returns: Json }
+        | {
+            Args: {
+              p_case_ids: string[]
+              p_pincode: string
+              p_pincode_tier: string
+            }
+            Returns: Json
+          }
       assign_case_to_gig_worker: {
         Args: {
           p_case_id: string
           p_gig_worker_id: string
-          p_vendor_id?: string
+          p_vendor_id: string
         }
         Returns: boolean
+      }
+      auto_allocation_with_vendors: {
+        Args: { p_case_ids: string[]; p_pincode: string }
+        Returns: Json
       }
       auto_assign_qc_reviewer: { Args: { p_case_id: string }; Returns: string }
       calculate_bonus_amount: {
@@ -2816,6 +2950,30 @@ export type Database = {
         Args: { p_cases_count?: number; p_vendor_id: string }
         Returns: boolean
       }
+      create_api_key:
+        | {
+            Args: {
+              p_client_id: string
+              p_expires_at?: string
+              p_key_name: string
+              p_permissions?: Json
+              p_rate_limit_per_day?: number
+              p_rate_limit_per_minute?: number
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_client_id: string
+              p_created_by?: string
+              p_expires_at?: string
+              p_key_name: string
+              p_permissions?: Json
+              p_rate_limit_per_day?: number
+              p_rate_limit_per_minute?: number
+            }
+            Returns: Json
+          }
       create_gig_worker_profile: {
         Args: {
           p_address: string
@@ -2919,6 +3077,7 @@ export type Database = {
         Args: { p_cases_count?: number; p_vendor_id: string }
         Returns: undefined
       }
+      generate_api_key: { Args: never; Returns: string }
       generate_auth_user_id: { Args: never; Returns: string }
       generate_case_number: { Args: never; Returns: string }
       generate_password_setup_token: {
@@ -2927,37 +3086,85 @@ export type Database = {
       }
       generate_payment_cycle_tag: { Args: never; Returns: string }
       generate_payment_lines: { Args: { p_cycle_id: string }; Returns: number }
-      get_allocation_candidates: {
-        Args: { p_case_id: string; p_pincode: string; p_pincode_tier: string }
-        Returns: {
-          acceptance_rate: number
-          active_cases_count: number
-          candidate_id: string
-          candidate_name: string
-          candidate_type: string
-          capacity_available: number
-          completion_rate: number
-          coverage_pincodes: string[]
-          distance_km: number
-          email: string
-          is_active: boolean
-          is_available: boolean
-          is_direct_gig: boolean
-          last_assignment_at: string
-          max_daily_capacity: number
-          ontime_completion_rate: number
-          performance_score: number
-          phone: string
-          pincode: string
-          qc_pass_count: number
-          quality_score: number
-          total_cases_completed: number
-          vendor_id: string
-          vendor_name: string
-          vendor_performance_score: number
-          vendor_quality_score: number
-        }[]
-      }
+      get_allocation_candidates:
+        | {
+            Args: {
+              p_case_id: string
+              p_pincode: string
+              p_pincode_tier: string
+            }
+            Returns: {
+              acceptance_rate: number
+              active_cases_count: number
+              candidate_id: string
+              candidate_name: string
+              candidate_type: string
+              capacity_available: number
+              completion_rate: number
+              coverage_pincodes: string[]
+              distance_km: number
+              email: string
+              experience_score: number
+              is_active: boolean
+              is_available: boolean
+              is_direct_gig: boolean
+              last_assignment_at: string
+              location_match_type: string
+              max_daily_capacity: number
+              ontime_completion_rate: number
+              performance_score: number
+              phone: string
+              pincode: string
+              priority_boost: number
+              qc_pass_count: number
+              quality_score: number
+              reliability_score: number
+              total_cases_completed: number
+              vendor_id: string
+              vendor_name: string
+              vendor_performance_score: number
+              vendor_quality_score: number
+            }[]
+          }
+        | {
+            Args: {
+              p_case_id: string
+              p_case_priority?: string
+              p_pincode: string
+              p_pincode_tier: string
+            }
+            Returns: {
+              acceptance_rate: number
+              active_cases_count: number
+              candidate_id: string
+              candidate_name: string
+              candidate_type: string
+              capacity_available: number
+              completion_rate: number
+              coverage_pincodes: string[]
+              distance_km: number
+              email: string
+              experience_score: number
+              is_active: boolean
+              is_available: boolean
+              is_direct_gig: boolean
+              last_assignment_at: string
+              location_match_type: string
+              max_daily_capacity: number
+              ontime_completion_rate: number
+              phone: string
+              pincode: string
+              priority_boost: number
+              qc_pass_count: number
+              quality_score: number
+              total_cases_completed: number
+              total_score: number
+              vendor_id: string
+              vendor_name: string
+              vendor_performance_score: number
+              vendor_quality_score: number
+            }[]
+          }
       get_allocation_candidates_safe:
         | {
             Args: {
@@ -3014,6 +3221,46 @@ export type Database = {
               vendor_quality_score: number
             }[]
           }
+        | {
+            Args: {
+              p_case_id: string
+              p_case_priority?: string
+              p_pincode: string
+              p_pincode_tier: string
+            }
+            Returns: {
+              acceptance_rate: number
+              active_cases_count: number
+              candidate_id: string
+              candidate_name: string
+              candidate_type: string
+              capacity_available: number
+              completion_rate: number
+              coverage_pincodes: string[]
+              distance_km: number
+              email: string
+              experience_score: number
+              is_active: boolean
+              is_available: boolean
+              is_direct_gig: boolean
+              last_assignment_at: string
+              location_match_type: string
+              max_daily_capacity: number
+              ontime_completion_rate: number
+              performance_score: number
+              phone: string
+              pincode: string
+              priority_boost: number
+              qc_pass_count: number
+              quality_score: number
+              reliability_score: number
+              total_cases_completed: number
+              vendor_id: string
+              vendor_name: string
+              vendor_performance_score: number
+              vendor_quality_score: number
+            }[]
+          }
       get_allocation_candidates_with_vendors: {
         Args: { p_case_count?: number; p_pincode: string }
         Returns: {
@@ -3037,6 +3284,7 @@ export type Database = {
         | {
             Args: {
               p_client_id: string
+              p_contract_type: string
               p_pincode: string
               p_tat_hours?: number
             }
@@ -3056,7 +3304,6 @@ export type Database = {
         | {
             Args: {
               p_client_id: string
-              p_contract_type: string
               p_pincode: string
               p_tat_hours?: number
             }
@@ -3222,11 +3469,12 @@ export type Database = {
       gig_has_capacity: { Args: { p_gig_id: string }; Returns: boolean }
       handle_case_timeouts: { Args: never; Returns: undefined }
       has_role:
-        | { Args: { role_name: string }; Returns: boolean }
         | {
             Args: { _role: Database["public"]["Enums"]["app_role"] }
             Returns: boolean
           }
+        | { Args: { role_name: string }; Returns: boolean }
+      hash_api_key: { Args: { key: string }; Returns: string }
       link_auth_user_to_profile: {
         Args: { auth_user_id: string; profile_id: string }
         Returns: Json
@@ -3297,6 +3545,14 @@ export type Database = {
         }
         Returns: Json
       }
+      update_case_qc_status: {
+        Args: {
+          p_case_id: string
+          p_qc_response: Database["public"]["Enums"]["QC_Response"]
+          p_status: string
+        }
+        Returns: boolean
+      }
       update_case_status: {
         Args: {
           p_case_id: string
@@ -3309,6 +3565,7 @@ export type Database = {
         Args: { p_gig_partner_id: string; p_period_days?: number }
         Returns: undefined
       }
+      validate_api_key: { Args: { p_api_key: string }; Returns: Json }
       validate_capacity_before_allocation: {
         Args: { p_gig_partner_id: string }
         Returns: boolean
@@ -3340,6 +3597,7 @@ export type Database = {
         | "vendor_allocated"
         | "timeout"
         | "reallocated"
+      allocation_method: "auto" | "manual"
       allocation_wave:
         | "initial"
         | "reallocation_1"
@@ -3354,6 +3612,7 @@ export type Database = {
         | "vendor"
         | "gig_worker"
         | "client"
+        | "supply_team"
       assignment_type: "gig" | "vendor"
       beneficiary_type: "gig" | "vendor"
       case_priority: "low" | "medium" | "high" | "urgent"
@@ -3409,6 +3668,7 @@ export type Database = {
         | "number"
         | "date"
         | "boolean"
+        | "signature"
       form_field_validation: "mandatory" | "optional" | "conditional"
       notification_channel: "email" | "sms" | "whatsapp" | "push" | "ivr"
       notification_priority: "low" | "medium" | "high" | "urgent"
@@ -3589,6 +3849,7 @@ export const Constants = {
         "timeout",
         "reallocated",
       ],
+      allocation_method: ["auto", "manual"],
       allocation_wave: [
         "initial",
         "reallocation_1",
@@ -3604,6 +3865,7 @@ export const Constants = {
         "vendor",
         "gig_worker",
         "client",
+        "supply_team",
       ],
       assignment_type: ["gig", "vendor"],
       beneficiary_type: ["gig", "vendor"],
@@ -3664,6 +3926,7 @@ export const Constants = {
         "number",
         "date",
         "boolean",
+        "signature",
       ],
       form_field_validation: ["mandatory", "optional", "conditional"],
       notification_channel: ["email", "sms", "whatsapp", "push", "ivr"],
