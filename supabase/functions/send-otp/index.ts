@@ -189,7 +189,7 @@ serve(async (req) => {
         'access-token': smsAccessToken,
         'client': smsClientId,
         'uid': smsUid,
-        'X-CLIENT_ID': 'core',
+        'x-caller-id': 'bgv_finverify',
       },
       body: JSON.stringify({
         sms: {
